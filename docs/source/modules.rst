@@ -1,9 +1,7 @@
-.. _modules:
-
-Python Modules
-==============
+decision_tree
+=============
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
 
-   modules/decision_tree.rst
+   decision_tree

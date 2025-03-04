@@ -27,7 +27,8 @@ jobs:
     - name: Build documentation
       run: |
         cd docs
-        make html
+        sphinx-apidoc -o source ../decision_tree --force
+        sphinx-build -b html source build/html
         touch build/html/.nojekyll
 
     - name: Deploy to GitHub Pages

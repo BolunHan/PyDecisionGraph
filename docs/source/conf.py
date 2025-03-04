@@ -3,8 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.abspath('../..'))  # Important for module discovery
 
-# Import the version from decision_tree/__init__.py
-from decision_tree import __version__
+# Import the version from decision_graph/__init__.py
+from decision_graph import __version__
 
 # Project information
 project = 'PyDecisionGraph'

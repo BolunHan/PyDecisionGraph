@@ -5,7 +5,7 @@ Here is a quick demo on how to use `PyDecisionGraph` for building a decision tre
 
 .. code-block:: python
 
-   from decision_tree import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
+   from decision_graph import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
 
    # Mapping of attribute names to their values
    LogicMapping.AttrExpression = AttrExpression

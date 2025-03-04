@@ -1,4 +1,4 @@
-decision_tree
+decision_graph
 =============
 
 .. toctree::

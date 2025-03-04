@@ -30,7 +30,7 @@ jobs:
     - name: Build documentation
       working-directory: docs
       run: |
-        sphinx-apidoc -o source ../decision_graph --force
+        sphinx-apidoc -o source ../decision_graph
         sphinx-build -b html source build/html
         touch build/html/.nojekyll
 

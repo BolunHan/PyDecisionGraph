@@ -1,5 +1,5 @@
 decision_graph
-=============
+==============
 
 .. toctree::
    :maxdepth: 4

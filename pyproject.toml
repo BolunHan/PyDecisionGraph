@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PyDecisionTree"
+dynamic = ["version"]
+description = "A rule-based decision tree implementation for Python"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Han Bolun", email = "Bolun.Han@outlook.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Operating System :: OS Independent",
+]
+dependencies = []  # No external dependencies
+
+[project.urls]
+Homepage = "https://github.com/BolunHan/PyDecisionTree"
+Repository = "https://github.com/BolunHan/PyDecisionTree"
+Issues = "https://github.com/BolunHan/PyDecisionTree/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "decision_tree.__version__" }

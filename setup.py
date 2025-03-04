@@ -25,4 +25,11 @@ setup(
     version=get_version(os.path.join('decision_tree', '__init__.py')),
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
+    extras_require={
+        "docs": [
+            "sphinx",
+            "sphinx-rtd-theme",
+            "sphinx-autodoc-typehints",
+        ],
+    },
 )

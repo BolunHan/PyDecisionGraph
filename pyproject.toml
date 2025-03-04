@@ -18,6 +18,13 @@ classifiers = [
 ]
 dependencies = []  # No external dependencies
 
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints", # Optional: for type hints support
+]
+
 [project.urls]
 Homepage = "https://github.com/BolunHan/PyDecisionGraph"
 Repository = "https://github.com/BolunHan/PyDecisionGraph"

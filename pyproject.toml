@@ -22,7 +22,11 @@ dependencies = []  # No external dependencies
 docs = [
     "sphinx",
     "sphinx-rtd-theme",
-    "sphinx-autodoc-typehints", # Optional: for type hints support
+    "sphinx-autodoc-typehints"
+]
+visualization = [
+    "pyvis",
+    "networkx"
 ]
 
 [project.urls]
@@ -31,4 +35,4 @@ Repository = "https://github.com/BolunHan/PyDecisionGraph"
 Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
 [tool.setuptools.dynamic]
-version = { attr = "decision_tree.__version__" }
+version = { attr = "decision_graph.__version__" }

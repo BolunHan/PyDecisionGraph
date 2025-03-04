@@ -16,7 +16,7 @@ pip install PyDecisionGraph
 
 # Documentation
 
-For detailed documentation, visit https://pydecisiontree.readthedocs.io/.
+For detailed documentation, visit https://pydecisiongraph.readthedocs.io/.
 
 # Quick Start
 

@@ -24,10 +24,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools wheel build
 
-    - name: Modify package name for PyPI
-      run: |
-        sed -i 's/name = "PyDecisionTree"/name = "PyDecisionGraph"/' pyproject.toml
-
     - name: Build package
       run: python -m build
 

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "PyDecisionTree"
+name = "PyDecisionGraph"
 dynamic = ["version"]
 description = "A rule-based decision tree implementation for Python"
 readme = "README.md"
@@ -19,9 +19,9 @@ classifiers = [
 dependencies = []  # No external dependencies
 
 [project.urls]
-Homepage = "https://github.com/BolunHan/PyDecisionTree"
-Repository = "https://github.com/BolunHan/PyDecisionTree"
-Issues = "https://github.com/BolunHan/PyDecisionTree/issues"
+Homepage = "https://github.com/BolunHan/PyDecisionGraph"
+Repository = "https://github.com/BolunHan/PyDecisionGraph"
+Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "decision_tree.__version__" }

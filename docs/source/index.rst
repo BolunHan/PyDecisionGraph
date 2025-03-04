@@ -1,18 +1,34 @@
-.. PyDecisionGraph documentation master file, created by
-   sphinx-quickstart on Tue Mar  4 14:03:00 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. PyDecisionGraph documentation master file
 
-PyDecisionGraph documentation
-=============================
+Welcome to PyDecisionGraph's Documentation!
+===========================================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+**PyDecisionGraph** is an easy-to-use library designed for creating custom decision trees, primarily tailored for trading and financial decision-making. This package enables users to build rule-based decision processes and visualize them effectively.
 
+- **Homepage**: https://github.com/BolunHan/PyDecisionGraph
+- **Documentation**: For detailed documentation, visit https://pydecisiongraph.readthedocs.io/.
+- **License**: This project is licensed under the Mozilla Public License 2.0.
+
+Features
+--------
+
+- Easily define custom decision rules.
+- Actionable outcomes like `LongAction`, `ShortAction`, and `NoAction`.
+- Log outputs for debugging and tracking.
+- Visualize decision paths through HTML export.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+   setup
+   usage
+   apis
+   gallery
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

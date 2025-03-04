@@ -1,6 +1,15 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.abspath('../..'))  # Important for module discovery
+
+# Import the version from decision_tree/__init__.py
+from decision_tree import __version__
+
+# Project information
+project = 'PyDecisionGraph'
+author = 'Bolun'
+release = __version__
 
 # Add these extensions
 extensions = [
@@ -23,6 +32,7 @@ exclude_patterns = []
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+
 
 # Add these at the end
 def setup(app):

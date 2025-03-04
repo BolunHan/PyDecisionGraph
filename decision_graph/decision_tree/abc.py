@@ -842,7 +842,7 @@ class LogicNode(LogicExpression):
 
         return root
 
-    def to_html(self, with_group=True, dry_run=True, filename="decision_tree.html", **kwargs):
+    def to_html(self, with_group=True, dry_run=True, filename="decision_graph.html", **kwargs):
         """
         Visualizes the decision tree using PyVis.
         If dry_run=True, shows structure without highlighting active path.

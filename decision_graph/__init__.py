@@ -14,23 +14,3 @@ if not LOGGER.hasHandlers():
     LOGGER.addHandler(ch)
 
 
-def set_logger(logger: logging.Logger):
-    global LOGGER
-    LOGGER = logger
-
-    exc.LOGGER = logger.getChild('TradeUtils')
-    abc.LOGGER = logger.getChild('TA')
-
-
-NODE_MODEL = True
-
-from .exc import *
-from .abc import *
-
-if NODE_MODEL:
-    from .node import *
-else:
-    from .expression import *
-
-from .collection import *
-from .logic_group import *

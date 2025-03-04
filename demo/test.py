@@ -1,10 +1,8 @@
-__package__ = 'decision_tree.demo'
+__package__ = 'decision_graph.demo'
 
 
 def node_test():
-    from decision_tree import LogicNode, LOGGER
-    from decision_tree import AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode
-    from decision_tree import LogicMapping
+    from decision_graph.decision_tree import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
 
     LogicMapping.AttrExpression = AttrExpression
     state = {

@@ -14,10 +14,11 @@ __all__ = ['NoAction', 'LongAction', 'ShortAction', 'RootLogicNode', 'ContextLog
 class NoAction(ActionNode):
     def __init__(self, auto_connect: bool = True):
         super().__init__(
-            action=None,
             repr='<NoAction>',
             auto_connect=auto_connect
         )
+
+        self.sig = 0
 
     def eval(self, enforce_dtype: bool = False) -> ActionNode:
         return self
@@ -26,10 +27,11 @@ class NoAction(ActionNode):
 class LongAction(ActionNode):
     def __init__(self, sig: int = 1, auto_connect: bool = True):
         super().__init__(
-            action=sig,
             repr=f'<LongAction>(sig = {sig})',
             auto_connect=auto_connect
         )
+
+        self.sig = sig
 
     def eval(self, enforce_dtype: bool = False) -> ActionNode:
         return self
@@ -38,10 +40,11 @@ class LongAction(ActionNode):
 class ShortAction(ActionNode):
     def __init__(self, sig: int = -1, auto_connect: bool = True):
         super().__init__(
-            action=sig,
             repr=f'<ShortAction>(sig = {sig})',
             auto_connect=auto_connect
         )
+
+        self.sig = sig
 
     def eval(self, enforce_dtype: bool = False) -> ActionNode:
         return self
@@ -58,17 +61,28 @@ class RootLogicNode(LogicNode):
         return True
 
     def _on_enter(self):
-        self._inspection_mode = LGM.inspection_mode
-        LGM.inspection_mode = True
-        LGM._active_nodes.clear()
+        # pre-shelve call
         LGM.enter_expression(node=self)
 
+        state = LGM.shelve()
+
+        state['inspection_mode'] = LGM.inspection_mode
+
+        LGM.inspection_mode = True
+
+        # post-shelve call
+        LGM._active_nodes.append(self)
+
     def _on_exit(self):
+        # pre-unshelve call
+        # LGM.exit_expression(node=self)
+
+        state = LGM.unshelve()
+
+        # post-unshelve call
         LGM.exit_expression(node=self)
-        if hasattr(self, '_inspection_mode'):
-            LGM.inspection_mode = self._inspection_mode
-        else:
-            LGM.inspection_mode = False
+
+        LGM.inspection_mode = state['inspection_mode']
 
     def append(self, expression: Self, edge_condition: Any = None):
         if self.nodes:

@@ -2,28 +2,27 @@ import logging
 
 from .. import LOGGER
 
+LOGGER = LOGGER.getChild("DecisionTree")
+
 __all__ = [
     'LOGGER', 'set_logger', 'activate_expression_model', 'activate_node_model',
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'EdgeValueError', 'ResolutionError', 'ExpressFalse', 'ContextsNotFound',
     'LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION',
     'NoAction', 'LongAction', 'ShortAction', 'RootLogicNode', 'ContextLogicExpression', 'AttrExpression', 'MathExpression', 'ComparisonExpression', 'LogicalExpression',
-    'LogicMapping', 'LogicGenerator',
-    'SignalLogicGroup', 'InstantConfirmationLogicGroup', 'RequestAction', 'PendingRequest', 'DelayedConfirmationLogicGroup', 'RacingConfirmationLogicGroup', 'BarrierConfirmationLogicGroup'
+    'LogicMapping', 'LogicGenerator'
 ]
 
 from .exc import *
 from .abc import *
 from .node import *
 from .collection import *
-from .logic_group import *
 
 
 def set_logger(logger: logging.Logger):
     global LOGGER
     LOGGER = logger
 
-    exc.LOGGER = logger.getChild('TradeUtils')
-    abc.LOGGER = logger.getChild('TA')
+    abc.LOGGER = logger.getChild('abc')
 
 
 def activate_expression_model():
@@ -32,6 +31,7 @@ def activate_expression_model():
     importlib.reload(collection)
     collection.LogicMapping.AttrExpression = AttrExpression
     collection.LogicGenerator.AttrExpression = AttrExpression
+    # importlib.reload(logic_group)
 
 
 def activate_node_model():
@@ -41,3 +41,4 @@ def activate_node_model():
     importlib.reload(collection)
     collection.LogicMapping.AttrExpression = AttrExpression
     collection.LogicGenerator.AttrExpression = AttrExpression
+    # importlib.reload(logic_group)

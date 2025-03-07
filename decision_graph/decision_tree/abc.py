@@ -11,6 +11,8 @@ from typing import Any, Self, final
 from . import LOGGER
 from .exc import TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
 
+LOGGER = LOGGER.getChild('abc')
+
 __all__ = ['LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION']
 
 
@@ -46,9 +48,11 @@ class LogicGroupManager(metaclass=Singleton):
         # Cursor to track the currently active LogicGroups
         self._active_groups: list[LogicGroup] = []
         self._active_nodes: list[LogicNode] = []
-        self._exit_nodes: list[ActionNode] = []  # action nodes, usually NoAction() nodes, marked as an early-exit of a logic group
-        self._pending_connection_nodes: list[ActionNode] = []  # for those exit-nodes, they will be activated when the corresponding logic group is finalized.
+        self._breakpoint_nodes: list[ActionNode] = []  # action nodes, usually NoAction() nodes, marked as an early-exit (breakpoint) of a logic group
+        self._pending_connection_nodes: list[ActionNode] = []  # for those breakpoint-nodes, they will be activated when the corresponding logic group is finalized.
+        self._shelved_state = []  # shelve state to support temporally initialize a separate node-graph
         self.inspection_mode = False
+        self.vigilant_mode = False
 
     def __call__(self, name: str, cls: type[LogicGroup], **kwargs) -> LogicGroup:
         """
@@ -95,7 +99,7 @@ class LogicGroupManager(metaclass=Singleton):
 
         self._active_groups.pop(-1)
 
-        for node in self._exit_nodes:
+        for node in self._breakpoint_nodes:
             if getattr(node, 'break_from') is logic_group:
                 self._pending_connection_nodes.append(node)
 
@@ -128,6 +132,38 @@ class LogicGroupManager(metaclass=Singleton):
             raise ValueError(f"The {node} is not currently active.")
 
         self._active_nodes.pop(-1)
+
+    def shelve(self):
+        shelved_state = dict(
+            active_nodes=self._active_nodes.copy(),
+            breakpoint_nodes=self._breakpoint_nodes.copy(),
+            pending_connection_nodes=self._pending_connection_nodes.copy()
+        )
+
+        self._active_nodes.clear()
+        self._breakpoint_nodes.clear()
+        self._pending_connection_nodes.clear()
+
+        self._shelved_state.append(shelved_state)
+        return shelved_state
+
+    def unshelve(self, reset_active: bool = True, reset_breakpoints: bool = True, reset_pending: bool = True):
+        shelved_state = self._shelved_state.pop(-1)
+
+        if reset_active:
+            self._active_nodes.clear()
+
+        if reset_breakpoints:
+            self._breakpoint_nodes.clear()
+
+        if reset_pending:
+            self._pending_connection_nodes.clear()
+
+        self._active_nodes[:0] = shelved_state['active_nodes']
+        self._breakpoint_nodes[:0] = shelved_state['breakpoint_nodes']
+        self._pending_connection_nodes[:0] = shelved_state['pending_connection_nodes']
+
+        return shelved_state
 
     def clear(self):
         """
@@ -242,12 +278,17 @@ class LogicGroup(object, metaclass=LogicGroupMeta):
             if active_node is not None:
                 active_node: LogicNode
                 if not active_node.nodes:
-                    raise TooFewChildren()
-                else:
-                    last_node = active_node.last_leaf
-                    assert isinstance(last_node, ActionNode), NodeValueError('An ActionNode is required before breaking a LogicGroup.')
-                    last_node.break_from = scope
-                    LGM._exit_nodes.append(last_node)
+                    if LGM.vigilant_mode:
+                        raise TooFewChildren()
+                    else:
+                        LOGGER.warning('Must have at least one action node before breaking from logic group. A NoAction node will be automatically assigned.')
+                        from .node import NoAction
+                        NoAction()
+
+                last_node = active_node.last_leaf
+                assert isinstance(last_node, ActionNode), NodeValueError('An ActionNode is required before breaking a LogicGroup.')
+                last_node.break_from = scope
+                LGM._breakpoint_nodes.append(last_node)
             return
 
         raise scope.Break()
@@ -542,14 +583,14 @@ class LogicExpression(SkipContextsBlock):
 
 
 class ExpressionCollection(LogicGroup):
-    def __init__(self, data: Any, name: str, repr: str = None, **kwargs):
+    def __init__(self, data: Any, name: str, **kwargs):
         if 'logic_group' not in kwargs:
             logic_group = kwargs.get("logic_group")
         else:
             logic_group = LGM.active_logic_group
 
         super().__init__(
-            name=repr if repr is not None else name if logic_group is None else f'{logic_group.name}.{name}',
+            name=name if name is not None else f'{logic_group.name}.{self.__class__.__name__}',
             parent=logic_group
         )
 
@@ -1098,8 +1139,7 @@ class LogicNode(LogicExpression):
 class ActionNode(LogicNode):
     def __init__(
             self,
-            action: float | int | bool | None | Exception | Callable[[], Any],
-            dtype: type = None,
+            action: Callable[[], Any] | None = None,
             repr: str = None,
             auto_connect: bool = True
     ):
@@ -1108,10 +1148,10 @@ class ActionNode(LogicNode):
 
         Args:
             action (Union[Any, Callable[[], Any]]): The action to execute.
-            dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
             repr (str, optional): A string representation of the expression.
+            auto_connect: auto-connect to the current active decision graph.
         """
-        super().__init__(expression=True, dtype=dtype, repr=repr)
+        super().__init__(expression=True, repr=repr)
         self.action = action
 
         if auto_connect:
@@ -1122,6 +1162,14 @@ class ActionNode(LogicNode):
 
     def _on_exit(self):
         pass
+
+    def _post_eval(self):
+        """
+        override this method to perform clean up functions.
+        """
+
+        if self.action is not None:
+            self.action()
 
     def eval_recursively(self, path=None):
         """
@@ -1134,10 +1182,10 @@ class ActionNode(LogicNode):
 
         value = self.eval()
 
-        if self.action is not None:
-            self.action()
+        self._post_eval()
 
         for condition, child in self.nodes.items():
+            LOGGER.warning(f'{self.__class__.__name__} should not have any sub-nodes.')
             if condition == value or condition is NO_CONDITION:
                 return child.eval_recursively(path=path)
 

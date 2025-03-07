@@ -1,9 +1,9 @@
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 import logging
 import sys
 
-LOGGER = logging.getLogger("DecisionTree")
+LOGGER = logging.getLogger("DecisionGraph")
 LOGGER.setLevel(logging.INFO)
 
 if not LOGGER.hasHandlers():

@@ -26,3 +26,17 @@ cdef class SkipContextsBlock:
     cdef void c_on_enter(self)
 
     cdef void c_on_exit(self)
+
+
+cdef class LogicExpression(SkipContextsBlock):
+    cdef readonly object expression
+    cdef readonly type dtype
+    cdef readonly str repr
+
+    cdef object c_eval(self, bint enforce_dtype)
+
+    @staticmethod
+    cdef LogicExpression c_cast(object value, type dtype)
+
+    @staticmethod
+    cdef LogicExpression c_math_op(LogicExpression self, object other, object op, str operator_str, type dtype)

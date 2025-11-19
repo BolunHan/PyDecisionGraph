@@ -1,11 +1,17 @@
-import warnings
-from typing import final
-import sys
 import linecache
+import operator
+import sys
+from typing import final, Any
+import warnings
 
 from cpython.exc cimport PyErr_SetString
 from cpython.pystate cimport PyThreadState_Get
 from cython cimport exceptval
+
+from . import LOGGER
+from .exc import TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
+
+LOGGER = LOGGER.getChild('abc')
 
 cdef dict GLOBAL_SINGLETON = {}
 
@@ -155,3 +161,147 @@ cdef class SkipContextsBlock:
             PyThreadState_LeaveTracing(tstate)
             raise self.skip_exception('')
         return self.global_profile_tracer
+
+
+cdef class LogicExpression(SkipContextsBlock):
+    def __cinit__(self, object expression, type dtype=None, str repr=None):
+        self.expression = expression
+        self.dtype = dtype
+        self.repr = repr if repr is not None else str(expression)
+
+    cdef bint c_entry_check(self):
+        return bool(self.c_eval(False))
+
+    cdef object c_eval(self, bint enforce_dtype):
+        if isinstance(self.expression, (float, int, bool, str)):
+            value = self.expression
+        elif callable(self.expression):
+            value = self.expression()
+        elif isinstance(self.expression, Exception):
+            raise self.expression
+        else:
+            raise TypeError(f"Unsupported expression type: {type(self.expression)}.")
+
+        if self.dtype is None:
+            pass  # No type enforcement
+        elif enforce_dtype:
+            value = self.dtype(value)
+        elif not isinstance(value, self.dtype):
+            LOGGER.warning(f"Evaluated value {value} does not match dtype {self.dtype.__name__}.")
+
+        return value
+
+    @staticmethod
+    cdef LogicExpression c_cast(object value, type dtype):
+        if isinstance(value, LogicExpression):
+            return value
+        if isinstance(value, (int, float, bool)):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype or type(value),
+                repr=str(value)
+            )
+        if callable(value):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype,
+                repr=f"Eval({value})"
+            )
+        if isinstance(value, Exception):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype,
+                repr=f"Raises({type(value).__name__}: {value})"
+            )
+        raise TypeError(f"Unsupported type for LogicExpression conversion: {type(value)}.")
+
+    @staticmethod
+    cdef LogicExpression c_math_op(LogicExpression self, object other, object op, str operator_str, type dtype):
+        other_expr = LogicExpression.cast(other)
+
+        if dtype is None:
+            dtype = self.dtype
+
+        new_expr = LogicExpression(
+            expression=lambda: op(self.eval(), other_expr.eval()),
+            dtype=dtype,
+            repr=f"({self.repr} {operator_str} {other_expr.repr})",
+        )
+        return new_expr
+
+    # === Python Interface ===
+
+    def eval(self, enforce_dtype=False):
+        return self.c_eval(enforce_dtype)
+
+    @classmethod
+    def cast(cls, object value, type dtype=None):
+        return LogicExpression.c_cast(value, dtype)
+
+    def __bool__(self) -> bool:
+        return bool(self.eval())
+
+    def __and__(self, object other) -> LogicExpression:
+        other_expr = self.cast(value=other, dtype=bool)
+        new_expr = LogicExpression(
+            expression=lambda: self.eval() and other_expr.eval(),
+            dtype=bool,
+            repr=f"({self.repr} and {other_expr.repr})"
+        )
+        return new_expr
+
+    def __eq__(self, object other) -> LogicExpression:
+        if isinstance(other, LogicExpression):
+            other_value = other.eval()
+        else:
+            other_value = other
+
+        return LogicExpression(
+            expression=lambda: self.eval() == other_value,
+            dtype=bool,
+            repr=f"({self.repr} == {repr(other_value)})"
+        )
+
+    def __or__(self, object other) -> LogicExpression:
+        other_expr = self.cast(value=other, dtype=bool)
+        new_expr = LogicExpression(
+            expression=lambda: self.eval() or other_expr.eval(),
+            dtype=bool,
+            repr=f"({self.repr} or {other_expr.repr})"
+        )
+        return new_expr
+
+    # Math operators
+    def __add__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.add, "+", None)
+
+    def __sub__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.sub, "-", None)
+
+    def __mul__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.mul, "*", None)
+
+    def __truediv__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.truediv, "/", None)
+
+    def __floordiv__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.floordiv, "//", None)
+
+    def __pow__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.pow, "**", None)
+
+    # Comparison operators, note that __eq__, __ne__ is special and should not implement as math operator
+    def __lt__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.lt, "<", bool)
+
+    def __le__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.le, "<=", bool)
+
+    def __gt__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.gt, ">", bool)
+
+    def __ge__(self, object other):
+        return LogicExpression.c_math_op(self, other, operator.ge, ">=", bool)
+
+    def __repr__(self) -> str:
+        return f"LogicExpression(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"

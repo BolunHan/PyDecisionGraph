@@ -7,14 +7,18 @@ cdef extern from "Python.h":
 
 cdef class SkipContextsBlock:
     cdef type skip_exception
-    cdef object original_tracer
     cdef bint tracer_override
-    cdef object outer_frame
-    cdef size_t profile_sig_count
-    cdef size_t cframe_sig_count
-    cdef size_t tracer_sig_count
-
     cdef public bint default_entry_check
+
+    # cdef object cframe
+    # cdef size_t cframe_tracer_sig_count
+    # cdef object cframe_tracer
+
+    # cdef size_t global_tracer_sig_count
+    # cdef object global_tracer
+
+    cdef size_t global_profiler_sig_count
+    cdef object global_profiler
 
     cdef bint c_entry_check(self)
 

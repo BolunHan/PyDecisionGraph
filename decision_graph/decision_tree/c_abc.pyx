@@ -37,9 +37,6 @@ cdef class SkipContextsBlock:
         self.skip_exception = type(f"{self.__class__.__name__}SkipException", (EmptyBlock,), {"owner": self})
         self.tracer_override = False
         self.default_entry_check = True
-        self.cframe_sig_count = 0
-        self.tracer_sig_count = 0
-        self.profile_sig_count = 0
 
     cdef bint c_entry_check(self):
         return self.default_entry_check
@@ -59,16 +56,21 @@ cdef class SkipContextsBlock:
 
         cdef PyThreadState* tstate = PyThreadState_Get()
         PyThreadState_EnterTracing(tstate)
-        self.cframe_sig_count = 0
-        self.tracer_sig_count = 0
-        self.profile_sig_count = 0
-        self.original_tracer = sys.gettrace()
-        self.outer_frame = sys._getframe()
-        self.outer_frame.f_trace = self.cframe_tracer
-        sys.settrace(self.skip_tracer)
-        sys.setprofile(self.profile_tracer)
-        self.tracer_override = True
 
+        # self.cframe = sys._getframe()
+        # self.cframe_tracer_sig_count = 0
+        # self.cframe_tracer = self.cframe.f_trace
+        # self.cframe.f_trace = self.cframe_tracer_skipper
+
+        # self.global_tracer_sig_count = 0
+        # self.global_tracer = sys.gettrace()
+        # sys.settrace(self.global_tracer_skipper)
+
+        self.global_profiler_sig_count = 0
+        self.global_profiler = sys.getprofile()
+        sys.setprofile(self.global_profile_tracer)
+
+        self.tracer_override = True
         PyThreadState_LeaveTracing(tstate)
         return self
 
@@ -77,9 +79,9 @@ cdef class SkipContextsBlock:
         PyThreadState_EnterTracing(tstate)
 
         if self.tracer_override:
-            self.outer_frame.f_trace = self.original_tracer
-            sys.settrace(self.original_tracer)
-            sys.setprofile(None)
+            # self.cframe.f_trace = self.cframe_tracer
+            # sys.settrace(self.global_tracer)
+            sys.setprofile(self.global_profiler)
             self.tracer_override = False
         PyThreadState_LeaveTracing(tstate)
 
@@ -94,24 +96,21 @@ cdef class SkipContextsBlock:
         self.c_on_exit()
         return False
 
-    def profile_tracer(self, frame, event, arg):
-        # print('[profile_tracer] skipping...', frame, event, arg)
-        self.profile_sig_count += 1
+    def cframe_tracer_skipper(self, frame, event, arg):
+        print('[cframe_tracer_skipper] skipping...', frame, event, arg)
+        self.cframe_tracer_sig_count += 1
+        return self.cframe_tracer_skipper
+
+    def global_tracer_skipper(self, frame, event, arg):
+        print('[global_tracer_skipper] skipping...', frame, event, arg)
+        self.global_tracer_sig_count += 1
+        # if event == 'call':
+        #     raise self.skip_exception('')
+        return self.global_tracer_skipper
+
+    def global_profile_tracer(self, frame, event, arg):
+        print('[global_profile_tracer] skipping...', frame, event, arg)
+        self.global_profiler_sig_count += 1
         if event == 'c_call':
             raise self.skip_exception('')
-        return self.profile_tracer
-
-    def cframe_tracer(self, frame, event, arg):
-        # print('[cframe_tracer] skipping...', frame, event, arg)
-        # raise self.skip_exception('')
-        self.cframe_sig_count += 1
-        # if self.cframe_sig_count + self.tracer_sig_count >= 2:
-        #     raise self.skip_exception('')
-        return self.cframe_tracer
-
-    def skip_tracer(self, frame, event, arg):
-        # print('[skip_tracer] skipping...', frame, event, arg)
-        self.tracer_sig_count += 1
-        # if self.cframe_sig_count + self.tracer_sig_count > 2:
-        #     raise self.skip_exception('')
-        return self.skip_tracer
+        return self.global_profile_tracer

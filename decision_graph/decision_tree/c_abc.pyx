@@ -49,7 +49,6 @@ cdef class SkipContextsBlock:
         pass
 
     # === Python Interfaces ===
-
     def __enter__(self):
         if self.c_entry_check():  # Check if the expression evaluates to True
             self.c_on_enter()
@@ -97,9 +96,26 @@ cdef class SkipContextsBlock:
 
     def restore_tracers(self):
         if self.tracer_override:
-            self.cframe.f_trace = self.cframe_tracer
-            sys.settrace(self.global_tracer)
-            sys.setprofile(self.global_profiler)
+            print('[restore_tracers] restoring tracers...')
+
+            if self.cframe_tracer is not None:
+                print('[restore_tracers] restoring cframe tracer:', self.cframe_tracer)
+                self.cframe.f_trace = self.cframe_tracer
+            else:
+                self.cframe.f_trace = None
+
+            if self.global_tracer is not None:
+                print('[restore_tracers] restoring global tracer:', self.global_tracer)
+                sys.settrace(self.global_tracer)
+            else:
+                sys.settrace(None)
+
+            if self.global_profiler is not None:
+                print('[restore_tracers] restoring global profiler:', self.global_profiler)
+                sys.setprofile(self.global_profiler)
+            else:
+                sys.setprofile(None)
+
             self.tracer_override = False
 
     def cframe_tracer_skipper(self, frame, event, arg):
@@ -108,8 +124,9 @@ cdef class SkipContextsBlock:
         cdef str line
         self.cframe_tracer_sig_count += 1
         if event == 'line':
-            line = linecache.getline(frame.f_code.co_filename, frame.f_lineno)
-            if line.strip() == 'pass' or line.strip() == '...':
+            line = linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip()
+            print('[cframe_tracer_skipper] line:', line)
+            if line.startswith(('pass', '...')):
                 return self.cframe_tracer_skipper
             elif self.enter_line == (frame.f_code.co_filename, frame.f_lineno):
                 tstate = PyThreadState_Get()

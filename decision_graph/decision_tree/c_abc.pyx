@@ -1,5 +1,6 @@
 from typing import final
 import sys
+import linecache
 
 from cpython.exc cimport PyErr_SetString
 from cpython.pystate cimport PyThreadState_Get
@@ -57,14 +58,16 @@ cdef class SkipContextsBlock:
         cdef PyThreadState* tstate = PyThreadState_Get()
         PyThreadState_EnterTracing(tstate)
 
-        # self.cframe = sys._getframe()
-        # self.cframe_tracer_sig_count = 0
-        # self.cframe_tracer = self.cframe.f_trace
-        # self.cframe.f_trace = self.cframe_tracer_skipper
+        self.cframe = sys._getframe()
+        self.enter_line = (self.cframe.f_code.co_filename, self.cframe.f_lineno)
 
-        # self.global_tracer_sig_count = 0
-        # self.global_tracer = sys.gettrace()
-        # sys.settrace(self.global_tracer_skipper)
+        self.cframe_tracer_sig_count = 0
+        self.cframe_tracer = self.cframe.f_trace
+        self.cframe.f_trace = self.cframe_tracer_skipper
+
+        self.global_tracer_sig_count = 0
+        self.global_tracer = sys.gettrace()
+        sys.settrace(self.global_tracer_skipper)
 
         self.global_profiler_sig_count = 0
         self.global_profiler = sys.getprofile()
@@ -78,11 +81,7 @@ cdef class SkipContextsBlock:
         cdef PyThreadState* tstate = PyThreadState_Get()
         PyThreadState_EnterTracing(tstate)
 
-        if self.tracer_override:
-            # self.cframe.f_trace = self.cframe_tracer
-            # sys.settrace(self.global_tracer)
-            sys.setprofile(self.global_profiler)
-            self.tracer_override = False
+        self.restore_tracers()
         PyThreadState_LeaveTracing(tstate)
 
         if exc_type is None:
@@ -96,21 +95,48 @@ cdef class SkipContextsBlock:
         self.c_on_exit()
         return False
 
+    def restore_tracers(self):
+        if self.tracer_override:
+            self.cframe.f_trace = self.cframe_tracer
+            sys.settrace(self.global_tracer)
+            sys.setprofile(self.global_profiler)
+            self.tracer_override = False
+
     def cframe_tracer_skipper(self, frame, event, arg):
-        print('[cframe_tracer_skipper] skipping...', frame, event, arg)
+        print(f'[cframe_tracer_skipper] sig {self.cframe_tracer_sig_count}...', frame, event, arg)
+        cdef PyThreadState* tstate
+        cdef str line
         self.cframe_tracer_sig_count += 1
+        if event == 'line':
+            line = linecache.getline(frame.f_code.co_filename, frame.f_lineno)
+            if line.strip() == 'pass' or line.strip() == '...':
+                return self.cframe_tracer_skipper
+            elif self.enter_line == (frame.f_code.co_filename, frame.f_lineno):
+                tstate = PyThreadState_Get()
+                PyThreadState_EnterTracing(tstate)
+                self.restore_tracers()
+                PyThreadState_LeaveTracing(tstate)
+                return self.cframe_tracer_skipper
+            tstate = PyThreadState_Get()
+            PyThreadState_EnterTracing(tstate)
+            self.restore_tracers()
+            PyThreadState_LeaveTracing(tstate)
+            raise self.skip_exception('')
         return self.cframe_tracer_skipper
 
     def global_tracer_skipper(self, frame, event, arg):
-        print('[global_tracer_skipper] skipping...', frame, event, arg)
+        print(f'[global_tracer_skipper] sig {self.global_tracer_sig_count}...', frame, event, arg)
         self.global_tracer_sig_count += 1
-        # if event == 'call':
-        #     raise self.skip_exception('')
         return self.global_tracer_skipper
 
     def global_profile_tracer(self, frame, event, arg):
-        print('[global_profile_tracer] skipping...', frame, event, arg)
+        print(f'[global_profile_tracer] sig {self.global_profiler_sig_count}...', frame, event, arg)
+        cdef PyThreadState* tstate
         self.global_profiler_sig_count += 1
         if event == 'c_call':
+            tstate = PyThreadState_Get()
+            PyThreadState_EnterTracing(tstate)
+            self.restore_tracers()
+            PyThreadState_LeaveTracing(tstate)
             raise self.skip_exception('')
         return self.global_profile_tracer

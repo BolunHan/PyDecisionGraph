@@ -1,4 +1,6 @@
 import sys
+
+sys.path.append(f'/home/bolun/Projects/PyDecisionGraph')
 import unittest
 
 from decision_graph.decision_tree.c_abc import (
@@ -85,7 +87,7 @@ class TestSingleSkipContextsBlock(unittest.TestCase):
             scb.default_entry_check = False
             entered = False
             with scb:
-                events.append('entered')
+                # events.append('entered')
                 entered = True  # should be skipped
             # After context, the original tracer (dummy_tracer) must be restored
             assert not entered

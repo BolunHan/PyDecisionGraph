@@ -1,3 +1,4 @@
+import warnings
 from typing import final
 import sys
 import linecache
@@ -63,6 +64,8 @@ cdef class SkipContextsBlock:
         self.cframe_tracer_sig_count = 0
         self.cframe_tracer = self.cframe.f_trace
         self.cframe.f_trace = self.cframe_tracer_skipper
+        if self.cframe_tracer is not None:
+            warnings.warn('Not supporting a custom tracer, must clear it before passing in.')
 
         self.global_tracer_sig_count = 0
         self.global_tracer = sys.gettrace()
@@ -77,11 +80,7 @@ cdef class SkipContextsBlock:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        cdef PyThreadState* tstate = PyThreadState_Get()
-        PyThreadState_EnterTracing(tstate)
-
-        self.restore_tracers()
-        PyThreadState_LeaveTracing(tstate)
+        self.restore_tracers(True)
 
         if exc_type is None:
             self.c_on_exit()
@@ -94,27 +93,26 @@ cdef class SkipContextsBlock:
         self.c_on_exit()
         return False
 
-    def restore_tracers(self):
+    def restore_tracers(self, override=False):
         if self.tracer_override:
             print('[restore_tracers] restoring tracers...')
-
             if self.cframe_tracer is not None:
                 print('[restore_tracers] restoring cframe tracer:', self.cframe_tracer)
                 self.cframe.f_trace = self.cframe_tracer
             else:
                 self.cframe.f_trace = None
 
-            if self.global_tracer is not None:
-                print('[restore_tracers] restoring global tracer:', self.global_tracer)
-                sys.settrace(self.global_tracer)
-            else:
-                sys.settrace(None)
-
             if self.global_profiler is not None:
                 print('[restore_tracers] restoring global profiler:', self.global_profiler)
                 sys.setprofile(self.global_profiler)
             else:
                 sys.setprofile(None)
+
+            if self.global_tracer is not None:
+                print('[restore_tracers] restoring global tracer:', self.global_tracer)
+                sys.settrace(self.global_tracer)
+            else:
+                sys.settrace(None)
 
             self.tracer_override = False
 

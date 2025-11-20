@@ -1,5 +1,15 @@
 __all__ = ['NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'EdgeValueError', 'ResolutionError', 'ExpressFalse', 'ContextsNotFound']
 
+NO_DEFAULT = object()
+
+
+class EmptyBlock(Exception):
+    pass
+
+
+class BreakBlock(Exception):
+    pass
+
 
 class NodeError(Exception):
     pass
@@ -18,6 +28,14 @@ class NodeNotFountError(NodeError):
 
 
 class NodeValueError(NodeError):
+    pass
+
+
+class NodeTypeError(NodeError):
+    pass
+
+
+class NodeContextError(NodeError):
     pass
 
 

@@ -1,15 +1,16 @@
 import linecache
 import operator
 import sys
-from typing import final, Any
 import warnings
+from typing import Any
 
-from cpython.exc cimport PyErr_SetString
+from cpython.mem cimport PyMem_Calloc, PyMem_Free
 from cpython.pystate cimport PyThreadState_Get
-from cython cimport exceptval
+from cpython.ref cimport Py_INCREF, Py_DECREF
+from libc.stdint cimport uintptr_t
 
 from . import LOGGER
-from .exc import TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
+from .exc import NO_DEFAULT, EmptyBlock, BreakBlock, TooFewChildren, TooManyChildren, EdgeValueError, NodeTypeError, NodeValueError, NodeContextError, NodeNotFountError
 
 LOGGER = LOGGER.getChild('abc')
 
@@ -25,19 +26,133 @@ cdef class Singleton:
             GLOBAL_SINGLETON[reg_key] = self
 
 
-cdef class ConditionElse(Singleton):
+cdef class NodeEdgeCondition(Singleton):
+    def __cinit__(self, object value=None):
+        if value is not None:
+            Py_INCREF(value)
+            self.value_addr = <PyObject*> value
+        else:
+            self.value_addr = NULL
+
+    def __hash__(self):
+        raise (<object> self.value_addr).__hash__()
+
+    property value:
+        def __get__(self):
+            if not self.value_addr:
+                raise ValueError("Condition has no value assigned.")
+            return <object> self.value_addr
+
+        def __set__(self, value):
+            Py_INCREF(self.value)
+            if self.value_addr is not NULL:
+                Py_DECREF(<object> self.value_addr)
+            self.value_addr = <PyObject*> value
+
+
+cdef class ConditionElse(NodeEdgeCondition):
+    def __cinit__(self, *args, **kwargs):
+        self.value_addr = NULL
+
+    def __hash__(self):
+        return <uintptr_t> <PyObject*> self
+
     def __str__(self):
-        return ''
+        return 'Else'
 
     def __repr__(self):
         return f'<{self.__class__.__name__}>'
 
+    property value:
+        def __set__(self, value):
+            raise NotImplementedError()
 
-ELSE_CONDITION = NO_CONDITION = ConditionElse()
+
+cdef class ConditionAny(NodeEdgeCondition):
+    def __cinit__(self, *args, **kwargs):
+        self.value_addr = NULL
+
+    def __hash__(self):
+        return <uintptr_t> <PyObject*> self
+
+    def __str__(self):
+        return ''
+
+    property value:
+        def __set__(self, value):
+            raise NotImplementedError()
 
 
-class EmptyBlock(Exception):
-    pass
+cdef class ConditionAuto(NodeEdgeCondition):
+    def __cinit__(self, *args, **kwargs):
+        self.value_addr = NULL
+
+    def __hash__(self):
+        raise NotImplementedError()
+
+    def __str__(self):
+        return 'AutoInfer'
+
+
+cdef class BinaryCondition(NodeEdgeCondition):
+    def __cinit__(self, *args, **kwargs):
+        self.value_addr = NULL
+
+    def __hash__(self):
+        return <uintptr_t> <PyObject*> self
+
+    property value:
+        def __set__(self, value):
+            raise NotImplementedError()
+
+
+cdef class ConditionTrue(BinaryCondition):
+    def __str__(self):
+        return 'True'
+
+    def __bool__(self):
+        return True
+
+    def __int__(self):
+        return 1
+
+    def __neg__(self):
+        return FALSE_CONDITION
+
+    def __invert__(self):
+        return FALSE_CONDITION
+
+    property value:
+        def __get__(self):
+            return True
+
+
+cdef class ConditionFalse(BinaryCondition):
+    def __str__(self):
+        return 'False'
+
+    def __bool__(self):
+        return False
+
+    def __int__(self):
+        return 0
+
+    def __neg__(self):
+        return TRUE_CONDITION
+
+    def __invert__(self):
+        return TRUE_CONDITION
+
+    property value:
+        def __get__(self):
+            return False
+
+
+NO_CONDITION = ConditionAny()
+ELSE_CONDITION = ConditionElse()
+AUTO_CONDITION = ConditionAuto()
+TRUE_CONDITION = ConditionTrue()
+FALSE_CONDITION = ConditionFalse()
 
 
 cdef class SkipContextsBlock:
@@ -164,7 +279,7 @@ cdef class SkipContextsBlock:
 
 
 cdef class LogicExpression(SkipContextsBlock):
-    def __cinit__(self, object expression, type dtype=None, str repr=None):
+    def __cinit__(self, *, object expression, type dtype=None, str repr=None, **kwargs):
         self.expression = expression
         self.dtype = dtype
         self.repr = repr if repr is not None else str(expression)
@@ -305,3 +420,778 @@ cdef class LogicExpression(SkipContextsBlock):
 
     def __repr__(self) -> str:
         return f"LogicExpression(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"
+
+
+cdef class LogicGroupManager(Singleton):
+    def __cinit__(self):
+        self._cache = {}
+        self._active_groups = <LogicGroupStack*> PyMem_Calloc(1, sizeof(LogicGroupStack))
+        self._active_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+        self._breakpoint_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+        self._shelved_state = <ShelvedStateStack*> PyMem_Calloc(1, sizeof(ShelvedStateStack))
+        self.inspection_mode = False  # run node graph in inspection mode, without evaluating value, to map the graph
+        self.vigilant_mode = False  # disable auto generation of missing action nodes
+
+    def __dealloc__(self):
+        if self._active_groups:
+            while self._active_groups.size:
+                self.c_lg_exit()
+            PyMem_Free(self._active_groups)
+
+        if self._active_nodes:
+            while self._active_nodes.size:
+                LogicGroupManager.c_ln_stack_pop(self._active_nodes)
+            PyMem_Free(self._active_nodes)
+
+        if self._breakpoint_nodes:
+            while self._breakpoint_nodes.size:
+                LogicGroupManager.c_ln_stack_pop(self._breakpoint_nodes)
+            PyMem_Free(self._breakpoint_nodes)
+
+        if self._shelved_state:
+            while self._shelved_state.size:
+                self.c_unshelve()
+            PyMem_Free(self._shelved_state)
+
+    cdef inline LogicGroup c_cached_init(self, str name, type cls, dict kwargs):
+        cdef tuple reg_key = (cls.__module__, cls.__qualname__)
+        cdef dict registry
+        if reg_key in self._cache:
+            registry = self._cache[reg_key]
+        else:
+            registry = self._cache[reg_key] = {}
+
+        if name in registry:
+            return registry[name]
+
+        cdef LogicGroup logic_group = cls(name=name, **kwargs)
+        registry[name] = logic_group
+        return logic_group
+
+    cdef inline void c_lg_enter(self, LogicGroup logic_group):
+        cdef LogicGroupFrame* frame = <LogicGroupFrame*> PyMem_Calloc(1, sizeof(LogicGroupFrame))
+        frame.logic_group = <PyObject*> logic_group
+        Py_INCREF(logic_group)
+        frame.prev = self._active_groups.top
+        self._active_groups.top = frame
+        self._active_groups.size += 1
+
+    cdef inline void c_lg_exit(self, LogicGroup logic_group=None):
+        if not self._active_groups.top:
+            raise RuntimeError("No active LogicGroup")
+
+        cdef LogicGroupFrame* frame = self._active_groups.top
+        cdef PyObject* lg = NULL if logic_group is None else <PyObject*> logic_group
+
+        if lg and frame.logic_group != lg:
+            raise AssertionError("The LogicGroup is not currently active.")
+
+        self._active_groups.top = frame.prev
+        self._active_groups.size -= 1
+        Py_DECREF(<object> frame.logic_group)
+        PyMem_Free(frame)
+
+    @staticmethod
+    cdef inline void c_ln_stack_push(LogicNodeStack* stack, LogicNode logic_node):
+        cdef LogicNodeFrame* frame = <LogicNodeFrame*> PyMem_Calloc(1, sizeof(LogicNodeFrame))
+        frame.logic_node = <PyObject*> logic_node
+        Py_INCREF(logic_node)
+        frame.prev = stack.top
+        stack.top = frame
+        stack.size += 1
+
+    @staticmethod
+    cdef inline void c_ln_stack_pop(LogicNodeStack* stack, LogicNode logic_node=None):
+        if not stack.top:
+            raise RuntimeError("No active LogicNode")
+        cdef LogicNodeFrame* frame = stack.top
+        cdef PyObject* ln = NULL if logic_node is None else <PyObject*> logic_node
+
+        if ln and frame.logic_node != ln:
+            raise AssertionError("The LogicNode is not currently active.")
+
+        stack.top = frame.prev
+        stack.size -= 1
+        Py_DECREF(<object> frame.logic_node)
+        PyMem_Free(frame)
+
+    @staticmethod
+    cdef inline void c_ln_stack_remove(LogicNodeStack* stack, LogicNode logic_node):
+        cdef PyObject* target = <PyObject*> logic_node
+        cdef LogicNodeFrame* prev = NULL
+        cdef LogicNodeFrame* curc = stack.top
+
+        # Traverse the stack linked list
+        while curc is not NULL:
+            if curc.logic_node == target:
+                # Found. Unlink it.
+                if prev is NULL:
+                    # Removing top
+                    stack.top = curc.prev
+                else:
+                    prev.prev = curc.prev
+
+                stack.size -= 1
+
+                Py_DECREF(<object> curc.logic_node)
+                PyMem_Free(curc)
+                return
+
+            prev = curc
+            curc = curc.prev
+
+        # Not found
+        raise ValueError("LogicNode not found in stack")
+
+    @staticmethod
+    cdef inline LogicNodeFrame* c_ln_stack_locate(LogicNodeStack* stack, LogicNode logic_node):
+        cdef PyObject* target = <PyObject*> logic_node
+        cdef LogicNodeFrame* frame = stack.top
+
+        # Traverse the stack linked list
+        while frame:
+            if frame.logic_node == target:
+                return frame
+            frame = frame.prev
+        raise ValueError(f"LogicNode {logic_node} not found in stack")
+
+    cdef inline void c_ln_enter(self, LogicNode logic_node):
+        # If the node itself is an ActionNode, log an error (shouldn't enter a
+        # `with` block for an ActionNode). The old code checked `self` which is
+        # the manager and always false; check the `node` instead.
+        if isinstance(logic_node, ActionNode):
+            LOGGER.error('Enter the with code block of an ActionNode rejected. Check is this intentional?')
+            return
+
+        cdef LogicNodeFrame* active_frame = self._active_nodes.top
+        cdef LogicNode active_node
+
+        if active_frame:
+            active_node = <LogicNode> <object> active_frame.logic_node
+            active_node.c_append(logic_node, AUTO_CONDITION)
+
+        LogicGroupManager.c_ln_stack_push(self._active_nodes, logic_node)
+
+    cdef inline void c_ln_exit(self, LogicNode logic_node):
+        LogicGroupManager.c_ln_stack_pop(self._active_nodes, logic_node)
+
+    cdef inline void c_shelve(self):
+        cdef ShelvedStateFrame* frame = <ShelvedStateFrame*> PyMem_Calloc(1, sizeof(ShelvedStateFrame))
+        frame.active_groups = self._active_groups
+        frame.active_nodes = self._active_nodes
+        frame.breakpoint_nodes = self._breakpoint_nodes
+
+        frame.prev = self._shelved_state.top
+        self._shelved_state.top = frame
+        self._shelved_state.size += 1
+
+        self._active_groups = <LogicGroupStack*> PyMem_Calloc(1, sizeof(LogicGroupStack))
+        self._active_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+        self._breakpoint_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+
+    cdef inline void c_unshelve(self):
+        if not self._shelved_state.top:
+            raise RuntimeError("No shelved state to unshelve.")
+
+        cdef ShelvedStateFrame* frame = self._shelved_state.top
+        cdef LogicGroupStack* active_groups = frame.active_groups
+        cdef LogicNodeStack* active_nodes = frame.active_nodes
+        cdef LogicNodeStack* breakpoint_nodes = frame.breakpoint_nodes
+        self._shelved_state.top = frame.prev
+        self._shelved_state.size -= 1
+        PyMem_Free(frame)
+
+        self.c_clear()
+        self._active_groups = active_groups
+        self._active_nodes = active_nodes
+        self._breakpoint_nodes = breakpoint_nodes
+
+    cdef inline void c_clear(self):
+        if self._active_groups:
+            while self._active_groups.size:
+                self.c_lg_exit()
+            PyMem_Free(self._active_groups)
+
+        if self._active_nodes:
+            while self._active_nodes.size:
+                LogicGroupManager.c_ln_stack_pop(self._active_nodes)
+            PyMem_Free(self._active_nodes)
+
+        if self._breakpoint_nodes:
+            while self._breakpoint_nodes.size:
+                LogicGroupManager.c_ln_stack_pop(self._breakpoint_nodes)
+            PyMem_Free(self._breakpoint_nodes)
+
+    def __call__(self, str name, type cls, **kwargs) -> LogicGroup:
+        return self.c_cached_init(name, cls, kwargs)
+
+    def __contains__(self, LogicGroup instance) -> bool:
+        cdef type cls = instance.__class__
+        cdef str name = instance.name
+        cdef tuple reg_key = (cls.__module__, cls.__qualname__)
+        if reg_key not in self._cache:
+            return False
+        cdef dict registry = self._cache[reg_key]
+        return name in registry
+
+    def clear(self):
+        self._cache.clear()
+        self.c_clear()
+
+        self._active_groups = <LogicGroupStack*> PyMem_Calloc(1, sizeof(LogicGroupStack))
+        self._active_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+        self._breakpoint_nodes = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+
+    property active_group:
+        def __get__(self):
+            if not self._active_groups.top:
+                return None
+
+            cdef LogicGroupFrame* frame = self._active_groups.top
+            cdef PyObject* lg = frame.logic_group
+            return <LogicGroup> <object> lg
+
+    property active_expression:
+        def __get__(self):
+            if not self._active_nodes.top:
+                return None
+            cdef LogicNodeFrame* frame = self._active_nodes.top
+            cdef PyObject* ln = frame.logic_node
+            return <LogicNode> <object> ln
+
+
+cdef LogicGroupManager C_LGM = LogicGroupManager()
+LGM = C_LGM
+
+
+cdef class LogicGroup:
+    def __cinit__(self, *, str name, LogicGroup parent=None, dict contexts=None):
+        self.name = name
+
+        if self in C_LGM:
+            raise RuntimeError(f"LogicGroup {name} of type {self.__class__.__name__} already exists!")
+
+        self.parent = parent
+        self.Break = type(f"{self.__class__.__name__}Break", (BreakBlock,), {})
+        self.contexts = {} if contexts is None else contexts
+
+    cdef void c_break_inspection(self):
+        # will not break from scope in inspection mode
+        cdef LogicNode active_node, auto_node
+        if C_LGM._active_nodes.top:
+            active_node = <LogicNode> <object> C_LGM._active_nodes.top.logic_node
+            if not active_node.children:
+                if C_LGM.vigilant_mode:
+                    raise TooFewChildren()
+                else:
+                    LOGGER.warning('Must have at least one action node before breaking from logic group. A NoAction node will be automatically assigned.')
+                    last_node = NoAction(auto_connect=False)
+                    last_node.autogen = True
+                    active_node.c_append(last_node, ELSE_CONDITION)
+            else:
+                last_node = active_node.last_leaf
+                assert isinstance(last_node, ActionNode), NodeValueError('An ActionNode is required before breaking a LogicGroup.')
+            last_node.break_from = self
+            LogicGroupManager.c_ln_stack_push(C_LGM._breakpoint_nodes, last_node)
+
+    cdef void c_break_active(self):
+        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        if not frame:
+            raise RuntimeError("No active LogicGroup to break from.")
+        cdef PyObject* active_node = frame.logic_group
+        if active_node != <PyObject*> self:
+            raise IndexError('Not breaking from the top active LogicGroup.')
+        raise self.Break()
+
+    cdef void c_break_runtime(self):
+        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        if not frame:
+            raise RuntimeError("No active LogicGroup to break from.")
+        cdef PyObject* active_group = frame.logic_group
+        cdef PyObject* addr_self = <PyObject*> self
+
+        # step 1: Validate that the break scope is in the active stack
+        while active_group != addr_self:
+            frame = frame.prev
+            if not frame:
+                raise ValueError(f"Break scope {self} not in active LogicGroup stack.")
+            active_group = frame.logic_group
+
+        # step 2: recursive breaking from top of the stack
+        frame = C_LGM._active_groups.top
+        active_group = frame.logic_group
+        while active_group != addr_self:
+            (<LogicGroup> <object> active_group).c_break_active()
+            frame = frame.prev
+            active_group = frame.logic_group
+        self.c_break_active()
+
+    # === Python Interfaces ===
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}>({self.name!r})'
+
+    def __enter__(self):
+        C_LGM.c_lg_enter(self)
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        C_LGM.c_lg_exit(self)
+
+        if exc_type is None:
+            return None
+
+        if issubclass(exc_type, self.Break):
+            return True
+        return False
+
+    @classmethod
+    def break_(cls, LogicGroup scope=None):
+        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        if not frame:
+            raise RuntimeError("No active LogicGroup to break from.")
+        cdef PyObject* active_node = frame.logic_group
+
+        if scope is None:
+            scope = <LogicGroup> <object> active_node
+        if C_LGM.inspection_mode:
+            scope.c_break_inspection()
+        scope.c_break_runtime()
+
+    def break_active(self):
+        self.c_break_active()
+
+    def break_inspection(self):
+        self.c_break_inspection()
+
+    def break_runtime(self):
+        self.c_break_runtime()
+
+
+cdef class LogicNode(LogicExpression):
+    def __cinit__(self, *, object expression, type dtype=None, str repr=None, **kwargs):
+        self.break_from = None
+        self.subordinates = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
+        self.condition_to_parent = NO_CONDITION
+        self.parent = None
+        self.children = {}
+        self.labels = []
+        self.autogen = False
+
+        # update labels from active groups
+        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        cdef LogicGroup lg
+        while frame:
+            lg = <LogicGroup> <object> frame.logic_group
+            self.labels.append(lg.name)
+            frame = frame.prev
+
+    def __dealloc__(self):
+        if self.subordinates:
+            LogicGroupManager.c_ln_stack_pop(self.subordinates)
+            PyMem_Free(self.subordinates)
+
+    cdef NodeEdgeCondition c_infer_condition(self, LogicNode child):
+        # infer condition based on registered children
+        cdef LogicNodeStack* stack = self.subordinates
+        cdef LogicNodeFrame* frame = stack.top
+
+        cdef size_t size = stack.size
+
+        # Case 1: No child node registered, the first child is always TRUE unless specified
+        if size == 0:
+            return TRUE_CONDITION
+
+        cdef LogicNode last_node = <LogicNode> <object> frame.logic_node
+        cdef NodeEdgeCondition last_condition = last_node.condition_to_parent
+
+        # Case 1: Only 1 child node registered, the second child is always opposite of the first
+        if size == 1 and isinstance(last_condition, BinaryCondition):
+            if last_condition is TRUE_CONDITION:
+                return FALSE_CONDITION
+            else:
+                return TRUE_CONDITION
+
+        # Case 2: Only 1 child node registered, and the first condition is not specified.
+        if size == 1 and isinstance(last_condition, ConditionElse):
+            # Case 2.1: If the child is auto generated, we can assume this child should be TRUE
+            if last_node.autogen:
+                return TRUE_CONDITION
+            # Case 2.2: Otherwise, we cannot infer the condition
+
+        if size == 1:
+            raise EdgeValueError('Cannot auto-infer condition from single existing non-binary condition.')
+
+        cdef LogicNode second_node = <LogicNode> <object> frame.prev.logic_node
+        cdef NodeEdgeCondition second_condition = second_node.condition_to_parent
+        # Case 3: check if any 2 node is from autogeneration
+        # Returning the condition of the auto-generated node, so that it can be replaced later.
+        if last_node.autogen:
+            return last_condition
+        elif second_node.autogen:
+            return second_condition
+
+        if size > 2:
+            raise TooManyChildren(size)
+        # Case 4: both conditions are non-binary, cannot infer
+        raise EdgeValueError('Cannot auto-infer condition for non-binary existing condition.')
+
+    cdef void c_append(self, LogicNode child, NodeEdgeCondition condition):
+        if condition is None:
+            raise ValueError("LogicNode must have an valid edge condition.")
+
+        if condition is AUTO_CONDITION:
+            condition = self.c_infer_condition(child)
+
+        if condition in self.children:
+            raise KeyError(f"Edge {condition} already registered.")
+
+        self.children[condition] = child
+        LogicGroupManager.c_ln_stack_push(self.subordinates, child)
+        child.parent = self
+        child.condition_to_parent = condition
+
+    cdef void c_overwrite(self, LogicNode new_node, NodeEdgeCondition condition):
+        if condition is None:
+            raise ValueError("LogicNode must have an valid edge condition.")
+
+        if condition is AUTO_CONDITION:
+            condition = self.c_infer_condition(new_node)
+
+        if condition not in self.children:
+            raise KeyError(f"Edge {condition} not registered, cannot overwrite.")
+
+        cdef LogicNode original_node = self.children[condition]
+        self.children[condition] = new_node
+        new_node.parent = self
+        new_node.condition_to_parent = condition
+
+        cdef LogicNodeFrame* frame = LogicGroupManager.c_ln_stack_locate(self.subordinates, original_node)
+        if frame:
+            raise LookupError(f'Failed to locate {original_node} from subordinates, buffer corruption detected.')
+
+        Py_DECREF(<object> frame.logic_node)
+        frame.logic_node = <PyObject*> new_node
+        Py_INCREF(<object> frame.logic_node)
+        original_node.parent = None
+        original_node.condition_to_parent = NO_CONDITION
+
+    cdef void c_replace(self, LogicNode original_node, LogicNode new_node):
+        cdef NodeEdgeCondition condition
+        cdef LogicNode child
+        cdef LogicNodeFrame* frame
+
+        # step 1: safety check:
+        frame = LogicGroupManager.c_ln_stack_locate(C_LGM._active_nodes, original_node)
+        if frame:
+            raise RuntimeError('Must not replace active node. Existing first required.')
+
+        for condition, child in self.children.items():
+            if child is not original_node:
+                continue
+            self.children[condition] = new_node
+            new_node.parent = self
+            new_node.condition_to_parent = condition
+            frame = LogicGroupManager.c_ln_stack_locate(self.subordinates, original_node)
+            if frame:
+                raise LookupError(f'Failed to locate {original_node} from subordinates, buffer corruption detected.')
+
+            Py_DECREF(<object> frame.logic_node)
+            frame.logic_node = <PyObject*> new_node
+            Py_INCREF(<object> frame.logic_node)
+            original_node.parent = None
+            original_node.condition_to_parent = NO_CONDITION
+            return
+        raise NodeNotFountError()
+
+    cdef void c_validate(self):
+        cdef size_t size = self.subordinates.size
+        if size != <size_t> len(self.children):
+            raise NodeValueError('Subordinate stack size does not match registered children.')
+
+        cdef LogicNode child
+        cdef NodeEdgeCondition condition
+        cdef LogicNodeFrame* frame
+        for condition, child in self.children.items():
+            if child.condition_to_parent is not condition:
+                raise EdgeValueError('Child node condition does not match registered condition.')
+            frame = LogicGroupManager.c_ln_stack_locate(self.subordinates, child)
+            # in the locating function the existence is already checked
+            # but add this for a clearer error message
+            if not frame:
+                raise ValueError(f"LogicNode {child} not found in stack")
+
+    cdef tuple c_eval_recursively(self, list path=None, object default=NO_DEFAULT):
+        if path is None:
+            path = [self]
+        else:
+            path.append(self)
+
+        value = self.c_eval(False)
+
+        if self.is_leaf:
+            return value, path
+
+        cdef LogicNode else_branch = None
+        cdef LogicNodeFrame* frame = self.subordinates.top
+        cdef LogicNode child = <LogicNode> <object> frame.logic_node
+        cdef NodeEdgeCondition condition = child.condition_to_parent
+
+        while frame:
+            if value == condition.value or condition is NO_CONDITION:
+                return child.c_eval_recursively(path, default)
+            elif condition is ELSE_CONDITION:
+                else_branch = child
+
+        if else_branch is not None:
+            return else_branch.c_eval_recursively(path, default)
+
+        if default is NO_DEFAULT:
+            raise ValueError(f"No matching condition found for value {value} at '{self.repr}'.")
+
+        LOGGER.warning(f"No matching condition found for value {value} at '{self.repr}', using default {default}.")
+        return default, path
+
+    cdef void c_auto_fill(self):
+        cdef size_t size = len(self.children)
+        cdef LogicNode no_action = NoAction(auto_connect=False)
+
+        # Case 1: No child node registered
+        if size == 0:
+            LOGGER.warning(f"{self} having no [True] branch. Check the <with> statement code block to see if this is intended.")
+            self.c_append(no_action, NO_CONDITION)
+            return
+
+        cdef LogicNodeFrame* frame = self.subordinates.top
+        cdef LogicNode node = <LogicNode> <object> frame.logic_node
+        cdef NodeEdgeCondition condition = node.condition_to_parent
+
+        # Case 2: Signal node
+        if size == 1:
+            # Case 2.1: single child with no condition
+            if condition is NO_CONDITION:
+                return
+
+            # Case 2.2: single child deliberately set to ELSE, which indicate it is expecting a true branch
+            if condition is ELSE_CONDITION:
+                LOGGER.warning(f"{self} having no [True] branch. Check the <with> statement code block to see if this is intended.")
+                self.c_overwrite(no_action, TRUE_CONDITION)
+                return
+
+            # Case 2.3: no need to check for auto condition, as it is not hashable
+
+            # Case 2.4: single child with binary condition
+            if isinstance(condition, BinaryCondition):
+                self.c_append(no_action, ~condition)
+                return
+
+        cdef LogicNode second_node = <LogicNode> <object> frame.prev.logic_node
+        cdef NodeEdgeCondition second_condition = second_node.condition_to_parent
+        # Case 3: Double Node
+        if size == 2:
+            # Case 3.1: if one of the branch is unconditioned, raise
+            if condition is NO_CONDITION or second_condition is NO_CONDITION:
+                raise TooManyChildren('Cannot have unconditioned branch when there are two branches.')
+
+            # Case3.2: if one of the branch is ELSE, and the other is any valid condition except ELSE too, all good
+            # Since we already validate node, there is no same registered condition
+            if condition is ELSE_CONDITION or second_condition is ELSE_CONDITION:
+                return
+
+            # Case 3.3: both conditions are binary, all good
+            if isinstance(condition, BinaryCondition) and isinstance(second_condition, BinaryCondition):
+                return
+
+            # Case 3.4: all conditions are non-binary, add a protective else branch
+            if not isinstance(condition, BinaryCondition) and not isinstance(second_condition, BinaryCondition):
+                self.c_append(no_action, ELSE_CONDITION)
+                return
+
+            raise EdgeValueError(f'Conflicting conditions detected, {condition} and {second_condition}.')
+
+        # Case 3: Multiple nodes, it must be of all generic conditions
+        cdef bint else_detected = False
+        for condition in self.children:
+            if condition is NO_CONDITION:
+                raise TooManyChildren('Cannot have unconditioned branch when there are multiple branches.')
+
+            if condition is ELSE_CONDITION:
+                else_detected = True
+
+            if isinstance(condition, BinaryCondition):
+                raise TooManyChildren('Cannot have binary branch when there are more than 3 branches.')
+
+        if not else_detected:
+            self.c_append(no_action, ELSE_CONDITION)
+
+    cdef bint c_entry_check(self):
+        if C_LGM.inspection_mode:
+            return True
+        return bool(self.c_eval(False))
+
+    cdef void c_on_enter(self):
+        if isinstance(self, ActionNode):
+            raise NodeTypeError('Must not use <with> clause in an ActionNode')
+
+        cdef LogicNodeFrame* frame = C_LGM._active_nodes.top
+
+        # Case 1: First active node, using LGM enter function
+        if not frame:
+            C_LGM.c_ln_enter(self)
+            return
+
+        cdef LogicNode active_node = <LogicNode> <object> frame.logic_node
+        cdef NodeEdgeCondition condition = active_node.c_infer_condition(self)
+        cdef bint is_registered = condition in active_node.children
+
+        # Case 2: No conflicting condition, using LGM enter function
+        if not is_registered:
+            C_LGM.c_ln_enter(self)
+            return
+
+        # Case 3: Override LGM enter function for validation and overwrite
+        active_node.c_overwrite(self, condition)
+        LogicGroupManager.c_ln_stack_push(C_LGM._active_nodes, self)
+
+    cdef void c_on_exit(self):
+        self.c_validate()
+        self.c_auto_fill()
+        LGM.c_ln_exit(self)
+
+    # === Python Interfaces ===
+
+    def __rshift__(self, LogicNode other):
+        self.c_append(other, AUTO_CONDITION)
+        return other  # Allow chaining
+
+    def __call__(self, default=None) -> Any:
+        if default is None:
+            default = NoAction(auto_connect=False)
+
+        cdef bint inspection_mode = C_LGM.inspection_mode
+        if inspection_mode:
+            LOGGER.info('LGM inspection mode temporally disabled to evaluate correctly.')
+            LGM.inspection_mode = False
+
+        cdef list path = []
+        cdef object value
+        value, path = self.c_eval_recursively(path, default)
+        C_LGM.inspection_mode = inspection_mode
+        return value
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}>({self.repr!r})'
+
+    def append(self, LogicNode child, NodeEdgeCondition condition=AUTO_CONDITION):
+        self.c_append(child, condition)
+
+    def overwrite(self, LogicNode new_node, NodeEdgeCondition condition):
+        self.c_overwrite(new_node, condition)
+
+    def replace(self, LogicNode original_node, LogicNode new_node):
+        self.c_replace(original_node, new_node)
+
+    def eval_recursively(self, list path=None, object default=NO_DEFAULT):
+        return self.c_eval_recursively(path, default)
+
+    def list_labels(self) -> dict[str, list[LogicNode]]:
+        labels = {}
+
+        def traverse(node):
+            for group in node.labels:
+                if group not in labels:
+                    labels[group] = []
+                labels[group].append(node)
+            for _, child in node.children.items():
+                traverse(child)
+
+        traverse(self)
+        return labels
+
+    property leaves:
+        def __get__(self):
+            if not self.children:  # If no children, this node is a leaf
+                yield self
+            else:
+                for _, child in self.nodes.items():
+                    yield from child.leaves
+
+    property is_leaf:
+        def __get__(self):
+            return not self.children
+
+
+cdef class ActionNode(LogicNode):
+    def __cinit__(self, *, object action, object expression=None, type dtype=None, str repr=None, bint auto_connect=True, **kwargs):
+        self.action = action
+
+        if auto_connect:
+            self.c_auto_connect()
+
+    cdef void c_auto_connect(self):
+        cdef LogicNodeFrame* frame = C_LGM._active_nodes.top
+
+        if not frame:
+            raise NodeValueError(f'Can not set ActionNode {self} as root node.')
+
+        cdef LogicNode active_node = <LogicNode> <object> frame.logic_node
+        cdef NodeEdgeCondition condition = active_node.c_infer_condition(self)
+        cdef bint is_registered = condition in active_node.children
+
+        if is_registered:
+            active_node.c_append(self, condition)
+        else:
+            active_node.c_overwrite(self, condition)
+
+    cdef void c_post_eval(self):
+        if self.action is not None:
+            self.action()
+
+    cdef void c_append(self, LogicNode child, NodeEdgeCondition condition):
+        raise TooManyChildren('Action node must not have any child node.')
+
+    cdef void c_on_enter(self):
+        raise NodeContextError('ActionNode does not support context management with <with> statement.')
+
+    cdef void c_on_exit(self):
+        pass
+
+    cdef tuple c_eval_recursively(self, list path=None, object default=NO_DEFAULT):
+        if path is None:
+            path = []
+        path.append(self)
+
+        value = self.c_eval(False)
+
+        self.c_post_eval()
+
+        if not self.is_leaf:
+            raise TooManyChildren('Action node must not have any child node.')
+
+        return value, path
+
+
+cdef class NoAction(ActionNode):
+    def __cinit__(self, *, object action=None, object expression=None, type dtype=None, str repr='<NoAction>', bint auto_connect=True, **kwargs):
+        self.sig = 0
+
+    cdef object c_eval(self, bint enforce_dtype):
+        return self
+
+
+cdef class LongAction(ActionNode):
+    def __cinit__(self, *, ssize_t sig=1, object action=None, object expression=None, type dtype=None, str repr='<LongAction>(sig={sig})', bint auto_connect=True, **kwargs):
+        self.repr = self.repr.format(sig=sig)
+        self.sig = sig
+
+    cdef object c_eval(self, bint enforce_dtype):
+        return self
+
+
+cdef class ShortAction(ActionNode):
+    def __cinit__(self, *, ssize_t sig=-1, object action=None, object expression=None, type dtype=None, str repr='<LongAction>(sig={sig})', bint auto_connect=True, **kwargs):
+        self.repr = self.repr.format(sig=sig)
+        self.sig = sig
+
+    cdef object c_eval(self, bint enforce_dtype):
+        return self

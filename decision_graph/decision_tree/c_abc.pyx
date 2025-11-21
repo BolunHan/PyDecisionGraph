@@ -148,11 +148,20 @@ cdef class ConditionFalse(BinaryCondition):
             return False
 
 
-NO_CONDITION = ConditionAny()
-ELSE_CONDITION = ConditionElse()
-AUTO_CONDITION = ConditionAuto()
-TRUE_CONDITION = ConditionTrue()
-FALSE_CONDITION = ConditionFalse()
+cdef ConditionAny NO_CONDITION = ConditionAny()
+cdef ConditionElse ELSE_CONDITION = ConditionElse()
+cdef ConditionAuto AUTO_CONDITION = ConditionAuto()
+cdef ConditionTrue TRUE_CONDITION = ConditionTrue()
+cdef ConditionFalse FALSE_CONDITION = ConditionFalse()
+
+
+globals().update(
+    NO_CONDITION=NO_CONDITION,
+    ELSE_CONDITION=ELSE_CONDITION,
+    AUTO_CONDITION=AUTO_CONDITION,
+    TRUE_CONDITION=TRUE_CONDITION,
+    FALSE_CONDITION=FALSE_CONDITION
+)
 
 
 cdef class SkipContextsBlock:
@@ -659,6 +668,8 @@ cdef class LogicGroupManager(Singleton):
         frame.active_groups = self._active_groups
         frame.active_nodes = self._active_nodes
         frame.breakpoint_nodes = self._breakpoint_nodes
+        frame.inspection_mode = self.inspection_mode
+        frame.vigilant_mode = self.vigilant_mode
 
         frame.prev = self._shelved_state.top
         self._shelved_state.top = frame
@@ -676,6 +687,8 @@ cdef class LogicGroupManager(Singleton):
         cdef LogicGroupStack* active_groups = frame.active_groups
         cdef LogicNodeStack* active_nodes = frame.active_nodes
         cdef LogicNodeStack* breakpoint_nodes = frame.breakpoint_nodes
+        cdef bint inspection_mode = frame.inspection_mode
+        cdef bint vigilant_mode = frame.vigilant_mode
 
         self._shelved_state.top = frame.prev
         self._shelved_state.size -= 1
@@ -685,6 +698,8 @@ cdef class LogicGroupManager(Singleton):
         self._active_groups = active_groups
         self._active_nodes = active_nodes
         self._breakpoint_nodes = breakpoint_nodes
+        self.inspection_mode = inspection_mode
+        self.vigilant_mode = vigilant_mode
 
     cdef inline void c_clear(self):
         if self._active_groups:
@@ -740,15 +755,15 @@ cdef class LogicGroupManager(Singleton):
             return <LogicNode> <object> ln
 
 
-cdef LogicGroupManager C_LGM = LogicGroupManager()
-LGM = C_LGM
+cdef LogicGroupManager LGM = LogicGroupManager()
+globals()['LGM'] = LGM
 
 
 cdef class LogicGroup:
     def __cinit__(self, *, str name, LogicGroup parent=None, dict contexts=None):
         self.name = name
 
-        if self in C_LGM:
+        if self in LGM:
             raise RuntimeError(f"LogicGroup {name} of type {self.__class__.__name__} already exists!")
 
         self.parent = parent
@@ -756,7 +771,7 @@ cdef class LogicGroup:
         self.contexts = {} if contexts is None else contexts
 
     cdef void c_break_inspection(self):
-        cdef LogicNodeFrame* frame = C_LGM._active_nodes.top
+        cdef LogicNodeFrame* frame = LGM._active_nodes.top
 
         # Case 1: No active node, breaks affect nothing
         if not frame:
@@ -772,10 +787,10 @@ cdef class LogicGroup:
         breakpoint_node.break_from = self
         active_node.c_replace(placeholder, breakpoint_node)
         # Step 2.2: Push the breakpoint node to the global breakpoint stack
-        LogicGroupManager.c_ln_stack_push(C_LGM._breakpoint_nodes, breakpoint_node)
+        LogicGroupManager.c_ln_stack_push(LGM._breakpoint_nodes, breakpoint_node)
 
     cdef void c_break_active(self):
-        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        cdef LogicGroupFrame* frame = LGM._active_groups.top
         if not frame:
             raise RuntimeError("No active LogicGroup to break from.")
         cdef PyObject* active_node = frame.logic_group
@@ -784,11 +799,11 @@ cdef class LogicGroup:
         raise self.Break()
 
     cdef void c_break_runtime(self):
-        if not C_LGM._active_nodes.size:
+        if not LGM._active_nodes.size:
             raise RuntimeError("No active LogicGroup to break from.")
 
         cdef PyObject* addr_self = <PyObject*> self
-        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        cdef LogicGroupFrame* frame = LGM._active_groups.top
         cdef bint found = False
 
         # step 1: Validate that the break scope is in the active stack
@@ -802,7 +817,7 @@ cdef class LogicGroup:
             raise ValueError(f"Break scope {self} not in active LogicGroup stack.")
 
         # step 2: recursive breaking from top of the stack
-        frame = C_LGM._active_groups.top
+        frame = LGM._active_groups.top
         cdef LogicGroup active_group
         while frame:
             active_group = <LogicGroup> <object> frame.logic_group
@@ -817,11 +832,11 @@ cdef class LogicGroup:
         return f'<{self.__class__.__name__}>({self.name!r})'
 
     def __enter__(self):
-        C_LGM.c_lg_enter(self)
+        LGM.c_lg_enter(self)
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        C_LGM.c_lg_exit(self)
+        LGM.c_lg_exit(self)
 
         if exc_type is None:
             return None
@@ -832,14 +847,14 @@ cdef class LogicGroup:
 
     @classmethod
     def break_(cls, LogicGroup scope=None):
-        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        cdef LogicGroupFrame* frame = LGM._active_groups.top
         if not frame:
             raise RuntimeError("No active LogicGroup to break from.")
         cdef PyObject* active_node = frame.logic_group
 
         if scope is None:
             scope = <LogicGroup> <object> active_node
-        if C_LGM.inspection_mode:
+        if LGM.inspection_mode:
             scope.c_break_inspection()
         else:
             scope.c_break_runtime()
@@ -864,7 +879,7 @@ cdef class LogicNode(LogicExpression):
         self.autogen = False
 
         # update labels from active groups
-        cdef LogicGroupFrame* frame = C_LGM._active_groups.top
+        cdef LogicGroupFrame* frame = LGM._active_groups.top
         cdef LogicGroup lg
         while frame:
             lg = <LogicGroup> <object> frame.logic_group
@@ -992,7 +1007,7 @@ cdef class LogicNode(LogicExpression):
         cdef LogicNodeFrame* frame
 
         # Step 1: Safety check:
-        frame = LogicGroupManager.c_ln_stack_locate(C_LGM._active_nodes, original_node)
+        frame = LogicGroupManager.c_ln_stack_locate(LGM._active_nodes, original_node)
         if frame:
             raise RuntimeError('Must not replace active node. Existing first required.')
 
@@ -1149,7 +1164,7 @@ cdef class LogicNode(LogicExpression):
         return placeholder_count
 
     cdef bint c_entry_check(self):
-        if C_LGM.inspection_mode:
+        if LGM.inspection_mode:
             return True
         return bool(self.c_eval(False))
 
@@ -1157,13 +1172,13 @@ cdef class LogicNode(LogicExpression):
         # Placeholders must be in reversed order, so that locating placeholder works correctly.
         self.c_append(PlaceholderNode(auto_connect=False), FALSE_CONDITION)
         self.c_append(PlaceholderNode(auto_connect=False), TRUE_CONDITION)
-        C_LGM.c_ln_enter(self)
+        LGM.c_ln_enter(self)
 
     cdef void c_on_exit(self):
         self.c_validate()
         self.c_auto_fill()
         self.c_consolidate_placeholder()
-        C_LGM.c_ln_exit(self)
+        LGM.c_ln_exit(self)
 
     # === Python Interfaces ===
 
@@ -1175,15 +1190,15 @@ cdef class LogicNode(LogicExpression):
         if default is None:
             default = NoAction(auto_connect=False)
 
-        cdef bint inspection_mode = C_LGM.inspection_mode
+        cdef bint inspection_mode = LGM.inspection_mode
         if inspection_mode:
             LOGGER.info('LGM inspection mode temporally disabled to evaluate correctly.')
-            C_LGM.inspection_mode = False
+            LGM.inspection_mode = False
 
         cdef list path = []
         cdef object value
         value, path = self.c_eval_recursively(path, default)
-        C_LGM.inspection_mode = inspection_mode
+        LGM.inspection_mode = inspection_mode
         return value
 
     def __repr__(self):
@@ -1264,7 +1279,7 @@ cdef class BreakpointNode(LogicNode):
 
     cdef object c_eval(self, bint enforce_dtype):
         if not self.subordinates.size:
-            if C_LGM.vigilant_mode:
+            if LGM.vigilant_mode:
                 raise NodeValueError(f'{self} not connected.')
             return self.expression
 
@@ -1277,7 +1292,7 @@ cdef class BreakpointNode(LogicNode):
         path.append(self)
 
         if not self.subordinates.size:
-            if C_LGM.vigilant_mode:
+            if LGM.vigilant_mode:
                 raise NodeValueError(f'{self} not connected.')
             return self.expression, path
         cdef LogicNode linked_to = <LogicNode> <object> self.subordinates.top.logic_node
@@ -1304,12 +1319,12 @@ cdef class ActionNode(LogicNode):
             self.c_auto_connect()
 
     cdef void c_auto_connect(self):
-        cdef LogicNodeFrame* frame = C_LGM._active_nodes.top
+        cdef LogicNodeFrame* frame = LGM._active_nodes.top
 
         # This might come from a forward declaration used by python interface.
         # Graceful exit if not vigilant
         if not frame:
-            if C_LGM.vigilant_mode:
+            if LGM.vigilant_mode:
                 raise NodeValueError(f'Can not set ActionNode {self} as root node.')
             return
 
@@ -1351,7 +1366,7 @@ cdef class PlaceholderNode(ActionNode):
         self.action = NoAction(auto_connect=False)
 
     cdef object c_eval(self, bint enforce_dtype):
-        if C_LGM.vigilant_mode:
+        if LGM.vigilant_mode:
             return self
         return self.action
 

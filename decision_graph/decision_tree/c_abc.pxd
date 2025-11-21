@@ -2,8 +2,8 @@ from cpython.object cimport PyObject
 from cpython.pystate cimport PyThreadState
 
 cdef extern from "Python.h":
-    void PyThreadState_EnterTracing(PyThreadState *tstate)
-    void PyThreadState_LeaveTracing(PyThreadState *tstate)
+    void PyThreadState_EnterTracing(PyThreadState* tstate)
+    void PyThreadState_LeaveTracing(PyThreadState* tstate)
 
 
 cdef dict GLOBAL_SINGLETON
@@ -39,6 +39,13 @@ cdef class ConditionTrue(BinaryCondition):
 
 cdef class ConditionFalse(BinaryCondition):
     pass
+
+
+cdef ConditionAny NO_CONDITION
+cdef ConditionElse ELSE_CONDITION
+cdef ConditionAuto AUTO_CONDITION
+cdef ConditionTrue TRUE_CONDITION
+cdef ConditionFalse FALSE_CONDITION
 
 
 cdef class SkipContextsBlock:
@@ -104,6 +111,8 @@ cdef struct ShelvedStateFrame:
     LogicNodeStack* active_nodes
     LogicNodeStack* breakpoint_nodes
     LogicNodeStack* active_breakpoints
+    bint inspection_mode
+    bint vigilant_mode
     ShelvedStateFrame* prev
 
 

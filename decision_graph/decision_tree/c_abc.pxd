@@ -42,9 +42,10 @@ cdef class ConditionFalse(BinaryCondition):
 
 
 cdef class SkipContextsBlock:
+    cdef public bint default_entry_check
+
     cdef type skip_exception
     cdef bint tracer_override
-    cdef public bint default_entry_check
     cdef object cframe
     cdef tuple enter_line
 
@@ -102,6 +103,7 @@ cdef struct ShelvedStateFrame:
     LogicGroupStack* active_groups
     LogicNodeStack* active_nodes
     LogicNodeStack* breakpoint_nodes
+    LogicNodeStack* active_breakpoints
     ShelvedStateFrame* prev
 
 
@@ -120,12 +122,6 @@ cdef class LogicGroupManager(Singleton):
     cdef public bint inspection_mode
     cdef public bint vigilant_mode
 
-    cdef inline LogicGroup c_cached_init(self, str name, type cls, dict kwargs)
-
-    cdef inline void c_lg_enter(self, LogicGroup logic_group)
-
-    cdef inline void c_lg_exit(self, LogicGroup logic_group=*)
-
     @staticmethod
     cdef inline void c_ln_stack_push(LogicNodeStack* stack, LogicNode logic_node)
 
@@ -137,6 +133,15 @@ cdef class LogicGroupManager(Singleton):
 
     @staticmethod
     cdef inline LogicNodeFrame* c_ln_stack_locate(LogicNodeStack* stack, LogicNode logic_node)
+
+    @staticmethod
+    cdef inline void c_ln_stack_relocate(LogicNodeStack* original_stack, LogicNodeStack* new_stack, LogicNode logic_node)
+
+    cdef inline LogicGroup c_cached_init(self, str name, type cls, dict kwargs)
+
+    cdef inline void c_lg_enter(self, LogicGroup logic_group)
+
+    cdef inline void c_lg_exit(self, LogicGroup logic_group=*)
 
     cdef inline void c_ln_enter(self, LogicNode logic_node)
 
@@ -166,7 +171,6 @@ cdef class LogicGroup:
 
 
 cdef class LogicNode(LogicExpression):
-    cdef LogicGroup break_from
     cdef LogicNodeStack* subordinates
     cdef NodeEdgeCondition condition_to_parent
 
@@ -176,6 +180,8 @@ cdef class LogicNode(LogicExpression):
     cdef readonly bint autogen
 
     cdef NodeEdgeCondition c_infer_condition(self, LogicNode child)
+
+    cdef PlaceholderNode c_get_placeholder(self)
 
     cdef void c_append(self, LogicNode child, NodeEdgeCondition condition)
 
@@ -189,6 +195,15 @@ cdef class LogicNode(LogicExpression):
 
     cdef void c_auto_fill(self)
 
+    cdef size_t c_consolidate_placeholder(self)
+
+
+cdef class BreakpointNode(LogicNode):
+    cdef readonly LogicGroup break_from
+    cdef readonly bint await_connection
+
+    cdef void c_connect(self, LogicNode child)
+
 
 cdef class ActionNode(LogicNode):
     cdef readonly object action
@@ -196,6 +211,10 @@ cdef class ActionNode(LogicNode):
     cdef void c_auto_connect(self)
 
     cdef void c_post_eval(self)
+
+
+cdef class PlaceholderNode(ActionNode):
+    pass
 
 
 cdef class NoAction(ActionNode):

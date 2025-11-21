@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Callable, Iterable, Never
+from collections.abc import Iterable, Callable
+from typing import Any, Never
 
 from decision_graph.decision_tree.exc import NO_DEFAULT
 
@@ -123,7 +124,7 @@ class LogicExpression(SkipContextsBlock):
     def __init__(
             self,
             *,
-            expression: float | int | bool | Exception | Callable[[], Any],
+            expression: float | int | bool | Exception | Callable[[], Any] = None,
             dtype: type | None = ...,
             repr: str | None = ...,
             **kwargs,
@@ -243,7 +244,7 @@ class LogicGroupManager(Singleton):
         """The currently active LogicGroup, or None if no group context is entered."""
 
     @property
-    def active_expression(self) -> LogicNode | None:
+    def active_node(self) -> LogicNode | None:
         """The currently active LogicNode expression, or None if no expression context is entered."""
 
 
@@ -277,6 +278,15 @@ class LogicGroup:
     parent: LogicGroup | None
     Break: type[BaseException]
     contexts: dict[str, Any]
+
+    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict = None):
+        """Initialize a LogicGroup with the given name, parent, and contexts.
+
+        Args:
+            name (str): The name of the logic group.
+            parent (LogicGroup | None): The parent logic group, if any.
+            contexts (dict[str, Any] | None): Optional context-specific storage.
+        """
 
     def __repr__(self) -> str: ...
 
@@ -332,6 +342,16 @@ class LogicNode(LogicExpression):
     children: dict[NodeEdgeCondition, LogicNode]
     labels: list[str]
     autogen: bool
+
+    def __init__(self, *, expression: object = None, dtype: type = None, repr: str = None, **kwargs):
+        """
+        Initialize the LogicExpression.
+
+        Args:
+            expression (Union[Any, Callable[[], Any]]): A callable or static value.
+            dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+        """
 
     def __rshift__(self, other: LogicNode) -> LogicNode:
         """
@@ -424,6 +444,33 @@ class LogicNode(LogicExpression):
     @property
     def is_leaf(self) -> bool:
         """True if this node has no children; otherwise False."""
+
+    @property
+    def child_stack(self) -> Iterable[LogicNode]:
+        """An iterable of all child nodes in the subtree rooted at this node."""
+
+
+class BreakpointNode(LogicNode):
+    """A logic node that represents a breakpoint in the decision tree, used for breaking out of logic groups.
+
+    This node is auto-generated and can connect to at most one child node.
+
+    During evaluation, if connected, it delegates to the child's evaluation; otherwise, it returns its default expression (NoAction) in vigilant mode.
+
+    Attributes:
+        break_from (LogicGroup): The logic group from which this breakpoint breaks.
+        await_connection (bool): Whether to wait for a connection to a child node during inspection.
+    """
+
+    break_from: LogicGroup
+    await_connection: bool
+
+
+class PlaceholderNode(ActionNode):
+    """An action node that serves as a placeholder in the decision tree.
+
+    This node is auto-generated and during evaluation returns itself in vigilant mode, otherwise returns a NoAction instance.
+    """
 
 
 class ActionNode(LogicNode):

@@ -35,7 +35,7 @@ cdef class NodeEdgeCondition(Singleton):
             self.value_addr = NULL
 
     def __hash__(self):
-        raise (<object> self.value_addr).__hash__()
+        return (<object> self.value_addr).__hash__()
 
     property value:
         def __get__(self):
@@ -1189,6 +1189,9 @@ cdef class LogicNode(LogicExpression):
     def __repr__(self):
         return f'<{self.__class__.__name__}>({self.repr!r})'
 
+    def __hash__(self):
+        return <uintptr_t> <PyObject*> self
+
     def append(self, LogicNode child, NodeEdgeCondition condition=AUTO_CONDITION):
         self.c_append(child, condition)
 
@@ -1217,11 +1220,14 @@ cdef class LogicNode(LogicExpression):
 
     property leaves:
         def __get__(self):
-            if not self.children:  # If no children, this node is a leaf
+            cdef LogicNodeFrame* frame = self.subordinates.top
+            if not frame:
                 yield self
-            else:
-                for _, child in self.nodes.items():
-                    yield from child.leaves
+            cdef LogicNode child
+            while frame:
+                child = <LogicNode> <object> frame.logic_node
+                yield from child.leaves
+                frame = frame.prev
 
     property is_leaf:
         def __get__(self):

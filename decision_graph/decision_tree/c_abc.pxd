@@ -163,7 +163,7 @@ cdef class LogicGroupManager(Singleton):
     cdef inline void c_clear(self)
 
 
-cdef LogicGroupManager C_LGM
+cdef LogicGroupManager LGM
 
 
 cdef class LogicGroup:

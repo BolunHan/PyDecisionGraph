@@ -10,8 +10,8 @@ import traceback
 from collections.abc import Callable, Mapping
 from typing import Any, Self
 
+from . import ContextsNotFound
 from .abc import LogicGroup, LGM, LogicExpression, ExpressionCollection
-from .exc import ContextsNotFound
 
 __all__ = ['ContextLogicExpression', 'AttrExpression', 'MathExpression', 'ComparisonExpression', 'LogicalExpression']
 

@@ -4,8 +4,8 @@ from abc import ABCMeta
 from collections.abc import Callable
 from typing import Any, Self
 
+from . import TooManyChildren, TooFewChildren
 from .abc import LogicGroup, LogicNode, ActionNode, LGM, NO_CONDITION
-from .exc import TooManyChildren, TooFewChildren
 from .expression import ContextLogicExpression as _CLE, AttrExpression as _AE, MathExpression as _ME, ComparisonExpression as _CE, LogicalExpression as _LE
 
 __all__ = ['NoAction', 'LongAction', 'ShortAction', 'RootLogicNode', 'ContextLogicExpression', 'AttrExpression', 'MathExpression', 'ComparisonExpression', 'LogicalExpression']

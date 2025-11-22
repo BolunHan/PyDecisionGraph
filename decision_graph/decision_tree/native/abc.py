@@ -8,8 +8,7 @@ import traceback
 from collections.abc import Callable, Iterable
 from typing import Any, Self, final
 
-from . import LOGGER
-from .exc import TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
+from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
 
 LOGGER = LOGGER.getChild('abc')
 
@@ -36,12 +35,30 @@ ELSE_CONDITION = NO_CONDITION = ConditionElse()
 
 
 class LogicGroupManager(metaclass=Singleton):
-    """
-    A singleton class to manage caching and reuse of LogicGroup instances.
-    Keeps track of active LogicGroup instances using a cursor.
-    """
+    """Manager for LogicGroup instances and runtime expression context.
 
+    Handles caching and reuse of `LogicGroup` objects and manages runtime
+    stacks used while building and evaluating decision graphs.
+    """
     def __init__(self):
+        """Initialize the manager and its runtime state.
+
+        This constructor creates the internal lists and flags used to track the
+        active logic groups, active expression nodes, breakpoint nodes (early
+        exits), pending connections, and shelved snapshots.
+
+        Attributes (initialized):
+            _cache (dict): Name -> LogicGroup cache.
+            _active_groups (list[LogicGroup]): Stack of active logic groups.
+            _active_nodes (list[LogicNode]): Stack of active expression nodes.
+            _breakpoint_nodes (list[ActionNode]): Breakpoint action nodes recorded
+                during inspection-mode breaks.
+            _pending_connection_nodes (list[ActionNode]): Breakpoint nodes that
+                must be connected to the next entered expression node.
+            _shelved_state (list[dict]): Stack of saved snapshots for shelve/unshelve.
+            inspection_mode (bool): When True, expression entry checks are bypassed.
+            vigilant_mode (bool): If True, perform stricter validation when building graphs.
+        """
         # Dictionary to store cached LogicGroup instances
         self._cache = {}
 
@@ -55,13 +72,19 @@ class LogicGroupManager(metaclass=Singleton):
         self.vigilant_mode = False
 
     def __call__(self, name: str, cls: type[LogicGroup], **kwargs) -> LogicGroup:
-        """
-        Retrieve a cached LogicGroup instance or create a new one if not cached.
+        """Return a cached LogicGroup by name or create and cache a new one.
 
-        :param name: The name of the LogicGroup.
-        :param cls: The class of the LogicGroup to create if not cached.
-        :param kwargs: Additional arguments for LogicGroup initialization.
-        :return: A LogicGroup instance.
+        Args:
+            name: Logical name of the LogicGroup.
+            cls: Class to instantiate if no cached group exists.
+            **kwargs: Passed to the LogicGroup constructor.
+
+        Returns:
+            LogicGroup: The cached or newly created LogicGroup instance.
+
+        Notes:
+            This method makes the manager callable and is used by
+            ``LogicGroupMeta`` to centralize instance caching.
         """
         if name in self._cache:
             return self._cache[name]
@@ -72,25 +95,53 @@ class LogicGroupManager(metaclass=Singleton):
         return logic_group
 
     def __contains__(self, name: str) -> bool:
+        """Return True if a LogicGroup with `name` is cached.
+
+        Args:
+            name: Name of the LogicGroup.
+
+        Returns:
+            bool: True when present in the cache.
+        """
         return name in self._cache
 
     def __getitem__(self, name: str) -> LogicGroup:
+        """Get a cached LogicGroup by name.
+
+        Args:
+            name: Name of the LogicGroup to retrieve.
+
+        Returns:
+            LogicGroup: The cached group.
+
+        Raises:
+            KeyError: If the name is not present in the cache.
+        """
         return self._cache[name]
 
     def __setitem__(self, name: str, value: LogicGroup):
+        """Set or replace a cached LogicGroup.
+
+        Args:
+            name: Name under which to cache the LogicGroup.
+            value: The LogicGroup instance to cache.
+        """
         self._cache[name] = value
 
     def enter_logic_group(self, logic_group: LogicGroup):
-        """
-        Append a LogicGroup to the active list when it enters.
+        """Mark a `LogicGroup` as active by pushing it onto the active stack.
 
-        :param logic_group: The LogicGroup entering the context.
+        Args:
+            logic_group: The LogicGroup entering context.
+
+        Side effects:
+            Appends `logic_group` to ``self._active_groups`` so it becomes
+            available from ``active_logic_group``.
         """
         self._active_groups.append(logic_group)
 
     def exit_logic_group(self, logic_group: LogicGroup):
-        """
-        Handle the exit of a LogicGroup and ensure subsequent groups also exit.
+        """Handle the exit of a LogicGroup and ensure subsequent groups also exit.
 
         :param logic_group: The LogicGroup exiting the context.
         """
@@ -104,7 +155,14 @@ class LogicGroupManager(metaclass=Singleton):
                 self._pending_connection_nodes.append(node)
 
     def enter_expression(self, node: LogicNode):
-        if isinstance(self, ActionNode):
+        """Register that an expression node has become active.
+
+        :param node: The LogicNode being entered.
+        """
+        # If the node itself is an ActionNode, log an error (shouldn't enter a
+        # `with` block for an ActionNode). The old code checked `self` which is
+        # the manager and always false; check the `node` instead.
+        if isinstance(node, ActionNode):
             LOGGER.error('Enter the with code block of an ActionNode rejected. Check is this intentional?')
 
         if self._pending_connection_nodes:
@@ -128,12 +186,32 @@ class LogicGroupManager(metaclass=Singleton):
         self._active_nodes.append(node)
 
     def exit_expression(self, node: LogicNode):
+        """Unregister an expression node when its context exits.
+
+        Args:
+            node: The expression node being exited.
+
+        Raises:
+            ValueError: If `node` is not the current active expression (i.e., exit
+                order violated).
+        """
         if not self._active_nodes or self._active_nodes[-1] is not node:
             raise ValueError(f"The {node} is not currently active.")
 
         self._active_nodes.pop(-1)
 
     def shelve(self):
+        """Temporarily save and clear runtime node/breakpoint/pending state.
+
+        The current ``_active_nodes``, ``_breakpoint_nodes`` and
+        ``_pending_connection_nodes`` lists are copied into a snapshot that is
+        appended to ``_shelved_state``. Those lists are then cleared so a
+        separate, isolated evaluation or inspection context can be created.
+
+        Returns:
+            dict: The saved snapshot containing keys 'active_nodes',
+                'breakpoint_nodes' and 'pending_connection_nodes'.
+        """
         shelved_state = dict(
             active_nodes=self._active_nodes.copy(),
             breakpoint_nodes=self._breakpoint_nodes.copy(),
@@ -148,6 +226,19 @@ class LogicGroupManager(metaclass=Singleton):
         return shelved_state
 
     def unshelve(self, reset_active: bool = True, reset_breakpoints: bool = True, reset_pending: bool = True):
+        """Restore the most recent shelved snapshot.
+
+        Args:
+            reset_active: If True, clear ``_active_nodes`` before restoring the snapshot.
+            reset_breakpoints: If True, clear ``_breakpoint_nodes`` before restoring.
+            reset_pending: If True, clear ``_pending_connection_nodes`` before restoring.
+
+        Returns:
+            dict: The restored snapshot (same shape as returned by `shelve`).
+
+        Raises:
+            IndexError: If there is no shelved snapshot to unshelve.
+        """
         shelved_state = self._shelved_state.pop(-1)
 
         if reset_active:
@@ -166,8 +257,10 @@ class LogicGroupManager(metaclass=Singleton):
         return shelved_state
 
     def clear(self):
-        """
-        Clear the cache of LogicGroup instances and reset active groups.
+        """Clear cached LogicGroup instances and reset active stacks.
+
+        Use this to reset the manager to an empty state. Does not touch
+        ``_shelved_state``.
         """
         self._cache.clear()
         self._active_groups.clear()
@@ -175,6 +268,11 @@ class LogicGroupManager(metaclass=Singleton):
 
     @property
     def active_logic_group(self) -> LogicGroup | None:
+        """Return the currently active LogicGroup (top of active stack) or None.
+
+        Returns:
+            LogicGroup | None: The active LogicGroup or None if no groups active.
+        """
         if self._active_groups:
             return self._active_groups[-1]
 
@@ -182,6 +280,11 @@ class LogicGroupManager(metaclass=Singleton):
 
     @property
     def active_expression(self) -> LogicNode | None:
+        """Return the currently active expression node (top of active nodes) or None.
+
+        Returns:
+            LogicNode | None: The active expression node or None if none active.
+        """
         if self._active_nodes:
             return self._active_nodes[-1]
 

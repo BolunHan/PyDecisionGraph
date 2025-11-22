@@ -1,8 +1,8 @@
 import operator
 
 from .c_abc cimport LogicNodeFrame, PlaceholderNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
-from .exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
 from .c_collection cimport LogicMapping
+from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
 
 
 cdef class RootLogicNode(LogicNode):

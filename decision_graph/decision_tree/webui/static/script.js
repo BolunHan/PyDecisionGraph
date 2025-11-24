@@ -69,16 +69,29 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
 }
 
 function applyTreeLayoutWithMinSpacing(root, width, height) {
-    const MIN_ROW_HEIGHT = 200;   // minimal vertical space between levels
-    const MIN_COL_WIDTH = 500;   // minimal horizontal space between siblings
+    const MIN_ROW_HEIGHT = 200;   // Your existing vertical constraint
 
-    // First: do natural layout
-    const layout = d3.tree().size([width, height]);
+    // --- Step 1: Estimate max node width ---
+    let maxNodeWidth = 40; // fallback
+    root.each(d => {
+        const text = d.data.name || d.data.id || "unnamed";
+        // Estimate width from text (approximate; adjust multiplier if needed)
+        const estimatedWidth = Math.max(40, text.length * 8 + 16); // 8px per char, 8px padding each side
+        if (estimatedWidth > maxNodeWidth) {
+            maxNodeWidth = estimatedWidth;
+        }
+    });
+
+    // Ensure reasonable min and cap (avoid extreme values)
+    maxNodeWidth = Math.max(50, Math.min(300, maxNodeWidth));
+    const NODE_HORIZONTAL_SPACING = maxNodeWidth + 40; // 20px gap on each side
+
+    // --- Step 2: Apply D3 tree layout with nodeSize (horizontal spacing dynamic, vertical minimal) ---
+    // dy = 1 so vertical spacing is controlled separately below
+    const layout = d3.tree().nodeSize([NODE_HORIZONTAL_SPACING, 1]);
     layout(root);
 
-    // Now: enforce minimal spacing only if violated
-
-    // --- Enforce vertical min spacing ---
+    // --- Step 3: Preserve your vertical min-spacing logic (unchanged) ---
     if (root.height > 0) {
         const naturalRowHeight = height / root.height;
         if (naturalRowHeight < MIN_ROW_HEIGHT) {
@@ -88,25 +101,33 @@ function applyTreeLayoutWithMinSpacing(root, width, height) {
             root.each(d => {
                 d.y = scaleY(d.depth);
             });
+        } else {
+            // If natural spacing is sufficient, use original y from layout (which is depth * 1)
+            // But scale to full height for better use of space
+            const scaleY = d3.scaleLinear()
+                .domain([0, root.height])
+                .range([0, height]);
+            root.each(d => {
+                d.y = scaleY(d.depth);
+            });
         }
+    } else {
+        // Single node
+        root.each(d => d.y = height / 2);
     }
 
-    // --- Enforce horizontal min spacing ---
-    // D3's tree already spaces siblings, but we can widen if needed
-    // Simple approach: scale x if too dense
+    // --- Step 4: Optional – center the root horizontally if tree is narrow ---
+    // Not required, but improves appearance
     let xMin = Infinity, xMax = -Infinity;
     root.each(d => {
         if (d.x < xMin) xMin = d.x;
         if (d.x > xMax) xMax = d.x;
     });
-    const naturalWidth = xMax - xMin;
-    const minRequiredWidth = (root.descendants().length > 1 ? MIN_COL_WIDTH * 2 : MIN_COL_WIDTH);
-    if (naturalWidth < minRequiredWidth) {
-        const scaleX = d3.scaleLinear()
-            .domain([xMin, xMax])
-            .range([xMin * (minRequiredWidth / naturalWidth), xMax * (minRequiredWidth / naturalWidth)]);
+    const treeWidth = xMax - xMin;
+    const offset = (width - treeWidth) / 2;
+    if (isFinite(offset)) {
         root.each(d => {
-            d.x = scaleX(d.x);
+            d.x += offset - xMin;
         });
     }
 }
@@ -153,12 +174,14 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
             .attr("height", h);
     });
 
-    // Apply activation-based opacity to nodes
+    // Apply dimming ONLY if highlight mode is ON
+    const highlightToggle = document.getElementById('highlight-toggle');
+    const shouldDim = highlightToggle ? highlightToggle.checked : false;
     nodeUpdate.select("rect.node-rect")
-        .classed("node-rect-inactive", d => d.data.activated === false);
+        .classed("node-rect-inactive", d => shouldDim && d.data.activated === false);
 
     nodeUpdate.select("text.node-text")
-        .classed("node-text-inactive", d => d.data.activated === false);
+        .classed("node-text-inactive", d => shouldDim && d.data.activated === false);
 
     nodeUpdate.transition().duration(500)
         .attr("transform", d => `translate(${d.x},${d.y})`);
@@ -210,7 +233,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .attr("opacity", 0);
 
     const linkUpdate = linkSelection.merge(linkEnter);
-    linkUpdate.classed("link-inactive", d => d.activated === false);
+    linkUpdate.classed("link-inactive", d => shouldDim && d.activated === false);
 
     const linkGenerator = d3.linkVertical().x(d => d.x).y(d => d.y);
     linkUpdate.transition().duration(500)
@@ -229,8 +252,8 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
 
     labelEnter.append("rect")
         .attr("class", "link-condition-bg")
-        .attr("rx", 4)   // ← rounded corners for label background
-        .attr("ry", 4);  // ←
+        .attr("rx", 4)
+        .attr("ry", 4);
 
     labelEnter.append("text").attr("class", "link-condition");
 
@@ -261,10 +284,10 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     });
 
     labelUpdate.select("rect.link-condition-bg")
-        .classed("link-condition-bg-inactive", d => d.activated === false);
+        .classed("link-condition-bg-inactive", d => shouldDim && d.activated === false);
 
     labelUpdate.select("text.link-condition")
-        .classed("link-condition-text-inactive", d => d.activated === false);
+        .classed("link-condition-text-inactive", d => shouldDim && d.activated === false);
 
     labelUpdate.transition().duration(500).style("opacity", 1);
     labelSelection.exit().transition().duration(500).style("opacity", 0).remove();
@@ -434,3 +457,15 @@ function renderFilteredTree() {
 
     updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap);
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const toggle = document.getElementById('highlight-toggle');
+    if (toggle) {
+        toggle.addEventListener('change', function () {
+            // Re-render tree on toggle
+            if (typeof renderFilteredTree === 'function') {
+                renderFilteredTree();
+            }
+        });
+    }
+});

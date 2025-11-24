@@ -182,3 +182,51 @@ body {
 #node-info h3 {
     margin-top: 0;
 }
+
+/* Highlight toggle switch */
+#highlight-toggle {
+    opacity: 0;
+    position: absolute;
+    width: 0;
+    height: 0;
+}
+
+.highlight-switch-slider {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+}
+
+.highlight-switch-slider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #6c757d; /* gray = OFF */
+    border-radius: 10px;
+    transition: background-color 0.2s;
+}
+
+.highlight-switch-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+/* When checked: blue background, slider moves right */
+#highlight-toggle:checked + .highlight-switch-slider::before {
+    background-color: #007bff;
+}
+
+#highlight-toggle:checked + .highlight-switch-slider::after {
+    transform: translateX(16px);
+}

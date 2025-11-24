@@ -41,6 +41,7 @@ class DecisionTreeWebUi(object):
         self.current_tree_data: Optional[Dict[str, Any]] = None
         self.current_tree_id: Optional[str] = None
         self._setup_routes()
+        self._with_eval = False
 
     def _setup_routes(self):
         """Configures the Flask routes for the application."""
@@ -49,8 +50,8 @@ class DecisionTreeWebUi(object):
         def index():
             if self.current_tree_data is None:
                 # If no tree is loaded, render with empty data or an error message
-                return render_template('index.html', initial_tree_data={}, tree_id="empty")
-            return render_template('index.html', initial_tree_data=self.current_tree_data, tree_id=self.current_tree_id)
+                return render_template('index.html', initial_tree_data={}, tree_id="empty", with_eval=self._with_eval)
+            return render_template('index.html', initial_tree_data=self.current_tree_data, tree_id=self.current_tree_id, with_eval=self._with_eval)
 
         @self.app.route('/api/tree_data')
         def get_tree_data():
@@ -186,8 +187,10 @@ class DecisionTreeWebUi(object):
         browser_thread = threading.Thread(target=open_browser)
         browser_thread.start()
 
-        logger.info(f"Starting Flask server on {url}")
+        logger.info(f"Starting Flask server on {url} (with_eval={with_eval})")
         try:
+            # Pass with_eval to route context
+            self._with_eval = with_eval  # Store temporarily
             self.app.run(host=self.host, port=self.port, debug=self.debug, use_reloader=False, threaded=True)
         except KeyboardInterrupt:
             logger.info("Flask server stopped by user.")

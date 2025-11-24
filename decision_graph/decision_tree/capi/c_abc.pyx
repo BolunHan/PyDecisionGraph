@@ -443,7 +443,7 @@ cdef class LogicExpression(SkipContextsBlock):
         return LogicExpression.c_math_op(self, other, operator.ge, ">=", bool)
 
     def __repr__(self) -> str:
-        return f"LogicExpression(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"
+        return f"<{self.__class__.__name__}>(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"
 
 
 cdef class LogicGroupManager(Singleton):

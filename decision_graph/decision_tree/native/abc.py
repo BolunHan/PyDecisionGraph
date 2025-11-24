@@ -9,7 +9,7 @@ import traceback
 from collections.abc import Callable, Iterable
 from typing import Any, Self, final
 
-from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError, EmptyBlock
+from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError, EmptyBlock, BreakBlock
 
 LOGGER = LOGGER.getChild('abc')
 
@@ -107,7 +107,7 @@ class BinaryCondition(NodeEdgeCondition):
     def __hash__(self):
         return id(self)
 
-    @NodeEdgeCondition.value.setter
+    @value.setter
     def value(self, value):
         raise NotImplementedError()
 
@@ -252,7 +252,7 @@ class SkipContextsBlock(object):
 
 
 class LogicExpression(SkipContextsBlock):
-    def __init__(self, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
         super().__init__()
         self.expression = expression
         self.dtype = dtype
@@ -264,7 +264,7 @@ class LogicExpression(SkipContextsBlock):
     def eval(self, enforce_dtype: bool = False) -> Any:
         return self._eval(enforce_dtype)
 
-    def _eval(self, enforce_dtype: bool = False) -> Any:
+    def _eval(self, enforce_dtype: bool) -> Any:
         if isinstance(self.expression, (float, int, bool, str)):
             value = self.expression
         elif callable(self.expression):
@@ -391,327 +391,195 @@ class LogicExpression(SkipContextsBlock):
 
 
 class LogicGroupManager(metaclass=Singleton):
-    """Manager for LogicGroup instances and runtime expression context.
-
-    Handles caching and reuse of `LogicGroup` objects and manages runtime
-    stacks used while building and evaluating decision graphs.
-    """
-
     def __init__(self):
-        """Initialize the manager and its runtime state.
-
-        This constructor creates the internal lists and flags used to track the
-        active logic groups, active expression nodes, breakpoint nodes (early
-        exits), pending connections, and shelved snapshots.
-
-        Attributes (initialized):
-            _cache (dict): Name -> LogicGroup cache.
-            _active_groups (list[LogicGroup]): Stack of active logic groups.
-            _active_nodes (list[LogicNode]): Stack of active expression nodes.
-            _breakpoint_nodes (list[ActionNode]): Breakpoint action nodes recorded
-                during inspection-mode breaks.
-            _pending_connection_nodes (list[ActionNode]): Breakpoint nodes that
-                must be connected to the next entered expression node.
-            _shelved_state (list[dict]): Stack of saved snapshots for shelve/unshelve.
-            inspection_mode (bool): When True, expression entry checks are bypassed.
-            vigilant_mode (bool): If True, perform stricter validation when building graphs.
-        """
         # Dictionary to store cached LogicGroup instances
         self._cache = {}
 
-        # Cursor to track the currently active LogicGroups
+        # Stack cursors: top of stack is at index 0
         self._active_groups: list[LogicGroup] = []
         self._active_nodes: list[LogicNode] = []
-        self._breakpoint_nodes: list[ActionNode] = []  # action nodes, usually NoAction() nodes, marked as an early-exit (breakpoint) of a logic group
-        self._pending_connection_nodes: list[ActionNode] = []  # for those breakpoint-nodes, they will be activated when the corresponding logic group is finalized.
-        self._shelved_state = []  # shelve state to support temporally initialize a separate node-graph
+        self._breakpoint_nodes: list[BreakpointNode] = []
+        self._shelved_state: list[dict] = []
+
         self.inspection_mode = False
         self.vigilant_mode = False
 
     def __call__(self, name: str, cls: type[LogicGroup], **kwargs) -> LogicGroup:
-        """Return a cached LogicGroup by name or create and cache a new one.
+        reg_key = (cls.__module__, cls.__qualname__)
+        registry = self._cache.get(reg_key)
+        if registry is None:
+            registry = self._cache[reg_key] = {}
 
-        Args:
-            name: Logical name of the LogicGroup.
-            cls: Class to instantiate if no cached group exists.
-            **kwargs: Passed to the LogicGroup constructor.
+        if name in registry:
+            return registry[name]
 
-        Returns:
-            LogicGroup: The cached or newly created LogicGroup instance.
-
-        Notes:
-            This method makes the manager callable and is used by
-            ``LogicGroupMeta`` to centralize instance caching.
-        """
-        if name in self._cache:
-            return self._cache[name]
-
-        # Create a new instance and add it to the cache
         logic_group = cls(name=name, **kwargs)
-        self._cache[name] = logic_group
+        registry[name] = logic_group
         return logic_group
 
-    def __contains__(self, name: str) -> bool:
-        """Return True if a LogicGroup with `name` is cached.
+    def __contains__(self, instance: LogicGroup) -> bool:
+        cls = instance.__class__
+        name = instance.name
+        reg_key = (cls.__module__, cls.__qualname__)
+        registry = self._cache.get(reg_key)
+        if registry is None:
+            return False
+        return name in registry
 
-        Args:
-            name: Name of the LogicGroup.
+    def _lg_enter(self, logic_group: LogicGroup):
+        # Set parent if there's an active group
+        if self._active_groups:
+            logic_group.parent = self._active_groups[0]
+        self._active_groups.insert(0, logic_group)
 
-        Returns:
-            bool: True when present in the cache.
-        """
-        return name in self._cache
+    def _lg_exit(self, logic_group: LogicGroup = None):
+        if not self._active_groups:
+            raise RuntimeError("No active LogicGroup to exit.")
 
-    def __getitem__(self, name: str) -> LogicGroup:
-        """Get a cached LogicGroup by name.
+        current = self._active_groups[0]
+        if logic_group is not None and current is not logic_group:
+            raise AssertionError("The LogicGroup is not currently active.")
+        # If logic_group is None, we exit the top one (current)
 
-        Args:
-            name: Name of the LogicGroup to retrieve.
-
-        Returns:
-            LogicGroup: The cached group.
-
-        Raises:
-            KeyError: If the name is not present in the cache.
-        """
-        return self._cache[name]
-
-    def __setitem__(self, name: str, value: LogicGroup):
-        """Set or replace a cached LogicGroup.
-
-        Args:
-            name: Name under which to cache the LogicGroup.
-            value: The LogicGroup instance to cache.
-        """
-        self._cache[name] = value
-
-    def enter_logic_group(self, logic_group: LogicGroup):
-        """Mark a `LogicGroup` as active by pushing it onto the active stack.
-
-        Args:
-            logic_group: The LogicGroup entering context.
-
-        Side effects:
-            Appends `logic_group` to ``self._active_groups`` so it becomes
-            available from ``active_logic_group``.
-        """
-        self._active_groups.append(logic_group)
-
-    def exit_logic_group(self, logic_group: LogicGroup):
-        """Handle the exit of a LogicGroup and ensure subsequent groups also exit.
-
-        :param logic_group: The LogicGroup exiting the context.
-        """
-        if not self._active_groups or self._active_groups[-1] is not logic_group:
-            raise ValueError("The LogicGroup is not currently active.")
-
-        self._active_groups.pop(-1)
-
+        # Activate pending breakpoints tied to this group
         for node in self._breakpoint_nodes:
-            if getattr(node, 'break_from') is logic_group:
-                self._pending_connection_nodes.append(node)
+            if node.break_from is current:
+                node.await_connection = True
 
-    def enter_expression(self, node: LogicNode):
-        """Register that an expression node has become active.
+        self._active_groups.pop(0)
 
-        :param node: The LogicNode being entered.
-        """
-        # If the node itself is an ActionNode, log an error (shouldn't enter a
-        # `with` block for an ActionNode). The old code checked `self` which is
-        # the manager and always false; check the `node` instead.
-        if isinstance(node, ActionNode):
-            LOGGER.error('Enter the with code block of an ActionNode rejected. Check is this intentional?')
+    def _ln_enter(self, logic_node: LogicNode):
+        if isinstance(logic_node, ActionNode):
+            LOGGER.error('Enter the with code block of an ActionNode rejected. Check if this is intentional?')
+            return
 
-        if self._pending_connection_nodes:
-            from .node import NoAction
+        # Connect and remove all awaiting breakpoint nodes
+        for breakpoint_node in self._breakpoint_nodes[:]:
+            if breakpoint_node.await_connection:
+                breakpoint_node._connect(logic_node)
+                self._breakpoint_nodes.remove(breakpoint_node)
 
-            for _exit_node in self._pending_connection_nodes:
-                if isinstance(_exit_node, NoAction):
-                    if (parent := _exit_node.parent) is None:
-                        raise NodeNotFountError('ActionNode must have a parent node!')
-                    parent.replace(original_node=_exit_node, new_node=node)
-                else:
-                    _exit_node.edges.append(NO_CONDITION)
-                    _exit_node.nodes[NO_CONDITION] = node
+        # If no active node, push directly
+        if not self._active_nodes:
+            self._active_nodes.insert(0, logic_node)
+            return
 
-            self._pending_connection_nodes.clear()
+        # Otherwise, get current active node (top = index 0)
+        active_node = self._active_nodes[0]
+        placeholder = active_node._get_placeholder()
+        active_node._replace(placeholder, logic_node)
+        self._active_nodes.insert(0, logic_node)
 
-        if (active_node := self.active_expression) is not None:
-            active_node: LogicNode = active_node
-            active_node.subordinates.append(node)
-
-        self._active_nodes.append(node)
-
-    def exit_expression(self, node: LogicNode):
-        """Unregister an expression node when its context exits.
-
-        Args:
-            node: The expression node being exited.
-
-        Raises:
-            ValueError: If `node` is not the current active expression (i.e., exit
-                order violated).
-        """
-        if not self._active_nodes or self._active_nodes[-1] is not node:
-            raise ValueError(f"The {node} is not currently active.")
-
-        self._active_nodes.pop(-1)
+    def _ln_exit(self, logic_node: LogicNode):
+        if not self._active_nodes or self._active_nodes[0] is not logic_node:
+            raise AssertionError("The LogicNode is not currently active.")
+        self._active_nodes.pop(0)
 
     def shelve(self):
-        """Temporarily save and clear runtime node/breakpoint/pending state.
+        """Temporarily save and clear runtime state."""
+        shelved = {
+            'active_groups': self._active_groups.copy(),
+            'active_nodes': self._active_nodes.copy(),
+            'breakpoint_nodes': self._breakpoint_nodes.copy(),
+            'inspection_mode': self.inspection_mode,
+            'vigilant_mode': self.vigilant_mode,
+        }
+        self._shelved_state.insert(0, shelved)
 
-        The current ``_active_nodes``, ``_breakpoint_nodes`` and
-        ``_pending_connection_nodes`` lists are copied into a snapshot that is
-        appended to ``_shelved_state``. Those lists are then cleared so a
-        separate, isolated evaluation or inspection context can be created.
+        # Reset to clean state
+        self._active_groups = []
+        self._active_nodes = []
+        self._breakpoint_nodes = []
 
-        Returns:
-            dict: The saved snapshot containing keys 'active_nodes',
-                'breakpoint_nodes' and 'pending_connection_nodes'.
-        """
-        shelved_state = dict(
-            active_nodes=self._active_nodes.copy(),
-            breakpoint_nodes=self._breakpoint_nodes.copy(),
-            pending_connection_nodes=self._pending_connection_nodes.copy()
-        )
+        return shelved
 
-        self._active_nodes.clear()
-        self._breakpoint_nodes.clear()
-        self._pending_connection_nodes.clear()
+    def unshelve(self):
+        """Restore the most recent shelved state."""
+        if not self._shelved_state:
+            raise RuntimeError("No shelved state to unshelve.")
 
-        self._shelved_state.append(shelved_state)
-        return shelved_state
+        state = self._shelved_state.pop(0)
 
-    def unshelve(self, reset_active: bool = True, reset_breakpoints: bool = True, reset_pending: bool = True):
-        """Restore the most recent shelved snapshot.
-
-        Args:
-            reset_active: If True, clear ``_active_nodes`` before restoring the snapshot.
-            reset_breakpoints: If True, clear ``_breakpoint_nodes`` before restoring.
-            reset_pending: If True, clear ``_pending_connection_nodes`` before restoring.
-
-        Returns:
-            dict: The restored snapshot (same shape as returned by `shelve`).
-
-        Raises:
-            IndexError: If there is no shelved snapshot to unshelve.
-        """
-        shelved_state = self._shelved_state.pop(-1)
-
-        if reset_active:
-            self._active_nodes.clear()
-
-        if reset_breakpoints:
-            self._breakpoint_nodes.clear()
-
-        if reset_pending:
-            self._pending_connection_nodes.clear()
-
-        self._active_nodes[:0] = shelved_state['active_nodes']
-        self._breakpoint_nodes[:0] = shelved_state['breakpoint_nodes']
-        self._pending_connection_nodes[:0] = shelved_state['pending_connection_nodes']
-
-        return shelved_state
+        self._active_groups = state['active_groups']
+        self._active_nodes = state['active_nodes']
+        self._breakpoint_nodes = state['breakpoint_nodes']
+        self.inspection_mode = state['inspection_mode']
+        self.vigilant_mode = state['vigilant_mode']
 
     def clear(self):
-        """Clear cached LogicGroup instances and reset active stacks.
-
-        Use this to reset the manager to an empty state. Does not touch
-        ``_shelved_state``.
-        """
+        """Clear cache and reset all stacks."""
         self._cache.clear()
         self._active_groups.clear()
         self._active_nodes.clear()
+        self._breakpoint_nodes.clear()
 
     @property
-    def active_logic_group(self) -> LogicGroup | None:
-        """Return the currently active LogicGroup (top of active stack) or None.
-
-        Returns:
-            LogicGroup | None: The active LogicGroup or None if no groups active.
-        """
-        if self._active_groups:
-            return self._active_groups[-1]
-
-        return None
+    def active_group(self) -> LogicGroup | None:
+        return self._active_groups[0] if self._active_groups else None
 
     @property
-    def active_expression(self) -> LogicNode | None:
-        """Return the currently active expression node (top of active nodes) or None.
-
-        Returns:
-            LogicNode | None: The active expression node or None if none active.
-        """
-        if self._active_nodes:
-            return self._active_nodes[-1]
-
-        return None
+    def active_node(self) -> LogicNode | None:
+        return self._active_nodes[0] if self._active_nodes else None
 
 
 LGM = LogicGroupManager()
 
 
-class LogicGroupMeta(type):
-    """
-    A metaclass for LogicGroup that manages caching of instances.
-    """
-    _registry_ = {}
+class LogicGroup(object):
 
-    def __new__(cls, name, bases, dct):
-        new_class = super().__new__(cls, name, bases, dct)
-        cls._registry_[name] = new_class
-        return new_class
-
-    def __call__(cls, name, *args, **kwargs):
-        if name is None:
-            raise ValueError("LogicGroup instances must have a 'name'.")
-
-        # Check the cache for an existing instance
-        if name in LGM:
-            return LGM[name]
-
-        # Create a new instance and cache it
-        instance = super().__call__(name=name, *args, **kwargs)
-        LGM[name] = instance
-        return instance
-
-    @property
-    def registry(self):
-        return self._registry_
-
-
-class LogicGroup(object, metaclass=LogicGroupMeta):
-    """
-    A minimal context manager to save/restore state from the `.contexts` dict.
-
-    A logic group maintains no status itself; the status should be restored
-    from the outer `.contexts` dict.
-    """
-
-    def __init__(self, name: str, parent: Self = None, contexts: dict[str, Any] = None):
+    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict[str, Any] = None, **kwargs):
         self.name = name
+
+        if self in LGM:
+            raise RuntimeError(f"LogicGroup {name} of type {self.__class__.__name__} already exists!")
+
         self.parent = parent
-        self.Break = type(f"{self.__class__.__name__}Break", (Exception,), {})  # Assign Break at instance level
+        self.Break = type(f"{self.__class__.__name__}Break", (BreakBlock,), {})
+        self.contexts = {} if contexts is None else contexts
 
-        # a root logic group
-        if parent is None:
-            info_dict = {}
-            if contexts is None:
-                contexts = {}
-        # try to recover from parent
-        else:
-            info_dict = parent._sub_logics.setdefault(name, {})
-            logic_type = self.__class__.__name__
-            assert info_dict.setdefault('logic_type', logic_type) == logic_type, f"Logic {info_dict['logic_type']} already registered in {parent.name}!"
-            contexts = info_dict.setdefault('contexts', {} if contexts is None else contexts)
+    def _break_inspection(self) -> None:
+        active_node = LGM._active_nodes[0] if LGM._active_nodes else None
 
-        self.contexts: dict[str, Any] = contexts
-        self._sub_logics = info_dict.setdefault('sub_logics', {})
+        if not active_node:
+            return
+
+        if not active_node.nodes:
+            if LGM.vigilant_mode:
+                raise TooFewChildren()
+            else:
+                from .node import NoAction
+                NoAction()
+
+        last_node = active_node.last_leaf
+        assert isinstance(last_node, ActionNode)
+        last_node.break_from = self
+        LGM._breakpoint_nodes.append(last_node)
+
+    def _break_active(self) -> None:
+        active_group = LGM._active_groups[-1] if LGM._active_groups else None
+        if not active_group:
+            raise RuntimeError("No active LogicGroup to break from.")
+        if active_group is not self:
+            raise IndexError('Not breaking from the top active LogicGroup.')
+        raise self.Break()
+
+    def _break_runtime(self) -> None:
+        if not LGM._active_nodes:
+            raise RuntimeError("No active LogicGroup to break from.")
+
+        if self not in LGM._active_groups:
+            raise ValueError(f"Break scope {self} not in active LogicGroup stack.")
+
+        while LGM._active_groups:
+            active_group = LGM._active_groups[-1]
+            active_group._break_active()
+            if active_group is self:
+                break
 
     def __repr__(self):
         return f'<{self.__class__.__name__}>({self.name!r})'
 
-    def __enter__(self) -> Self:
+    def __enter__(self):
         LGM.enter_logic_group(self)
         return self
 
@@ -719,682 +587,514 @@ class LogicGroup(object, metaclass=LogicGroupMeta):
         LGM.exit_logic_group(self)
 
         if exc_type is None:
-            return
+            return None
 
-        if exc_type is self.Break:
+        if issubclass(exc_type, self.Break):
             return True
-
-        # Explicitly re-raise other exceptions
         return False
 
-    def break_(self, scope: LogicGroup = None):
+    @classmethod
+    def break_(cls, scope: LogicGroup = None):
         if scope is None:
-            scope = self
+            scope = LGM.active_group
 
-        # will not break from scope in inspection mode
+        if scope is None:
+            raise RuntimeError("No active LogicGroup to break from.")
+
         if LGM.inspection_mode:
-            active_node = LGM.active_expression
-
-            if active_node is not None:
-                active_node: LogicNode
-                if not active_node.nodes:
-                    if LGM.vigilant_mode:
-                        raise TooFewChildren()
-                    else:
-                        LOGGER.warning('Must have at least one action node before breaking from logic group. A NoAction node will be automatically assigned.')
-                        from .node import NoAction
-                        NoAction()
-
-                last_node = active_node.last_leaf
-                assert isinstance(last_node, ActionNode), NodeValueError('An ActionNode is required before breaking a LogicGroup.')
-                last_node.break_from = scope
-                LGM._breakpoint_nodes.append(last_node)
-            return
-
-        raise scope.Break()
-
-    @property
-    def sub_logics(self) -> dict[str, Self]:
-        sub_logic_instances = {}
-        for logic_name, info in self._sub_logics.items():
-            logic_type = info["logic_type"]
-
-            # Dynamically retrieve the class using meta registry
-            logic_class = self.__class__.registry.get(logic_type)
-
-            if logic_class is None:
-                raise ValueError(f"Class {logic_type} not found in registry.")
-
-            # Get the __init__ method's signature
-            init_signature = inspect.signature(logic_class.__init__)
-            init_params = init_signature.parameters
-
-            # Prepare arguments for the sub-logic initialization
-            init_args = {}
-            for param_name, param in init_params.items():
-                if param_name == "self":
-                    continue  # Skip 'self'
-
-                if param_name in info:
-                    init_args[param_name] = info[param_name]
-                elif param_name == "name":
-                    init_args["name"] = logic_name
-                elif param_name == "parent":
-                    init_args["parent"] = self
-                elif param_name == "contexts":
-                    LOGGER.warning(f"Contexts dict not found for {logic_name}!")
-                    init_args["contexts"] = {}
-                elif param.default == inspect.Parameter.empty:
-                    # Missing a required argument that cannot be inferred
-                    raise TypeError(f"Missing required argument '{param_name}' for {logic_type}.")
-
-            # Instantiate the sub-logic
-            sub_logic_instance = logic_class(**init_args)
-            sub_logic_instances[logic_name] = sub_logic_instance
-
-        return sub_logic_instances
-
-
-class ExpressionCollection(LogicGroup):
-    def __init__(self, data: Any, name: str, **kwargs):
-        if 'logic_group' not in kwargs:
-            logic_group = kwargs.get("logic_group")
+            scope._break_inspection()
         else:
-            logic_group = LGM.active_logic_group
+            scope._break_runtime()
 
-        super().__init__(
-            name=name if name is not None else f'{logic_group.name}.{self.__class__.__name__}',
-            parent=logic_group
-        )
+    def break_active(self):
+        self._break_active()
 
-        self.data = self.contexts.setdefault('data', data)
+    def break_inspection(self):
+        self._break_inspection()
+
+    def break_runtime(self):
+        self._break_runtime()
 
 
 class LogicNode(LogicExpression):
-    def __init__(
-            self,
-            expression: float | int | bool | Exception | Callable[[], Any],
-            dtype: type = None,
-            repr: str = None,
-    ):
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
         super().__init__(expression=expression, dtype=dtype, repr=repr)
 
+        self.subordinates = []
+        self.condition_to_parent = NO_CONDITION
+        self.parent = None
+        self.children = {}
         self.labels = [_.name for _ in LGM._active_groups]
-        self.nodes: dict[Any, LogicNode] = {}  # Dict[condition, LogicExpression]
-        self.parent: LogicNode | None = None
-        self.edges = []  # list of condition
-        self.subordinates = []  # all the subordinate nodes initialized inside this node with statement
+        self.autogen = False
 
-    def _entry_check(self) -> Any:
-        """
-        If `LGM.inspection_mode` is active, always returns `True`.
-        Which guarantees the entrance the with code block
+    def _infer_condition(self, child: LogicNode) -> NodeEdgeCondition:
+        size = len(self.subordinates)
 
-        Returns:
-            Any: Evaluation result.
-        """
-        if LGM.inspection_mode:
-            return True
-        return self.eval()
+        # Case 1: No child node registered, the first child is always TRUE unless specified
+        if size == 0:
+            return TRUE_CONDITION
 
-    def __rshift__(self, expression: Self):
-        """Overloads >> operator for adding child nodes."""
-        self.append(expression)
-        return expression  # Allow chaining
+        last_node = self.subordinates[0]
+        last_condition = last_node.condition_to_parent
 
-    def __call__(self, default=None) -> Any:
-        """
-        Recursively evaluates the decision tree starting from this node.
+        # Case 1: Only 1 child node registered, the second child is always opposite of the first
+        if size == 1 and isinstance(last_condition, BinaryCondition):
+            if last_condition is TRUE_CONDITION:
+                return FALSE_CONDITION
+            else:
+                return TRUE_CONDITION
 
-        Keyword Args:
-            default (Any, optional): Fallback value if no matching condition is found.
+        # Case 2: Only 1 child node registered, and the first condition is not specified.
+        if size == 1 and isinstance(last_condition, ConditionElse):
+            # Case 2.1: If the child is auto generated, we can assume this child should be TRUE
+            if last_node.autogen:
+                return TRUE_CONDITION
+            # Case 2.2: Otherwise, we cannot infer the condition
 
-        Returns:
-            final_value (Any): The evaluated result of the tree.
+        if size == 1:
+            raise EdgeValueError('Cannot auto-infer condition from single existing non-binary condition.')
 
-        Raises:
-            ValueError: If no matching condition is found and no default value is provided.
-        """
+        second_node = self.subordinates[1]
+        second_condition = second_node.condition_to_parent
+        # Case 3: check if any 2 node is from autogeneration
+        # Returning the condition of the auto-generated node, so that it can be replaced later.
+        if last_node.autogen:
+            return last_condition
+        elif second_node.autogen:
+            return second_condition
 
-        if default is None:
-            from .node import NoAction
-            default = NoAction(auto_connect=False)
+        if size > 2:
+            raise TooManyChildren(size)
+        # Case 4: both conditions are non-binary, cannot infer
+        raise EdgeValueError('Cannot auto-infer condition for non-binary existing condition.')
 
-        if _ins_mode := LGM.inspection_mode:
-            LOGGER.info('LGM inspection mode temporally disabled to evaluate correctly.')
-            LGM.inspection_mode = False
+    def _get_placeholder(self) -> PlaceholderNode:
+        if not self.subordinates:
+            placeholder = PlaceholderNode(auto_connect=False)
+            self._append(placeholder, TRUE_CONDITION)
+            return placeholder
 
-        _, path = self.eval_recursively(default=default)
-        LGM.inspection_mode = _ins_mode
-        if not path:
-            raise TooFewChildren()
+        # Case 2: Traverse the stack to find existing placeholder
+        for node in self.subordinates:
+            if isinstance(node, PlaceholderNode):
+                return node
 
-        leaf = path[-1]
-        return leaf.eval()
+        # Case 3: No existing placeholder, create a new one with AUTO_CONDITION.
+        placeholder = PlaceholderNode(auto_connect=False)
+        # c_append will validate and infer the condition, and raise error as we intended.
+        self._append(placeholder, AUTO_CONDITION)
+        return placeholder
 
-    def __repr__(self):
-        return f'<{self.__class__.__name__}>({self.repr!r})'
+    def _append(self, child: LogicNode, condition: NodeEdgeCondition) -> None:
+        if condition is None:
+            raise ValueError("LogicNode must have an valid edge condition.")
 
-    def _on_enter(self):
-        active_node: LogicNode = LGM.active_expression
+        if condition is AUTO_CONDITION:
+            condition = self._infer_condition(child)
 
-        if active_node is None:
-            return LGM.enter_expression(node=self)
+        if condition in self.children:
+            raise KeyError(f"Edge {condition} already registered.")
 
-        match active_node.subordinates:
-            case []:
-                active_node.append(expression=self, edge_condition=True)
+        self.children[condition] = child
+        self.subordinates.insert(0, child)
+        child.parent = self
+        child.condition_to_parent = condition
 
-            case [*_, last_node] if not last_node.nodes:
-                raise TooFewChildren()
+    def _overwrite(self, new_node: LogicNode, condition: NodeEdgeCondition) -> None:
+        if condition is None:
+            raise ValueError("LogicNode must have an valid edge condition.")
 
-            case [*_, last_node] if len(last_node.nodes) == 1:
-                edge_condition = last_node.last_edge
-                if not isinstance(edge_condition, bool):
-                    raise EdgeValueError(f'{last_node} Edge condition must be a Boolean!')
-                last_node.append(expression=self, edge_condition=not edge_condition)
+        if condition is AUTO_CONDITION:
+            condition = self._infer_condition(new_node)
 
-            case [*_, last_node] if len(last_node.nodes) == 2:
-                from .node import NoAction
-                edge_condition, child = last_node.last_edge, last_node.last_node
-                if not isinstance(child, NoAction):
-                    raise NodeValueError(f'{last_node} second child node must be a NoAction node!')
-                last_node.pop(-1)
-                last_node.append(expression=self, edge_condition=edge_condition)
+        if condition not in self.children:
+            raise KeyError(f"Edge {condition} not registered, cannot overwrite.")
 
-            case [*_, last_node] if len(last_node.nodes) > 2:
-                raise TooManyChildren()
+        original_node = self.children[condition]
+        self.children[condition] = new_node
+        new_node.parent = self
+        new_node.condition_to_parent = condition
 
-        if isinstance(self, ActionNode):
-            pass
-        else:
-            LGM.enter_expression(node=self)
+        self.subordinates[self.subordinates.index(original_node)] = new_node
+        original_node.parent = None
+        original_node.condition_to_parent = NO_CONDITION
 
-    def _on_exit(self):
-        self.fill_binary_branch(node=self)
-        LGM.exit_expression(node=self)
+    def _replace(self, original_node: LogicNode, new_node: LogicNode) -> None:
+        if original_node in LGM._active_nodes:
+            raise RuntimeError('Must not replace active node. Existing first required.')
 
-    @classmethod
-    def fill_binary_branch(cls, node: LogicNode, with_action: ActionNode = None):
-        """
-        Ensures the decision tree node has both True and False branches.
+        idx = self.subordinates.index(original_node)
+        self.subordinates[idx] = new_node
 
-        Args:
-            node (LogicNode): The node to check.
-            with_action (ActionNode, optional): A default action node to add if missing.
-        """
-        if with_action is None:
-            from .node import NoAction
-            with_action = NoAction(auto_connect=False)
+        self.children[original_node.condition_to_parent] = new_node
+        new_node.parent = self
+        new_node.condition_to_parent = original_node.condition_to_parent
 
-        if isinstance(node, ActionNode):
-            return
+        original_node.parent = None
+        original_node.condition_to_parent = NO_CONDITION
 
-        match len(node.nodes):
-            case 0:
-                LOGGER.warning(f"It is rear that {node} having no True branch. Check the <with> statement code block to see if this is intended.")
-                node.append(expression=with_action, edge_condition=False)
-            case 1:
-                edge_condition = node.last_edge
-                if not isinstance(edge_condition, bool):
-                    raise EdgeValueError(f'{node} Edge condition must be a Boolean!')
-                node.append(expression=with_action, edge_condition=not edge_condition)
-            case _:
-                raise TooManyChildren()
+    def _validate(self):
+        if len(self.subordinates) != len(self.children):
+            raise NodeValueError('Subordinate stack size does not match registered children.')
 
-    @classmethod
-    def traverse(cls, node: Self, G=None, node_map: dict[int, Self] = None, parent: Self = None, edge_condition: Any = None):
-        """
-        Recursively traverses the decision tree, adding nodes and edges to the graph.
+        for condition, child in self.children.items():
+            if child.condition_to_parent is not condition:
+                raise EdgeValueError('Child node condition does not match registered condition.')
+            if child not in self.subordinates:
+                raise ValueError(f"LogicNode {child} not found in stack")
 
-        Args:
-            node (LogicNode): The current node being traversed.
-            G (networkx.DiGraph, optional): The graph being constructed. Defaults to a new graph.
-            node_map (dict, optional): A dictionary mapping node IDs to LogicNode instances.
-            parent (LogicNode, optional): The parent node of the current node.
-            edge_condition (Any, optional): The condition from parent to this node.
-        """
-        import networkx as nx
-
-        if G is None:
-            G = nx.DiGraph()
-        if node_map is None:
-            node_map = {}
-
-        node_id = id(node)
-        # if node_id in node_map:
-        #     return  # Avoid duplicate traversal
-
-        node_map[node_id] = node
-        G.add_node(node_id, description=node.repr)
-
-        if parent is not None:
-            edge_label = str(edge_condition)  # Use the edge condition from the parent's children list
-            G.add_edge(id(parent), node_id, label=edge_label)
-
-        for edge_condition, child in node.nodes.items():
-            cls.traverse(node=child, G=G, node_map=node_map, parent=node, edge_condition=edge_condition)
-
-        return G, node_map
-
-    def append(self, expression: LogicNode, edge_condition: Any = None):
-        """
-        Adds a child node to the current node.
-
-        Args:
-            expression (LogicNode): The child node.
-            edge_condition (Any, optional): The condition for branching.
-
-        Raises:
-            ValueError: If no edge condition is provided.
-        """
-        if edge_condition is None:
-            edge_condition = NO_CONDITION
-
-        if edge_condition is None:
-            raise ValueError("Child LogicExpression must have an edge condition.")
-
-        if edge_condition in self.nodes:
-            raise ValueError(f"Edge {edge_condition} already exists.")
-
-        self.edges.append(edge_condition)
-        self.nodes[edge_condition] = expression
-        expression.parent = self
-
-    def pop(self, index: int = -1) -> tuple[Any, LogicNode]:
-        edge = self.edges.pop(index)
-        node = self.nodes.pop(edge)
-        return edge, node
-
-    def replace(self, original_node: LogicNode, new_node: LogicNode):
-        for condition, node in self.nodes.items():
-            if node is original_node:
-                break
-        else:
-            raise NodeNotFountError()
-
-        self.nodes[condition] = new_node
-
-    def eval_recursively(self, **kwargs):
-        """
-        Recursively evaluates the decision tree starting from this node.
-
-        Keyword Args:
-            path (list, optional): Tracks the decision path during evaluation. Defaults to a new list.
-            default (Any, optional): Fallback value if no matching condition is found.
-
-        Returns:
-            tuple: (final_value, decision_path)
-                - final_value (Any): The evaluated result of the tree.
-                - decision_path (list): The sequence of nodes traversed during evaluation.
-
-        Raises:
-            ValueError: If no matching condition is found and no default value is provided.
-        """
-        if 'path' in kwargs:
-            path = kwargs['path']
-        else:
+    def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:
+        if path is None:
             path = [self]
+        else:
+            path.append(self)
 
-        value = self.eval()
-
-        if not self.nodes:
+        value = self._eval(False)
+        if self.is_leaf:
             return value, path
 
-        for condition, child in self.nodes.items():
-            if condition == value or condition is NO_CONDITION:
-                return child.eval_recursively(path=path)
+        else_branch = None
+        for child in self.subordinates:
+            condition = child.condition_to_parent
+            if condition is ELSE_CONDITION:
+                else_branch = child
+            elif condition is NO_CONDITION or value == condition.value:
+                return child._eval_recursively(path, default)
 
-        if 'default' in kwargs:
-            default = kwargs['default']
-            LOGGER.info(f"No matching condition found for value {value} at '{self.repr}', using default {default}.")
-            return default, path
+        if else_branch is not None:
+            return else_branch._eval_recursively(path, default)
 
-        raise ValueError(f"No matching condition found for value {value} at '{self.repr}'.")
+        if default is NO_DEFAULT:
+            raise ValueError(f"No matching condition found for value {value} at '{self.repr}'.")
+
+        LOGGER.warning(f"No matching condition found for value {value} at '{self.repr}', using default {default}.")
+        return default, path
+
+    def _auto_fill(self) -> None:
+        size = len(self.children)
+        no_action = NoAction(auto_connect=False)
+
+        # Case 1: No child node registered
+        if size == 0:
+            LOGGER.warning(f"{self} having no [True] branch. Check the <with> statement code block to see if this is intended.")
+            self._append(no_action, NO_CONDITION)
+            return
+
+        node = self.subordinates[0]
+        condition = node.condition_to_parent
+
+        # Case 2: Single child node
+        if size == 1:
+            # Case 2.1: single child with no condition
+            if condition is NO_CONDITION:
+                return
+            # Case 2.2: single child deliberately set to ELSE
+            if condition is ELSE_CONDITION:
+                LOGGER.warning(f"{self} having no [True] branch. Check the <with> statement code block to see if this is intended.")
+                self._overwrite(no_action, TRUE_CONDITION)
+                return
+            # Case 2.4: single child with binary condition
+            if isinstance(condition, BinaryCondition):
+                self._append(no_action, ~condition)
+                return
+
+        # Case 3: Double Node
+        second_node = self.subordinates[1]
+        second_condition = second_node.condition_to_parent
+
+        if size == 2:
+            # Case 3.1: unconditioned branch not allowed with two branches
+            if condition is NO_CONDITION or second_condition is NO_CONDITION:
+                raise TooManyChildren('Cannot have unconditioned branch when there are two branches.')
+            # Case 3.2: one branch is ELSE — valid
+            if condition is ELSE_CONDITION or second_condition is ELSE_CONDITION:
+                return
+            # Case 3.3: both binary — valid
+            if isinstance(condition, BinaryCondition) and isinstance(second_condition, BinaryCondition):
+                return
+            # Case 3.4: both non-binary — add protective else
+            if not isinstance(condition, BinaryCondition) and not isinstance(second_condition, BinaryCondition):
+                self._append(no_action, ELSE_CONDITION)
+                return
+            raise EdgeValueError(f'Conflicting conditions detected, {condition} and {second_condition}.')
+
+        # Case 4: Multiple nodes (>2)
+        else_detected = False
+        for cond in self.children:
+            if cond is NO_CONDITION:
+                raise TooManyChildren('Cannot have unconditioned branch when there are multiple branches.')
+            if cond is ELSE_CONDITION:
+                else_detected = True
+            if isinstance(cond, BinaryCondition):
+                raise TooManyChildren('Cannot have binary branch when there are more than 2 branches.')
+        if not else_detected:
+            self._append(no_action, ELSE_CONDITION)
+
+    def _consolidate_placeholder(self) -> int:
+        placeholder_count = 0
+        i = 0
+        while i < len(self.subordinates):
+            node = self.subordinates[i]
+            if isinstance(node, PlaceholderNode):
+                self._replace(node, NoAction(auto_connect=False))
+                placeholder_count += 1
+                # no increment: replacement maintains list length; continue checking same index
+            else:
+                i += 1
+        return placeholder_count
+
+    def _entry_check(self) -> bool:
+        if LGM.inspection_mode:
+            return True
+        return bool(self._eval(False))
+
+    def _on_enter(self) -> None:
+        # Placeholders must be in reversed order, so that locating placeholder works correctly.
+        self._append(PlaceholderNode(auto_connect=False), FALSE_CONDITION)
+        self._append(PlaceholderNode(auto_connect=False), TRUE_CONDITION)
+        LGM._ln_enter(self)
+
+    def _on_exit(self) -> None:
+        self._validate()
+        self._auto_fill()
+        self._consolidate_placeholder()
+        LGM._ln_enter(self)
+
+    # === Python Interfaces ===
+
+    def __rshift__(self, other: LogicNode) -> LogicNode:
+        self._append(other, AUTO_CONDITION)
+        return other  # Allow chaining
+
+    def __call__(self, default: Any = None) -> Any:
+        if default is None:
+            default = NoAction(auto_connect=False)
+        inspection_mode = LGM.inspection_mode
+        if inspection_mode:
+            LOGGER.info('LGM inspection mode temporarily disabled to evaluate correctly.')
+            LGM.inspection_mode = False
+        try:
+            path = []
+            value, _ = self._eval_recursively(path, default)
+            return value
+        finally:
+            LGM.inspection_mode = inspection_mode
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>({self.repr!r})'
+
+    def __hash__(self) -> int:
+        return id(self)
+
+    def append(self, child: LogicNode, condition: NodeEdgeCondition = AUTO_CONDITION) -> None:
+        self._append(child, condition)
+
+    def overwrite(self, new_node: LogicNode, condition: NodeEdgeCondition) -> None:
+        self._overwrite(new_node, condition)
+
+    def replace(self, original_node: LogicNode, new_node: LogicNode) -> None:
+        self._replace(original_node, new_node)
+
+    def eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:
+        return self._eval_recursively(path, default)
 
     def list_labels(self) -> dict[str, list[LogicNode]]:
-        """
-        Lists all logic groups in the tree and returns a dictionary mapping group names to nodes.
-        """
         labels = {}
 
-        def traverse(node):
+        def traverse(node: LogicNode):
             for group in node.labels:
-                if group not in labels:
-                    labels[group] = []
-                labels[group].append(node)
-            for _, child in node.nodes.items():
+                labels.setdefault(group, []).append(node)
+            for child in node.children.values():
                 traverse(child)
 
         traverse(self)
         return labels
 
-    def select_node(self, label: str) -> LogicNode | None:
-        """
-        Selects the root node of a logic group and validates that the group is chained.
-        """
-        labels = self.list_labels()
-        if label not in labels:
-            return None
-
-        nodes = labels[label]
-        root = None
-
-        for node in nodes:
-            if not any(node in child_nodes for _, child_nodes in labels.items() if _ != label):
-                if root is not None:
-                    raise ValueError(f"Logic group '{label}' has multiple roots.")
-                root = node
-
-        return root
-
-    def to_html(self, with_group=True, dry_run=True, filename="decision_graph.html", **kwargs):
-        """
-        Visualizes the decision tree using PyVis.
-        If dry_run=True, shows structure without highlighting active path.
-        If dry_run=False, evaluates the tree and highlights the decision path.
-        If with_group=True, uses grouped logic view.
-        """
-        from pyvis.network import Network
-
-        G, node_map = self.traverse(self)
-        # Highlight path if not in dry run
-        activated_path = []
-        if not dry_run:
-            try:
-                _, path = self.eval_recursively()
-                activated_path = [id(node) for node in path]
-            except Exception:
-                activated_path.clear()
-                dry_run = True
-                LOGGER.error(f"Failed to evaluate decision tree.\n{traceback.format_exc()}")
-
-        # Visualization using PyVis
-        net = Network(
-            height=kwargs.get('height', "750px"),
-            width=kwargs.get('width', "100%"),
-            directed=True,
-            notebook=False,
-            neighborhood_highlight=True
-        )
-        default_color = kwargs.get('default_color', "lightblue")
-        highlight_color = kwargs.get('highlight_color', "lightgreen")
-        activated_color = kwargs.get('selected_color', "lightyellow")
-        dimmed_color = kwargs.get('dimmed_color', "#e0e0e0")
-        logic_shape = kwargs.get('logic_shape', "box")
-        action_shape = kwargs.get('action_shape', "ellipse")
-
-        original_colors = {}
-
-        # Add nodes with group information
-        for node_id, node in node_map.items():
-            label = node.repr
-            title = f"Node: {node.repr}"
-
-            # Track the original color for each node
-            node_color = activated_color if node_id in activated_path else default_color
-            original_colors[node_id] = node_color
-
-            if with_group:
-                net.add_node(node_id, label=label, title=title, color=node_color, shape=action_shape if isinstance(node, ActionNode) else logic_shape, groups=node.labels)
-            else:
-                net.add_node(node_id, label=label, title=title, color=node_color, shape=action_shape if isinstance(node, ActionNode) else logic_shape)
-
-        # Add edges
-        for source, target, data in G.edges(data=True):
-            edge_label = data.get("label", "")
-            edge_color = "black" if dry_run else ("green" if source in activated_path and target in activated_path else "black")
-            net.add_edge(source, target, label=edge_label, title=edge_label, color=edge_color, arrows="to")
-
-        # Configure layout and options
-        options = {
-            "layout": {
-                "hierarchical": {
-                    "enabled": True,
-                    "direction": "UD",  # UD = Up-Down (root at top, leaves at bottom)
-                    "sortMethod": "directed",
-                    "nodeSpacing": 150,
-                    "levelSeparation": 200
-                }
-            },
-            "physics": {
-                "hierarchicalRepulsion": {
-                    "centralGravity": 0.0,
-                    "springLength": 200,
-                    "springConstant": 0.01,
-                    "nodeDistance": 200,
-                    "damping": 0.09
-                },
-                "minVelocity": 0.75,
-                "solver": "hierarchicalRepulsion"
-            },
-            "nodes": {
-                "shape": "box",
-                "shapeProperties": {"borderRadius": 10},
-                "font": {"size": 14}
-            },
-            "edges": {
-                "color": "black",
-                "smooth": True
-            }
-        }
-
-        net.set_options(json.dumps(options))
-
-        # Generate the base HTML
-        html = net.generate_html()
-
-        # Inject custom controls and JavaScript
-        buttons_html = """
-        <div style="position: absolute; top: 10px; left: 10px; z-index: 1000; 
-                    background: rgba(255, 255, 255, 0.9); padding: 12px; 
-                    border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-                    font-family: Arial, sans-serif;">
-
-            <h4 style="margin: 0 0 10px; font-size: 16px; text-align: center; color: #333;">
-                Decision Tree Controls
-            </h4>
-
-            <button onclick="resetColors()" class="control-btn">Reset</button>
-        """
-
-        if with_group:
-            groups = {group for node in node_map.values() for group in node.labels}
-            for group in sorted(groups):
-                buttons_html += f'<button onclick="highlightGroup(\'{group}\')" class="control-btn">{group}</button>'
-        buttons_html += "</div>"
-
-        js_code = f"""
-        <script>
-        function resetColors() {{
-            // Reset all nodes to their original color and opacity
-            nodes.forEach(function(node) {{
-                nodes.update([{{ 
-                    id: node.id,
-                    color: originalColors[node.id],  // Reset to original color
-                    opacity: 1
-                }}]);
-            }});
-
-            // Reset all edges to default color and opacity
-            edges.forEach(function(edge) {{
-                edges.update([{{ 
-                    id: edge.id,
-                    color: "black",
-                    opacity: 1
-                }}]);
-            }});
-        }}
-
-        function highlightGroup(group) {{
-            // Dim all nodes and edges first
-            nodes.update([...nodes.getIds().map(id => ({{
-                id: id,
-                color: "{dimmed_color}",
-                opacity: 0.3
-            }}))]);
-
-            edges.update([...edges.getIds().map(id => ({{
-                id: id,
-                color: "gray",
-                opacity: 0.2
-            }}))]);
-
-            // Highlight nodes in the selected group
-            const groupNodes = nodes.get({{
-                filter: node => node.groups.includes(group)
-            }});
-
-            nodes.update([...groupNodes.map(node => ({{
-                id: node.id,
-                color: "{highlight_color}",
-                opacity: 1
-            }}))]);
-
-            // Highlight connected edges
-            const connectedEdges = edges.get({{
-                filter: edge => 
-                    groupNodes.some(n => n.id === edge.from) ||
-                    groupNodes.some(n => n.id === edge.to)
-            }});
-
-            edges.update([...connectedEdges.map(edge => ({{
-                id: edge.id,
-                color: "black",
-                opacity: 1
-            }}))]);
-        }}
-
-        // Store the original node colors for reset functionality
-        const originalColors = {json.dumps(original_colors)};
-        </script>
-        """
-
-        # Inject better styles for buttons
-        css_styles = """
-        <style>
-            .control-btn {
-                background-color: #007BFF;
-                color: white;
-                border: none;
-                padding: 8px 14px;
-                margin: 5px;
-                font-size: 14px;
-                border-radius: 5px;
-                cursor: pointer;
-                transition: background 0.3s ease;
-            }
-
-            .control-btn:hover {
-                background-color: #0056b3;
-            }
-
-            .control-btn:active {
-                background-color: #003f7f;
-            }
-        </style>
-        """
-
-        # Insert custom elements into the HTML
-        html = html.replace("</head>", f"{css_styles}</head>")
-        html = html.replace("</body>", f"{buttons_html}{js_code}</body>")
-
-        # Save the modified HTML
-        with open(filename, "w") as f:
-            f.write(html)
-
-        LOGGER.info(f"Decision tree saved to {filename}")
-
     @property
-    def children(self) -> Iterable[tuple[Any, LogicNode]]:
-        """Returns an iterable of (edge, node) pairs."""
-        return iter(self.nodes.items())
-
-    @property
-    def leaves(self) -> Iterable[LogicNode]:
-        """Recursively finds and returns all leaf nodes (nodes without children)."""
-        if not self.nodes:  # If no children, this node is a leaf
+    def leaves(self) -> Iterator[LogicNode]:
+        if not self.subordinates:
             yield self
         else:
-            for _, child in self.nodes.items():  # Recursively get leaves from children
+            for child in self.subordinates:
                 yield from child.leaves
 
     @property
-    def last_edge(self) -> Any:
-        return self.edges[-1]
+    def is_leaf(self) -> bool:
+        return not self.children
 
     @property
-    def last_node(self) -> LogicNode:
-        return self.nodes[self.last_edge]
+    def child_stack(self) -> Iterator[LogicNode]:
+        yield from self.subordinates
+
+
+class BreakpointNode(LogicNode):
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
+        super().__init__(expression=expression, dtype=dtype, repr=repr)
+
+        self.autogen = True
+        self.await_connection = False
+        self.expression = NoAction(auto_connect=False)
+        self.break_from: LogicGroup = None
+
+    def _connect(self, child: LogicNode) -> None:
+        if self.subordinates:
+            raise TooManyChildren(f'{self.__class__.__name__} must not have more than one child node.')
+        self._append(child, NO_CONDITION)
+        self.await_connection = False
+
+    def _on_enter(self) -> None:
+        raise NodeContextError('BreakpointNode does not support context management with <with> statement.')
+
+    def _on_exit(self) -> None:
+        pass
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        if not self.subordinates:
+            if LGM.vigilant_mode:
+                raise NodeValueError(f'{self} not connected.')
+            return self.expression
+
+        linked_to = self.subordinates[0]
+        return linked_to._eval(enforce_dtype)
+
+    def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:
+        if path is None:
+            path = []
+        path.append(self)
+
+        if not self.subordinates:
+            if LGM.vigilant_mode:
+                raise NodeValueError(f'{self} not connected.')
+            return self.expression, path
+
+        linked_to = self.subordinates[0]
+        return linked_to._eval_recursively(path, default)
+
+    def __repr__(self) -> str:
+        if self.subordinates:
+            return f'<{self.__class__.__name__} connected>(break_from={self.break_from}, link_to={self.linked_to})'
+        else:
+            status = "active" if self.await_connection else "idle"
+            return f'<{self.__class__.__name__} {status}>(break_from={self.break_from})'
 
     @property
-    def last_leaf(self) -> LogicNode:
-        if not self.nodes:
-            return self
-        return self.last_node.last_leaf
-
-    @property
-    def last_leaf_expression(self) -> LogicNode:
-        last_leaf = self.last_leaf
-        if isinstance(last_leaf, ActionNode):
-            return last_leaf.parent
-        return last_leaf
+    def linked_to(self) -> LogicNode | None:
+        return self.subordinates[0] if self.subordinates else None
 
 
 class ActionNode(LogicNode):
     def __init__(
             self,
+            *,
             action: Callable[[], Any] | None = None,
-            repr: str = None,
-            auto_connect: bool = True
+            expression: Any = None,
+            dtype: type = None,
+            repr: str | None = None,
+            auto_connect: bool = True,
+            **kwargs
     ):
-        """
-        Initialize the LogicExpression.
+        # Do not capture logic group labels — action nodes are leaves
+        super().__init__(expression=expression, dtype=dtype, repr=repr)
 
-        Args:
-            action (Union[Any, Callable[[], Any]]): The action to execute.
-            repr (str, optional): A string representation of the expression.
-            auto_connect: auto-connect to the current active decision graph.
-        """
-        super().__init__(expression=True, repr=repr)
         self.action = action
 
         if auto_connect:
-            super()._on_enter()
+            self._auto_connect()
 
-    def _on_enter(self):
-        LOGGER.warning(f'{self.__class__.__name__} should not use with claude')
+    def _auto_connect(self) -> None:
+        if not LGM._active_nodes:
+            if LGM.vigilant_mode:
+                raise NodeValueError(f'Cannot set ActionNode {self} as root node.')
+            return
 
-    def _on_exit(self):
-        pass
+        active_node = LGM._active_nodes[0]  # top of stack
+        placeholder = active_node._get_placeholder()
+        active_node._replace(placeholder, self)
 
-    def _post_eval(self):
-        """
-        override this method to perform clean up functions.
-        """
-
+    def _post_eval(self) -> None:
         if self.action is not None:
             self.action()
 
-    def eval_recursively(self, path=None):
-        """
-        Evaluates the decision tree from this node based on the given state.
-        Returns the final action and records the decision path.
-        """
+    def _append(self, child: LogicNode, condition: NodeEdgeCondition) -> None:
+        raise TooManyChildren('Action node must not have any child node.')
+
+    def _on_enter(self) -> None:
+        raise NodeContextError('ActionNode does not support context management with <with> statement.')
+
+    def _on_exit(self) -> None:
+        pass
+
+    def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:
         if path is None:
             path = []
         path.append(self)
 
-        value = self.eval()
-
+        value = self._eval(False)
         self._post_eval()
 
-        for condition, child in self.nodes.items():
-            LOGGER.warning(f'{self.__class__.__name__} should not have any sub-nodes.')
-            if condition == value or condition is NO_CONDITION:
-                return child.eval_recursively(path=path)
+        if not self.is_leaf:
+            raise TooManyChildren('Action node must not have any child node.')
 
         return value, path
 
-    def append(self, expression: Self, edge_condition: Any = None):
-        raise TooManyChildren("Cannot append child to an ActionNode!")
+
+class PlaceholderNode(ActionNode):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.autogen = True
+        self.action = NoAction(auto_connect=False)
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        if LGM.vigilant_mode:
+            return self
+        return self.action
+
+
+class NoAction(ActionNode):
+    def __init__(self, *, auto_connect: bool = True, **kwargs):
+        super().__init__(auto_connect=auto_connect, **kwargs)
+
+        self.sig = 0
+        self.repr = 'NoAction'
+
+        if auto_connect:
+            self._auto_connect()
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        return self
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+class LongAction(ActionNode):
+    def __init__(self, *, sig: int = 1, auto_connect: bool = True, **kwargs):
+        super().__init__(auto_connect=auto_connect, **kwargs)
+        self.sig = sig
+        self.repr = 'LongAction'
+
+        if auto_connect:
+            self._auto_connect()
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        return self
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+class ShortAction(ActionNode):
+    def __init__(self, *, sig: int = -1, auto_connect: bool = True, **kwargs):
+        super().__init__(auto_connect=auto_connect, **kwargs)
+        self.sig = sig
+        self.repr = 'ShortAction'
+
+        if auto_connect:
+            self._auto_connect()
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        return self
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>(sig={self.sig})'

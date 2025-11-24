@@ -6,10 +6,10 @@ from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, C
 
 
 cdef class RootLogicNode(LogicNode):
-    def __cinit__(self, *, **kwargs):
+    def __cinit__(self, *, str name='Entry Point', **kwargs):
         self.expression = True
         self.dtype = bool
-        self.repr = 'Entry Point'
+        self.repr = name
 
     cdef bint c_entry_check(self):
         return True
@@ -30,6 +30,7 @@ cdef class RootLogicNode(LogicNode):
         self.c_consolidate_placeholder()
         LGM.c_ln_exit(self)
         LGM.c_unshelve()
+        LGM.c_ln_exit(self)
 
     cdef void c_append(self, LogicNode child, NodeEdgeCondition condition):
         if self.subordinates.size:

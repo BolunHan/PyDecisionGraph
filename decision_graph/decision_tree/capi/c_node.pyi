@@ -24,7 +24,7 @@ class RootLogicNode(LogicNode):
     With these features, the RootLogicNode is designed as the Root node of a decision tree.
     """
 
-    def __init__(self, **kwargs) -> None:  # pragma: no cover - implemented in C
+    def __init__(self, name: str = 'Entry Point', **kwargs) -> None:  # pragma: no cover - implemented in C
         """Create a RootLogicNode.
 
         The constructor automatically passes the kwargs to underlying base classes. If any kwargs are provided, it can mess up the normal initializing process. It is recommended to not provide any kwargs and leave as is.
@@ -37,6 +37,7 @@ class RootLogicNode(LogicNode):
             ...     # There should not be a second node appended to root
 
         Args:
+            name: Optional name for the root node.
             **kwargs: Implementation-specific options.
         """
 

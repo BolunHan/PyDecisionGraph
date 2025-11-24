@@ -1077,10 +1077,10 @@ cdef class LogicNode(LogicExpression):
         while frame:
             child = <LogicNode> <object> frame.logic_node
             condition = child.condition_to_parent
-            if value == condition.value or condition is NO_CONDITION:
-                return child.c_eval_recursively(path, default)
-            elif condition is ELSE_CONDITION:
+            if condition is ELSE_CONDITION:
                 else_branch = child
+            elif condition is NO_CONDITION or value == condition.value:
+                return child.c_eval_recursively(path, default)
             frame = frame.prev
 
         if else_branch is not None:

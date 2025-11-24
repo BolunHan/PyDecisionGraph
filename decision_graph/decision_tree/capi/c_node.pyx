@@ -66,7 +66,7 @@ cdef class ContextLogicExpression(LogicNode):
     @staticmethod
     cdef inline object c_safe_eval(object v):
         if isinstance(v, LogicNode):
-            return v.c_eval()
+            return (<LogicNode> v).c_eval(False)
         return v
 
     @staticmethod
@@ -179,7 +179,7 @@ cdef class AttrNestedExpression(ContextLogicExpression):
         return AttrNestedExpression(attrs=self.attrs + [key], logic_group=self.logic_group)
 
     def __getattr__(self, str key) -> AttrExpression:
-        return AttrExpression(attr=self.attrs + [key], logic_group=self.logic_group)
+        return AttrNestedExpression(attrs=self.attrs + [key], logic_group=self.logic_group)
 
 
 cdef class MathExpressionOperator:
@@ -214,11 +214,13 @@ cdef class MathExpression(ContextLogicExpression):
         self.left = left
         self.right = right
         self.dtype = kwargs.get('dtype', float)
+        cdef MathExpressionOperator _op
 
         if isinstance(op, MathExpressionOperator):
-            self.op_name = kwargs.get('op_name', op.name)
-            self.op_repr = kwargs.get('op_repr', op.value)
-            self.op_func = op.to_func()
+            _op = <MathExpressionOperator> op
+            self.op_name = kwargs.get('op_name', _op.name)
+            self.op_repr = kwargs.get('op_repr', _op.value)
+            self.op_func = _op.to_func()
             self.repr = kwargs.get('repr', self.c_op_style_repr())
         elif isinstance(op, str):
             _op = MathExpressionOperator.from_str(op)
@@ -285,13 +287,15 @@ cdef class ComparisonExpression(ContextLogicExpression):
         self.left = left
         self.right = right
         self.dtype = kwargs.get('dtype', bool)
+        cdef ComparisonExpressionOperator _op
 
         if isinstance(op, ComparisonExpressionOperator):
-            self.op_name = kwargs.get('op_name', op.name)
-            self.op_repr = kwargs.get('op_repr', op.value)
-            self.op_func = op.to_func()
+            _op = <ComparisonExpressionOperator> op
+            self.op_name = kwargs.get('op_name', _op.name)
+            self.op_repr = kwargs.get('op_repr', _op.value)
+            self.op_func = _op.to_func()
             self.repr = kwargs.get('repr', self.c_op_style_repr())
-            self.op_enum = op.int_enum
+            self.op_enum = _op.int_enum
         elif isinstance(op, str):
             _op = ComparisonExpressionOperator.from_str(op)
             self.op_name = kwargs.get('op_name', _op.name)
@@ -344,8 +348,8 @@ cdef class ComparisonExpression(ContextLogicExpression):
 
 cdef class LogicalExpressionOperator:
     and_ = LogicalExpressionOperator.__new__(LogicalExpressionOperator, 'and_', '&', 1)
-    or_ = LogicalExpressionOperator.__new__(LogicalExpressionOperator, 'ne', '|', 2)
-    not_ = LogicalExpressionOperator.__new__(LogicalExpressionOperator, 'gt', '~', 3)
+    or_ = LogicalExpressionOperator.__new__(LogicalExpressionOperator, 'or_', '|', 2)
+    not_ = LogicalExpressionOperator.__new__(LogicalExpressionOperator, 'not_', '~', 3)
 
     def __cinit__(self, str name, str op, uint8_t int_enum):
         self.name = name
@@ -371,13 +375,15 @@ cdef class LogicalExpression(ContextLogicExpression):
         self.left = left
         self.right = right
         self.dtype = kwargs.get('dtype', bool)
+        cdef LogicalExpressionOperator _op
 
         if isinstance(op, LogicalExpressionOperator):
-            self.op_name = kwargs.get('op_name', op.name)
-            self.op_repr = kwargs.get('op_repr', op.value)
-            self.op_func = op.to_func()
+            _op = <LogicalExpressionOperator> op
+            self.op_name = kwargs.get('op_name', _op.name)
+            self.op_repr = kwargs.get('op_repr', _op.value)
+            self.op_func = _op.to_func()
             self.repr = kwargs.get('repr', self.c_op_style_repr())
-            self.op_enum = op.int_enum
+            self.op_enum = _op.int_enum
         elif isinstance(op, str):
             _op = LogicalExpressionOperator.from_str(op)
             self.op_name = kwargs.get('op_name', _op.name)

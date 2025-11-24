@@ -27,6 +27,7 @@ cdef class AttrNestedExpression(ContextLogicExpression):
 
 cdef class MathExpressionOperator:
     cdef readonly str name
+    cdef readonly str value
     cdef readonly str op
 
 
@@ -43,6 +44,7 @@ cdef class MathExpression(ContextLogicExpression):
 
 cdef class ComparisonExpressionOperator:
     cdef readonly str name
+    cdef readonly str value
     cdef readonly str op
     cdef uint8_t int_enum
 
@@ -61,6 +63,7 @@ cdef class ComparisonExpression(ContextLogicExpression):
 
 cdef class LogicalExpressionOperator:
     cdef readonly str name
+    cdef readonly str value
     cdef readonly str op
     cdef uint8_t int_enum
 

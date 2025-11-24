@@ -57,8 +57,7 @@ class RootLogicNode(LogicNode):
         """Return the single child node attached to the root.
 
         Raises:
-            LookupError: If no child is attached (the underlying extension
-                raises a specialized TooFewChildren exception).
+            TooFewChildren: If no child is attached to the root.
         """
         ...
 

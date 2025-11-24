@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-import inspect
-import json
 import linecache
 import operator
 import sys
-import traceback
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import Any, Self, final
 
-from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError, EmptyBlock, BreakBlock
+from . import LOGGER
+from ..exc import NO_DEFAULT, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, EmptyBlock, BreakBlock
 
 LOGGER = LOGGER.getChild('abc')
 
-__all__ = ['LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION', 'NO_CONDITION', 'AUTO_CONDITION', 'TRUE_CONDITION', 'FALSE_CONDITION']
+__all__ = ['Singleton',
+           'NodeEdgeCondition', 'ConditionElse', 'ConditionAny', 'ConditionAuto', 'BinaryCondition', 'ConditionTrue', 'ConditionFalse',
+           'NO_CONDITION', 'ELSE_CONDITION', 'AUTO_CONDITION', 'TRUE_CONDITION', 'FALSE_CONDITION',
+           'SkipContextsBlock', 'LogicExpression', 'LogicNode',
+           'LogicGroupManager', 'LGM', 'LogicGroup',
+           'ActionNode', 'BreakpointNode', 'PlaceholderNode',
+           'NoAction', 'LongAction', 'ShortAction']
 
 
 class Singleton(type):
@@ -107,7 +111,7 @@ class BinaryCondition(NodeEdgeCondition):
     def __hash__(self):
         return id(self)
 
-    @value.setter
+    @NodeEdgeCondition.value.setter
     def value(self, value):
         raise NotImplementedError()
 
@@ -526,8 +530,7 @@ LGM = LogicGroupManager()
 
 
 class LogicGroup(object):
-
-    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict[str, Any] = None, **kwargs):
+    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict | None = None, **kwargs):
         self.name = name
 
         if self in LGM:
@@ -538,63 +541,66 @@ class LogicGroup(object):
         self.contexts = {} if contexts is None else contexts
 
     def _break_inspection(self) -> None:
-        active_node = LGM._active_nodes[0] if LGM._active_nodes else None
-
-        if not active_node:
+        # Case 1: No active node, breaks affect nothing
+        if not LGM._active_nodes:
             return
 
-        if not active_node.nodes:
-            if LGM.vigilant_mode:
-                raise TooFewChildren()
-            else:
-                from .node import NoAction
-                NoAction()
+        active_node = LGM._active_nodes[0]  # top of stack
 
-        last_node = active_node.last_leaf
-        assert isinstance(last_node, ActionNode)
-        last_node.break_from = self
-        LGM._breakpoint_nodes.append(last_node)
+        # Step 2.1: Locate placeholder and replace with breakpoint
+        placeholder = active_node._get_placeholder()
+        breakpoint_node = BreakpointNode()
+        breakpoint_node.break_from = self
+        active_node._replace(placeholder, breakpoint_node)
+
+        # Step 2.2: Push to global breakpoint stack
+        LGM._breakpoint_nodes.insert(0, breakpoint_node)
 
     def _break_active(self) -> None:
-        active_group = LGM._active_groups[-1] if LGM._active_groups else None
-        if not active_group:
+        if not LGM._active_groups:
             raise RuntimeError("No active LogicGroup to break from.")
+        active_group = LGM._active_groups[0]
         if active_group is not self:
             raise IndexError('Not breaking from the top active LogicGroup.')
         raise self.Break()
 
     def _break_runtime(self) -> None:
         if not LGM._active_nodes:
-            raise RuntimeError("No active LogicGroup to break from.")
+            raise RuntimeError("No active node context to break from.")
 
+        # Step 1: Validate that this group is in the active group stack
         if self not in LGM._active_groups:
             raise ValueError(f"Break scope {self} not in active LogicGroup stack.")
 
-        while LGM._active_groups:
-            active_group = LGM._active_groups[-1]
-            active_group._break_active()
-            if active_group is self:
+        # Step 2: Unwind the group stack from top until we hit `self`
+        # We iterate from the top (end of list) downward
+        for group in LGM._active_groups[:]:
+            group._break_active()
+            if group is self:
                 break
 
-    def __repr__(self):
+    # === Python Interfaces ===
+
+    def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>({self.name!r})'
 
     def __enter__(self):
-        LGM.enter_logic_group(self)
+        LGM._lg_enter(self)
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        LGM.exit_logic_group(self)
+    def __exit__(self, exc_type: type | None, exc_value: BaseException | None, exc_traceback: Any) -> bool | None:
+        LGM._lg_exit(self)
 
         if exc_type is None:
             return None
 
+        # Suppress only the dynamically created Break exception for this group
         if issubclass(exc_type, self.Break):
             return True
         return False
 
     @classmethod
-    def break_(cls, scope: LogicGroup = None):
+    def break_(cls, scope: LogicGroup = None) -> None:
         if scope is None:
             scope = LGM.active_group
 
@@ -606,13 +612,13 @@ class LogicGroup(object):
         else:
             scope._break_runtime()
 
-    def break_active(self):
+    def break_active(self) -> None:
         self._break_active()
 
-    def break_inspection(self):
+    def break_inspection(self) -> None:
         self._break_inspection()
 
-    def break_runtime(self):
+    def break_runtime(self) -> None:
         self._break_runtime()
 
 
@@ -715,15 +721,26 @@ class LogicNode(LogicExpression):
         new_node.parent = self
         new_node.condition_to_parent = condition
 
-        self.subordinates[self.subordinates.index(original_node)] = new_node
+        idx = 0
+        for node in self.subordinates:
+            if node is original_node:
+                break
+            idx += 1
+        self.subordinates[idx] = new_node
         original_node.parent = None
         original_node.condition_to_parent = NO_CONDITION
 
     def _replace(self, original_node: LogicNode, new_node: LogicNode) -> None:
-        if original_node in LGM._active_nodes:
-            raise RuntimeError('Must not replace active node. Existing first required.')
+        # The __eq__ of LogicExpression is overloaded, so we must check identity here.
+        for node in LGM._active_nodes:
+            if node is original_node:
+                raise RuntimeError('Must not replace active node. Existing first required.')
 
-        idx = self.subordinates.index(original_node)
+        idx = 0
+        for node in self.subordinates:
+            if node is original_node:
+                break
+            idx += 1
         self.subordinates[idx] = new_node
 
         self.children[original_node.condition_to_parent] = new_node
@@ -740,7 +757,10 @@ class LogicNode(LogicExpression):
         for condition, child in self.children.items():
             if child.condition_to_parent is not condition:
                 raise EdgeValueError('Child node condition does not match registered condition.')
-            if child not in self.subordinates:
+            for node in self.subordinates:
+                if node is child:
+                    break
+            else:
                 raise ValueError(f"LogicNode {child} not found in stack")
 
     def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:
@@ -858,7 +878,7 @@ class LogicNode(LogicExpression):
         self._validate()
         self._auto_fill()
         self._consolidate_placeholder()
-        LGM._ln_enter(self)
+        LGM._ln_exit(self)
 
     # === Python Interfaces ===
 
@@ -928,7 +948,7 @@ class LogicNode(LogicExpression):
 
 
 class BreakpointNode(LogicNode):
-    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None):
         super().__init__(expression=expression, dtype=dtype, repr=repr)
 
         self.autogen = True
@@ -1052,14 +1072,11 @@ class PlaceholderNode(ActionNode):
 
 
 class NoAction(ActionNode):
-    def __init__(self, *, auto_connect: bool = True, **kwargs):
-        super().__init__(auto_connect=auto_connect, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
         self.sig = 0
         self.repr = 'NoAction'
-
-        if auto_connect:
-            self._auto_connect()
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self
@@ -1069,13 +1086,10 @@ class NoAction(ActionNode):
 
 
 class LongAction(ActionNode):
-    def __init__(self, *, sig: int = 1, auto_connect: bool = True, **kwargs):
-        super().__init__(auto_connect=auto_connect, **kwargs)
+    def __init__(self, *, sig: int = 1, **kwargs):
+        super().__init__(**kwargs)
         self.sig = sig
         self.repr = 'LongAction'
-
-        if auto_connect:
-            self._auto_connect()
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self
@@ -1085,13 +1099,10 @@ class LongAction(ActionNode):
 
 
 class ShortAction(ActionNode):
-    def __init__(self, *, sig: int = -1, auto_connect: bool = True, **kwargs):
-        super().__init__(auto_connect=auto_connect, **kwargs)
+    def __init__(self, *, sig: int = -1, **kwargs):
+        super().__init__(**kwargs)
         self.sig = sig
         self.repr = 'ShortAction'
-
-        if auto_connect:
-            self._auto_connect()
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self

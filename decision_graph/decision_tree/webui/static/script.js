@@ -115,9 +115,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     const nodes = root.descendants();
 
     // ── NODES ─────────────────────────────────────
-    const nodeSelection = g.selectAll("g.node")
-        .data(nodes, d => d.data.id);
-
+    const nodeSelection = g.selectAll("g.node").data(nodes, d => d.data.id);
     const nodeEnter = nodeSelection.enter().append("g")
         .attr("class", d => `node ${d.data.type}`)
         .attr("transform", d => `translate(${d.x0},${d.y0})`)
@@ -126,10 +124,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .on("mouseout", hideNodeInfo);
 
     nodeEnter.append("rect")
-        .attr("class", "node-rect")
-        .attr("class", d => `node-rect ${d.data.type}`)
-        .attr("rx", 6)
-        .attr("ry", 6)
+        .attr("class", "node-rect");
 
     nodeEnter.append("text")
         .attr("class", "node-text")
@@ -156,6 +151,13 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
             .attr("height", h);
     });
 
+    // Apply activation-based opacity to nodes
+    nodeUpdate.select("rect.node-rect")
+        .classed("node-rect-inactive", d => d.data.activated === false);
+
+    nodeUpdate.select("text.node-text")
+        .classed("node-text-inactive", d => d.data.activated === false);
+
     nodeUpdate.transition().duration(500)
         .attr("transform", d => `translate(${d.x},${d.y})`);
 
@@ -173,22 +175,32 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     root.each(d => {
         if (d.children) {
             d.children.forEach(child => {
+                // A link is activated only if BOTH source and target are activated
+                const isLinkActivated = (d.data.activated !== false) && (child.data.activated !== false);
                 parentChildLinks.push({
                     source: d,
                     target: child,
                     condition: child.data.condition_to_child || "",
-                    condition_type: child.data.condition_type || "default"
+                    condition_type: child.data.condition_type || "default",
+                    activated: isLinkActivated
                 });
             });
         }
     });
 
-    const virtualLinks = buildVirtualLinks(virtualLinkDefs, nodeMap);
+    const virtualLinks = buildVirtualLinks(virtualLinkDefs, nodeMap).map(link => {
+        // For virtual links, activate if both ends are activated
+        const srcActivated = link.source.data.activated !== false;
+        const tgtActivated = link.target.data.activated !== false;
+        return {
+            ...link,
+            activated: srcActivated && tgtActivated
+        };
+    });
+
     const allLinks = [...parentChildLinks, ...virtualLinks];
 
-    const linkSelection = g.selectAll("path.link")
-        .data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
-
+    const linkSelection = g.selectAll("path.link").data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
     const linkEnter = linkSelection.enter().insert("path", "g")
         .attr("class", "link")
         .attr("fill", "none")
@@ -197,11 +209,13 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .attr("stroke-dasharray", d => d.type === "virtual_parent" ? "5,5" : null)
         .attr("opacity", 0);
 
-    const linkGenerator = d3.linkVertical()
-        .x(d => d.x)
-        .y(d => d.y);
+    const linkUpdate = linkSelection.merge(linkEnter);
 
-    linkSelection.merge(linkEnter).transition().duration(500)
+    // Apply activation class to links
+    linkUpdate.classed("link-inactive", d => d.activated === false);
+
+    const linkGenerator = d3.linkVertical().x(d => d.x).y(d => d.y);
+    linkUpdate.transition().duration(500)
         .attr("d", d => linkGenerator({source: d.source, target: d.target}))
         .attr("opacity", 1);
 
@@ -210,25 +224,22 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .remove();
 
     // ── CONDITION LABELS ──────────────────────────
-    const labelSelection = g.selectAll("g.link-condition-group")
-        .data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
-
+    const labelSelection = g.selectAll("g.link-condition-group").data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
     const labelEnter = labelSelection.enter().append("g")
         .attr("class", d => `link-condition-group ${d.condition_type || "default"}`)
         .style("opacity", 0);
 
     labelEnter.append("rect").attr("class", "link-condition-bg");
-    labelEnter.append("text").attr("class", "link-condition")
+    labelEnter.append("text").attr("class", "link-condition");
+
+    const labelUpdate = labelSelection.merge(labelEnter);
+    labelUpdate.select("text.link-condition")
+        .text(d => d.condition || "")
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
         .attr("font-size", "10px")
         .attr("fill", "black")
         .attr("pointer-events", "none");
-
-    const labelUpdate = labelSelection.merge(labelEnter);
-
-    labelUpdate.select("text.link-condition")
-        .text(d => d.condition || "");
 
     labelUpdate.each(function (d) {
         const text = d3.select(this).select("text").node();
@@ -237,24 +248,25 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         const pad = 6;
         const w = bbox.width + pad;
         const h = bbox.height + pad;
-
         d3.select(this).select("rect.link-condition-bg")
             .attr("x", -w / 2)
             .attr("y", -h / 2)
             .attr("width", w)
             .attr("height", h);
-
         const midX = (d.source.x + d.target.x) / 2;
         const midY = (d.source.y + d.target.y) / 2;
         d3.select(this).attr("transform", `translate(${midX},${midY})`);
     });
 
-    labelUpdate.transition().duration(500)
-        .style("opacity", 1);
+    // Dim condition labels on inactive links
+    labelUpdate.select("rect.link-condition-bg")
+        .classed("link-condition-bg-inactive", d => d.activated === false);
 
-    labelSelection.exit().transition().duration(500)
-        .style("opacity", 0)
-        .remove();
+    labelUpdate.select("text.link-condition")
+        .classed("link-condition-text-inactive", d => d.activated === false);
+
+    labelUpdate.transition().duration(500).style("opacity", 1);
+    labelSelection.exit().transition().duration(500).style("opacity", 0).remove();
 
     nodes.forEach(n => {
         n.x0 = n.x;

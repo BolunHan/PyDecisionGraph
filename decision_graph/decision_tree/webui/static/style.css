@@ -100,6 +100,15 @@ body {
     fill: lightsteelblue;
 }
 
+.node-rect-inactive {
+    fill-opacity: 0.3;
+    stroke-opacity: 0.4;
+}
+
+.node-text-inactive {
+    fill-opacity: 0.4;
+}
+
 .link {
     fill: none;
     stroke: #ccc;
@@ -142,6 +151,18 @@ body {
 
 .link-condition-group.else .link-condition-bg {
     fill: rgba(255, 255, 0, 0.5);
+}
+
+.link-inactive {
+    stroke-opacity: 0.3 !important;
+}
+
+.link-condition-bg-inactive {
+    opacity: 0.2 !important;
+}
+
+.link-condition-text-inactive {
+    fill-opacity: 0.3 !important;
 }
 
 #node-info {

@@ -154,8 +154,8 @@ cdef class AttrExpression(ContextLogicExpression):
     def __getitem__(self, str key):
         return AttrNestedExpression(attrs=[self.attr, key], logic_group=self.logic_group)
 
-    def __getattr__(self, str key) -> AttrExpression:
-        return AttrExpression(attr=[self.attr, key], logic_group=self.logic_group)
+    def __getattr__(self, str key) -> AttrNestedExpression:
+        return AttrNestedExpression(attrs=[self.attr, key], logic_group=self.logic_group)
 
 
 cdef class AttrNestedExpression(ContextLogicExpression):

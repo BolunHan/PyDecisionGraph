@@ -279,13 +279,14 @@ class LogicGroup:
     Break: type[BaseException]
     contexts: dict[str, Any]
 
-    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict = None):
+    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict = None, **kwargs):
         """Initialize a LogicGroup with the given name, parent, and contexts.
 
         Args:
             name (str): The name of the logic group.
             parent (LogicGroup | None): The parent logic group, if any.
             contexts (dict[str, Any] | None): Optional context-specific storage.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support, not used is this base class.
         """
 
     def __repr__(self) -> str: ...
@@ -351,6 +352,7 @@ class LogicNode(LogicExpression):
             expression (Union[Any, Callable[[], Any]]): A callable or static value.
             dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
             repr (str, optional): A string representation of the expression.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support, not used is this base class.
         """
 
     def __rshift__(self, other: LogicNode) -> LogicNode:

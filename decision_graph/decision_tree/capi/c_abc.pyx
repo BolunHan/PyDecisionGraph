@@ -760,7 +760,7 @@ globals()['LGM'] = LGM
 
 
 cdef class LogicGroup:
-    def __cinit__(self, *, str name, LogicGroup parent=None, dict contexts=None):
+    def __cinit__(self, *, str name, LogicGroup parent=None, dict contexts=None, **kwargs):
         self.name = name
 
         if self in LGM:

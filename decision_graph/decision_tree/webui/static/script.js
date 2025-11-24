@@ -124,7 +124,9 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .on("mouseout", hideNodeInfo);
 
     nodeEnter.append("rect")
-        .attr("class", "node-rect");
+        .attr("class", "node-rect")
+        .attr("rx", 6)
+        .attr("ry", 6);
 
     nodeEnter.append("text")
         .attr("class", "node-text")
@@ -175,7 +177,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     root.each(d => {
         if (d.children) {
             d.children.forEach(child => {
-                // A link is activated only if BOTH source and target are activated
                 const isLinkActivated = (d.data.activated !== false) && (child.data.activated !== false);
                 parentChildLinks.push({
                     source: d,
@@ -189,7 +190,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     });
 
     const virtualLinks = buildVirtualLinks(virtualLinkDefs, nodeMap).map(link => {
-        // For virtual links, activate if both ends are activated
         const srcActivated = link.source.data.activated !== false;
         const tgtActivated = link.target.data.activated !== false;
         return {
@@ -210,8 +210,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .attr("opacity", 0);
 
     const linkUpdate = linkSelection.merge(linkEnter);
-
-    // Apply activation class to links
     linkUpdate.classed("link-inactive", d => d.activated === false);
 
     const linkGenerator = d3.linkVertical().x(d => d.x).y(d => d.y);
@@ -229,7 +227,11 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .attr("class", d => `link-condition-group ${d.condition_type || "default"}`)
         .style("opacity", 0);
 
-    labelEnter.append("rect").attr("class", "link-condition-bg");
+    labelEnter.append("rect")
+        .attr("class", "link-condition-bg")
+        .attr("rx", 4)   // ← rounded corners for label background
+        .attr("ry", 4);  // ←
+
     labelEnter.append("text").attr("class", "link-condition");
 
     const labelUpdate = labelSelection.merge(labelEnter);
@@ -258,7 +260,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         d3.select(this).attr("transform", `translate(${midX},${midY})`);
     });
 
-    // Dim condition labels on inactive links
     labelUpdate.select("rect.link-condition-bg")
         .classed("link-condition-bg-inactive", d => d.activated === false);
 

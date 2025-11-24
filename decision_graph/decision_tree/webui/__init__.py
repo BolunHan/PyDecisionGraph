@@ -8,4 +8,4 @@ def show(root: LogicNode, **kwargs):
         port=kwargs.get('port', 5000),
         debug=kwargs.get('debug', False)
     )
-    app.show(root)
+    app.show(root, **kwargs)

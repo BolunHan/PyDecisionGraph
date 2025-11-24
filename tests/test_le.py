@@ -1,3 +1,4 @@
+import math
 import unittest
 
 HAS_CEXT = True
@@ -27,6 +28,12 @@ class TestLogicExpression(unittest.TestCase):
         # enforce dtype shouldn't change a matching type
         self.assertEqual(le.eval(enforce_dtype=True), 5)
 
+        le2 = LogicExpression(3.14, str)
+        self.assertEqual(le2.eval(enforce_dtype=True), '3.14')
+
+        le3 = LogicExpression('nan', float)
+        self.assertTrue(math.isnan(le3.eval(enforce_dtype=True)))
+
     def test_eval_callable(self):
         le = LogicExpression(lambda: 2 + 3, int)
         self.assertEqual(le.eval(), 5)
@@ -53,6 +60,7 @@ class TestLogicExpression(unittest.TestCase):
     def test_cast_from_callable(self):
         def f():
             return 42
+
         le = LogicExpression.cast(f)
         self.assertEqual(le.eval(), 42)
         rep = repr(le)
@@ -111,4 +119,3 @@ class TestLogicExpression(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
-

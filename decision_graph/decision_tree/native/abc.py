@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import inspect
 import json
+import linecache
 import operator
 import sys
 import traceback
 from collections.abc import Callable, Iterable
 from typing import Any, Self, final
 
-from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError
+from . import LOGGER, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, NodeNotFountError, EmptyBlock
 
 LOGGER = LOGGER.getChild('abc')
 
-__all__ = ['LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION']
+__all__ = ['LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION', 'NO_CONDITION', 'AUTO_CONDITION', 'TRUE_CONDITION', 'FALSE_CONDITION']
 
 
 class Singleton(type):
@@ -24,14 +25,230 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-class ConditionElse(object):
-    """Represents an else condition in decision trees."""
+class NodeEdgeCondition(metaclass=Singleton):
+    def __init__(self, value=None):
+        self._value = value
+
+    def __hash__(self):
+        return hash(self._value)
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {id(self):#0x}>'
+
+    @property
+    def value(self):
+        if self._value is None:
+            raise ValueError("Condition has no value assigned.")
+        return self._value
+
+    @value.setter
+    def value(self, value):
+        self._value = value
+
+
+class ConditionElse(NodeEdgeCondition):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._value = None
+
+    def __hash__(self):
+        return id(self)
+
+    def __repr__(self):
+        return f'<CONDITION Internal {id(self):#0x}>(Else)'
 
     def __str__(self):
-        return ""
+        return 'Else'
+
+    @NodeEdgeCondition.value.setter
+    def value(self, value):
+        raise NotImplementedError()
 
 
-ELSE_CONDITION = NO_CONDITION = ConditionElse()
+class ConditionAny(NodeEdgeCondition):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._value = None
+
+    def __hash__(self):
+        return id(self)
+
+    def __repr__(self):
+        return f'<CONDITION {id(self):#0x}>(Unconditional)'
+
+    def __str__(self):
+        return 'Unconditional'
+
+    @NodeEdgeCondition.value.setter
+    def value(self, value):
+        raise NotImplementedError()
+
+
+class ConditionAuto(NodeEdgeCondition):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._value = None
+
+    def __hash__(self):
+        raise NotImplementedError()
+
+    def __repr__(self):
+        return f'<CONDITION Internal {id(self):#0x}>(AutoInfer)'
+
+    def __str__(self):
+        return 'AutoInfer'
+
+
+class BinaryCondition(NodeEdgeCondition):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self._value = None
+
+    def __hash__(self):
+        return id(self)
+
+    @NodeEdgeCondition.value.setter
+    def value(self, value):
+        raise NotImplementedError()
+
+
+class ConditionTrue(BinaryCondition):
+    def __repr__(self):
+        return f'<CONDITION {id(self):#0x}>(True)'
+
+    def __str__(self):
+        return 'True'
+
+    def __bool__(self):
+        return True
+
+    def __int__(self):
+        return 1
+
+    def __neg__(self):
+        return FALSE_CONDITION
+
+    def __invert__(self):
+        return FALSE_CONDITION
+
+    @property
+    def value(self):
+        return True
+
+
+class ConditionFalse(BinaryCondition):
+    def __repr__(self):
+        return f'<CONDITION {id(self):#0x}>(False)'
+
+    def __str__(self):
+        return 'False'
+
+    def __bool__(self):
+        return False
+
+    def __int__(self):
+        return 0
+
+    def __neg__(self):
+        return TRUE_CONDITION
+
+    def __invert__(self):
+        return TRUE_CONDITION
+
+    @property
+    def value(self):
+        return False
+
+
+NO_CONDITION = ConditionAny()
+ELSE_CONDITION = ConditionElse()
+AUTO_CONDITION = ConditionAuto()
+TRUE_CONDITION = ConditionTrue()
+FALSE_CONDITION = ConditionFalse()
+
+
+class SkipContextsBlock(object):
+    def __init__(self):
+        self.skip_exception = type(f"{self.__class__.__name__}SkipException", (EmptyBlock,), {"owner": self})
+        self.tracer_override = False
+        self.default_entry_check = True
+        self.__cframe = None
+        self.__original_trace = None
+        self.__enter_line = None
+
+    def _entry_check(self) -> Any:
+        return self.default_entry_check
+
+    @final
+    def __enter__(self):
+        if self._entry_check():  # Check if the expression evaluates to True
+            self._on_enter()
+            return self
+
+        self.__cframe = sys._getframe().f_back
+        self.__original_trace = self.get_trace()
+        self.__enter_line = (self.__cframe.f_code.co_filename, self.__cframe.f_lineno)
+        self.__cframe.f_trace = self.__tracer_skipper
+        sys.settrace(self.__tracer_skipper)
+        self.tracer_override = True
+
+    @final
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        sys.settrace(None)
+        self.__restore_trace()
+
+        if exc_type is None:
+            self._on_exit()
+            return
+
+        if issubclass(exc_type, self.skip_exception):
+            return True
+
+        self._on_exit()
+        # Propagate any other exception raised in the block
+        return False
+
+    def _on_enter(self):
+        pass
+
+    def _on_exit(self):
+        pass
+
+    @staticmethod
+    def get_trace():
+        """
+        Safely retrieve the current trace function, prioritizing the PyDev debugger's trace function.
+        """
+        try:
+            # Check if PyDev debugger is active
+            # noinspection PyUnresolvedReferences
+            import pydevd
+            debugger = pydevd.GetGlobalDebugger()
+            if debugger is not None:
+                return debugger.trace_dispatch  # Use PyDev's trace function
+        except ImportError:
+            pass  # PyDev debugger is not installed or active
+
+        # Fall back to the standard trace function
+        return sys.gettrace()
+
+    def __restore_trace(self):
+        if self.tracer_override:
+            # print('[restore_trace]', f'storing tracer to {self.__original_trace}.')
+            self.__cframe.f_trace = self.__original_trace
+            sys.settrace(self.__original_trace)  # Restore the original trace
+
+    def __tracer_skipper(self, frame, event, arg):
+        line = linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip()
+        # print(f'[SkipContextsBlock]', line, frame, event, arg, (frame.f_code.co_filename, frame.f_lineno), self.__enter_line)
+        if line.startswith(('pass', '...')):
+            return self.__tracer_skipper
+        elif self.__enter_line == (frame.f_code.co_filename, frame.f_lineno):
+            # print(f'[SkipContextsBlock]', 'Restoring trace...')
+            self.__restore_trace()
+            return self.__tracer_skipper
+        elif self.tracer_override:
+            raise self.skip_exception("Expression evaluated to be False, cannot enter the block.")
 
 
 class LogicGroupManager(metaclass=Singleton):
@@ -40,6 +257,7 @@ class LogicGroupManager(metaclass=Singleton):
     Handles caching and reuse of `LogicGroup` objects and manages runtime
     stacks used while building and evaluating decision graphs.
     """
+
     def __init__(self):
         """Initialize the manager and its runtime state.
 
@@ -436,78 +654,6 @@ class LogicGroup(object, metaclass=LogicGroupMeta):
             sub_logic_instances[logic_name] = sub_logic_instance
 
         return sub_logic_instances
-
-
-class SkipContextsBlock(object):
-    class _Skip(Exception):
-        pass
-
-    def _entry_check(self) -> Any:
-        """
-        A True value indicating NOT skip.
-        a False value indicating skip the code block.
-        """
-        pass
-
-    @final
-    def __enter__(self):
-        if self._entry_check():  # Check if the expression evaluates to True
-            self._on_enter()
-            return self
-
-        self._original_trace = self.get_trace()
-        frame = inspect.currentframe().f_back
-        sys.settrace(self.empty_trace)
-        frame.f_trace = self.err_trace
-
-    @final
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        if exc_type is None:
-            self._on_exit()
-            return
-
-        if issubclass(exc_type, self._Skip):
-            if hasattr(self, '_original_trace'):
-                sys.settrace(self._original_trace)  # Restore the original trace
-            else:
-                raise Exception('original_trace not found! Debugger broken! This should never happened.')
-            return True
-
-        self._on_exit()
-        # Propagate any other exception raised in the block
-        return False
-
-    def _on_enter(self):
-        pass
-
-    def _on_exit(self):
-        pass
-
-    @staticmethod
-    def get_trace():
-        """
-        Safely retrieve the current trace function, prioritizing the PyDev debugger's trace function.
-        """
-        try:
-            # Check if PyDev debugger is active
-            # noinspection PyUnresolvedReferences
-            import pydevd
-            debugger = pydevd.GetGlobalDebugger()
-            if debugger is not None:
-                return debugger.trace_dispatch  # Use PyDev's trace function
-        except ImportError:
-            pass  # PyDev debugger is not installed or active
-
-        # Fall back to the standard trace function
-        return sys.gettrace()
-
-    @classmethod
-    def empty_trace(cls, *args, **kwargs) -> None:
-        pass
-
-    @classmethod
-    def err_trace(cls, frame, event, arg):
-        raise cls._Skip("Expression evaluated to be False, cannot enter the block.")
 
 
 class LogicExpression(SkipContextsBlock):

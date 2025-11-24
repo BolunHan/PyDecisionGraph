@@ -251,6 +251,145 @@ class SkipContextsBlock(object):
             raise self.skip_exception("Expression evaluated to be False, cannot enter the block.")
 
 
+class LogicExpression(SkipContextsBlock):
+    def __init__(self, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
+        super().__init__()
+        self.expression = expression
+        self.dtype = dtype
+        self.repr = repr if repr is not None else str(expression)
+
+    def _entry_check(self) -> Any:
+        return bool(self._eval(False))
+
+    def eval(self, enforce_dtype: bool = False) -> Any:
+        return self._eval(enforce_dtype)
+
+    def _eval(self, enforce_dtype: bool = False) -> Any:
+        if isinstance(self.expression, (float, int, bool, str)):
+            value = self.expression
+        elif callable(self.expression):
+            value = self.expression()
+        elif isinstance(self.expression, Exception):
+            raise self.expression
+        else:
+            raise TypeError(f"Unsupported expression type: {type(self.expression)}.")
+
+        if self.dtype is Any or self.dtype is None:
+            pass  # No type enforcement
+        elif enforce_dtype:
+            value = self.dtype(value)
+        elif not isinstance(value, self.dtype):
+            LOGGER.warning(f"Evaluated value {value} does not match dtype {self.dtype.__name__}.")
+
+        return value
+
+    @classmethod
+    def cast(cls, value: int | float | bool | Exception | Self, dtype: type = None) -> Self:
+        if isinstance(value, LogicExpression):
+            return value
+        if isinstance(value, (int, float, bool)):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype or type(value),
+                repr=str(value)
+            )
+        if callable(value):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype or Any,
+                repr=f"Eval({value})"
+            )
+        if isinstance(value, Exception):
+            return LogicExpression(
+                expression=value,
+                dtype=dtype or Any,
+                repr=f"Raises({type(value).__name__}: {value})"
+            )
+        raise TypeError(f"Unsupported type for LogicExpression conversion: {type(value)}.")
+
+    def __bool__(self) -> bool:
+        return bool(self.eval())
+
+    def __and__(self, other: Self | bool) -> Self:
+        other_expr = self.cast(value=other, dtype=bool)
+        new_expr = LogicExpression(
+            expression=lambda: self.eval() and other_expr.eval(),
+            dtype=bool,
+            repr=f"({self.repr} and {other_expr.repr})"
+        )
+        return new_expr
+
+    def __eq__(self, other: int | float | bool | str | Self) -> Self:
+        if isinstance(other, LogicExpression):
+            other_value = other.eval()
+        else:
+            other_value = other
+
+        return LogicExpression(
+            expression=lambda: self.eval() == other_value,
+            dtype=bool,
+            repr=f"({self.repr} == {repr(other_value)})"
+        )
+
+    def __or__(self, other: Self | bool) -> Self:
+        other_expr = self.cast(value=other, dtype=bool)
+        new_expr = LogicExpression(
+            expression=lambda: self.eval() or other_expr.eval(),
+            dtype=bool,
+            repr=f"({self.repr} or {other_expr.repr})"
+        )
+        return new_expr
+
+    # Math operators
+    @staticmethod
+    def _math_op(self: Self, other: int | float | Self, op: Callable, operator_str: str, dtype: type = None) -> Self:
+        other_expr = LogicExpression.cast(other)
+
+        if dtype is None:
+            dtype = self.dtype
+
+        new_expr = LogicExpression(
+            expression=lambda: op(self.eval(), other_expr.eval()),
+            dtype=dtype,
+            repr=f"({self.repr} {operator_str} {other_expr.repr})",
+        )
+        return new_expr
+
+    def __add__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.add, "+", None)
+
+    def __sub__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.sub, "-", None)
+
+    def __mul__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.mul, "*", None)
+
+    def __truediv__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.truediv, "/", None)
+
+    def __floordiv__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.floordiv, "//", None)
+
+    def __pow__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.pow, "**", None)
+
+    # Comparison operators, note that __eq__, __ne__ is special and should not implement as math operator
+    def __lt__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.lt, "<", bool)
+
+    def __le__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.le, "<=", bool)
+
+    def __gt__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.gt, ">", bool)
+
+    def __ge__(self, other: int | float | bool | Self) -> Self:
+        return LogicExpression._math_op(self, other, operator.ge, ">=", bool)
+
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__}>(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"
+
+
 class LogicGroupManager(metaclass=Singleton):
     """Manager for LogicGroup instances and runtime expression context.
 
@@ -656,181 +795,6 @@ class LogicGroup(object, metaclass=LogicGroupMeta):
         return sub_logic_instances
 
 
-class LogicExpression(SkipContextsBlock):
-    """
-    Represents a logical or mathematical expression that supports deferred evaluation.
-    """
-
-    def __init__(
-            self,
-            expression: float | int | bool | Exception | Callable[[], Any],
-            dtype: type = None,
-            repr: str = None,
-    ):
-        """
-        Initialize the LogicExpression.
-
-        Args:
-            expression (Union[Any, Callable[[], Any]]): A callable or static value.
-            dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
-            repr (str, optional): A string representation of the expression.
-        """
-        self.expression = expression
-        self.dtype = dtype
-        self.repr = repr if repr is not None else str(expression)
-
-        super().__init__()
-
-    def _entry_check(self) -> Any:
-        return self.eval()
-
-    def eval(self, enforce_dtype: bool = False) -> Any:
-        """Evaluate the expression."""
-        if isinstance(self.expression, (float, int, bool, str)):
-            value = self.expression
-        elif callable(self.expression):
-            value = self.expression()
-        elif isinstance(self.expression, Exception):
-            raise self.expression
-        else:
-            raise TypeError(f"Unsupported expression type: {type(self.expression)}.")
-
-        if self.dtype is Any or self.dtype is None:
-            pass  # No type enforcement
-        elif enforce_dtype:
-            value = self.dtype(value)
-        elif not isinstance(value, self.dtype):
-            LOGGER.warning(f"Evaluated value {value} does not match dtype {self.dtype.__name__}.")
-
-        return value
-
-    # Logical operators
-    @classmethod
-    def cast(cls, value: int | float | bool | Exception | Self, dtype: type = None) -> Self:
-        """
-        Convert a static value, callable, or error into a LogicExpression.
-
-        Args:
-            value (Union[int, float, bool, LogicExpression, Callable, Exception]):
-                The value to convert. Can be:
-                - A static value (int, float, or bool).
-                - A callable returning a value.
-                - A pre-existing LogicExpression.
-                - An Exception to raise during evaluation.
-            dtype (type, optional): The expected type of the resulting LogicExpression.
-                If None, it will be inferred from the value.
-
-        Returns:
-            LogicExpression: The resulting LogicExpression.
-
-        Raises:
-            TypeError: If the value type is unsupported or dtype is incompatible.
-        """
-        if isinstance(value, LogicExpression):
-            return value
-        if isinstance(value, (int, float, bool)):
-            return LogicExpression(
-                expression=value,
-                dtype=dtype or type(value),
-                repr=str(value)
-            )
-        if callable(value):
-            return LogicExpression(
-                expression=value,
-                dtype=dtype or Any,
-                repr=f"Eval({value})"
-            )
-        if isinstance(value, Exception):
-            return LogicExpression(
-                expression=value,
-                dtype=dtype or Any,
-                repr=f"Raises({type(value).__name__}: {value})"
-            )
-        raise TypeError(f"Unsupported type for LogicExpression conversion: {type(value)}.")
-
-    def __bool__(self) -> bool:
-        return bool(self.eval())
-
-    def __and__(self, other: Self | bool) -> Self:
-        other_expr = self.cast(value=other, dtype=bool)
-        new_expr = LogicExpression(
-            expression=lambda: self.eval() and other_expr.eval(),
-            dtype=bool,
-            repr=f"({self.repr} and {other_expr.repr})"
-        )
-        return new_expr
-
-    def __eq__(self, other: int | float | bool | str | Self) -> Self:
-        if isinstance(other, LogicExpression):
-            other_value = other.eval()
-        else:
-            other_value = other
-
-        return LogicExpression(
-            expression=lambda: self.eval() == other_value,
-            dtype=bool,
-            repr=f"({self.repr} == {repr(other_value)})"
-        )
-
-    def __or__(self, other: Self | bool) -> Self:
-        other_expr = self.cast(value=other, dtype=bool)
-        new_expr = LogicExpression(
-            expression=lambda: self.eval() or other_expr.eval(),
-            dtype=bool,
-            repr=f"({self.repr} or {other_expr.repr})"
-        )
-        return new_expr
-
-    # Math operators
-    @classmethod
-    def _math_op(cls, self: Self, other: int | float | Self, op: Callable, operator_str: str, dtype: type = None) -> Self:
-        other_expr = LogicExpression.cast(other)
-
-        if dtype is None:
-            dtype = self.dtype
-
-        new_expr = LogicExpression(
-            expression=lambda: op(self.eval(), other_expr.eval()),
-            dtype=dtype,
-            repr=f"({self.repr} {operator_str} {other_expr.repr})",
-        )
-        return new_expr
-
-    def __add__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.add, operator_str="+")
-
-    def __sub__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.sub, operator_str="-")
-
-    def __mul__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.mul, operator_str="*")
-
-    def __truediv__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.truediv, operator_str="/")
-
-    def __floordiv__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.floordiv, operator_str="//")
-
-    def __pow__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.pow, operator_str="**")
-
-    # Comparison operators, note that __eq__, __ne__ is special and should not implement as math operator
-    def __lt__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.lt, operator_str="<", dtype=bool)
-
-    def __le__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.le, operator_str="<=", dtype=bool)
-
-    def __gt__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.gt, operator_str=">", dtype=bool)
-
-    def __ge__(self, other: int | float | bool | Self) -> Self:
-        return self._math_op(self=self, other=other, op=operator.ge, operator_str=">=", dtype=bool)
-
-    def __repr__(self) -> str:
-        return f"LogicExpression(dtype={'Any' if self.dtype is None else self.dtype.__name__}, repr={self.repr})"
-
-
 class ExpressionCollection(LogicGroup):
     def __init__(self, data: Any, name: str, **kwargs):
         if 'logic_group' not in kwargs:
@@ -853,14 +817,6 @@ class LogicNode(LogicExpression):
             dtype: type = None,
             repr: str = None,
     ):
-        """
-        Initialize the LogicExpression.
-
-        Args:
-            expression (Union[Any, Callable[[], Any]]): A callable or static value.
-            dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
-            repr (str, optional): A string representation of the expression.
-        """
         super().__init__(expression=expression, dtype=dtype, repr=repr)
 
         self.labels = [_.name for _ in LGM._active_groups]

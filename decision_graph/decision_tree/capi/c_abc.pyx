@@ -1388,6 +1388,7 @@ cdef class PlaceholderNode(ActionNode):
 cdef class NoAction(ActionNode):
     def __cinit__(self, *, bint auto_connect=True, **kwargs):
         self.sig = 0
+        self.repr = 'NoAction'
 
     cdef object c_eval(self, bint enforce_dtype):
         return self
@@ -1399,6 +1400,7 @@ cdef class NoAction(ActionNode):
 cdef class LongAction(ActionNode):
     def __cinit__(self, *, ssize_t sig=1, bint auto_connect=True, **kwargs):
         self.sig = sig
+        self.repr = 'LongAction'
 
     cdef object c_eval(self, bint enforce_dtype):
         return self
@@ -1410,6 +1412,7 @@ cdef class LongAction(ActionNode):
 cdef class ShortAction(ActionNode):
     def __cinit__(self, *, ssize_t sig=-1, bint auto_connect=True, **kwargs):
         self.sig = sig
+        self.repr = 'ShortAction'
 
     cdef object c_eval(self, bint enforce_dtype):
         return self

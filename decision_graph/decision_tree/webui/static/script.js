@@ -1,100 +1,55 @@
 let GLOBAL_TREE_ROOT = null;
+let GLOBAL_TREE_DATA = null;
+let GLOBAL_SELECTED_GROUP = "*";
+let GLOBAL_VIRTUAL_LINK_DEFS = [];
 
 function visualizeTree(treeData) {
-    if (!treeData || !treeData.root) {
-        console.error("Invalid tree data received:", treeData);
-        return;
-    }
+    GLOBAL_TREE_DATA = treeData;
+    GLOBAL_VIRTUAL_LINK_DEFS = treeData.virtual_links || [];
 
-    const container = d3.select("#tree-container");
-    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    // Extract all unique logic groups from labels
+    const allGroups = new Set();
 
-    const containerWidth = container.node().clientWidth;
-    const containerHeight = container.node().clientHeight;
-
-    const layoutWidth = Math.max(containerWidth, 600);
-    const layoutHeight = Math.max(containerHeight, 400);
-
-    let svg = container.select("svg");
-    if (svg.empty()) {
-        svg = container.append("svg");
-    }
-
-    let g = svg.select("g");
-    if (g.empty()) {
-        g = svg.append("g");
-    }
-
-    function cloneForD3(node) {
-        const copy = {...node};
-        if (node._children && node._children.length > 0) {
-            copy._children = node._children.map(cloneForD3);
-            copy.children = copy._children; // expanded by default
-        } else {
-            copy.children = null;
-            copy._children = [];
+    function collectGroups(node) {
+        if (node.labels && Array.isArray(node.labels)) {
+            node.labels.forEach(label => allGroups.add(label));
         }
-        return copy;
+        if (node._children) {
+            node._children.forEach(collectGroups);
+        }
     }
 
-    const rootData = cloneForD3(treeData.root);
-    const root = d3.hierarchy(rootData, d => d.children);
+    collectGroups(treeData.root);
 
-    // 🔑 Store global root for toggling
-    GLOBAL_TREE_ROOT = root;
+    const groups = ["*"].concat(Array.from(allGroups).sort());
 
-    const nodeMap = buildNodeMap(root);
-    const virtualLinks = buildVirtualLinks(treeData.virtual_links || [], nodeMap);
+    // Render tabs
+    const tabContainer = d3.select("#logic-group-tabs");
+    tabContainer.selectAll("button").remove();
+    const tabs = tabContainer.selectAll("button")
+        .data(groups)
+        .enter()
+        .append("button")
+        .attr("class", d => `tab-button ${d === "*" ? "active" : ""}`)
+        .attr("data-group", String)
+        .text(d => d === "*" ? "All" : d)
+        .on("click", function (event, group) {
+            // Update active tab
+            d3.selectAll(".tab-button").classed("active", false);
+            d3.select(this).classed("active", true);
 
-    applyTreeLayoutWithMinSpacing(root, layoutWidth, layoutHeight);
+            GLOBAL_SELECTED_GROUP = group;
+            renderFilteredTree();
+        });
 
-    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    root.each(d => {
-        if (d.x < xMin) xMin = d.x;
-        if (d.x > xMax) xMax = d.x;
-        if (d.y < yMin) yMin = d.y;
-        if (d.y > yMax) yMax = d.y;
-    });
-
-    const padding = 40;
-    const treeWidth = xMax - xMin + 2 * padding;
-    const treeHeight = yMax - yMin + 2 * padding;
-
-    svg.attr("width", treeWidth + margin.left + margin.right)
-        .attr("height", treeHeight + margin.top + margin.bottom);
-
-    g.attr("transform", `translate(${margin.left - xMin + padding},${margin.top - yMin + padding})`);
-
-    root.each(d => {
-        d.x0 = d.x;
-        d.y0 = d.y;
-    });
-
-    // Pass global root and virtual links (parent-child links are dynamic)
-    updateVisualization(root, g, treeData.virtual_links || [], nodeMap);
+    // Initial render
+    renderFilteredTree();
 }
 
 function buildNodeMap(root) {
     const nodeMap = new Map();
     root.each(d => nodeMap.set(d.data.id, d));
     return nodeMap;
-}
-
-function buildParentChildLinks(root) {
-    const links = [];
-    root.each(d => {
-        if (d.children) {
-            d.children.forEach(child => {
-                links.push({
-                    source: d,
-                    target: child,
-                    condition: child.data.condition_to_child || "",
-                    condition_type: child.data.condition_type || "default"
-                });
-            });
-        }
-    });
-    return links;
 }
 
 function buildVirtualLinks(virtualLinkDefs, nodeMap) {
@@ -172,9 +127,9 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
 
     nodeEnter.append("rect")
         .attr("class", "node-rect")
+        .attr("class", d => `node-rect ${d.data.type}`)
         .attr("rx", 6)
         .attr("ry", 6)
-        .attr("fill", d => getNodeFillColor(d.data.type));
 
     nodeEnter.append("text")
         .attr("class", "node-text")
@@ -307,25 +262,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     });
 }
 
-function getNodeFillColor(nodeType) {
-    switch (nodeType) {
-        case "LogicNode":
-            return "#9ecae1";
-        case "ActionNode":
-            return "orange";
-        case "NoAction":
-            return "lightgray";
-        case "LongAction":
-            return "lightgreen";
-        case "ShortAction":
-            return "lightcoral";
-        case "BreakpointNode":
-            return "red";
-        default:
-            return "lightsteelblue";
-    }
-}
-
 function toggleChildren(event, d) {
     event.stopPropagation();
 
@@ -364,6 +300,7 @@ function showNodeInfo(event, d) {
     const info = d.data;
     d3.select("#info-id").text(info.id || "N/A");
     d3.select("#info-name").text(info.name || "N/A");
+    d3.select("#info-repr").text(info.repr || "N/A");
     d3.select("#info-type").text(info.type || "N/A");
     d3.select("#info-labels").text(Array.isArray(info.labels) ? info.labels.join(", ") : String(info.labels || "N/A"));
     d3.select("#info-autogen").text(String(info.autogen || "N/A"));
@@ -393,4 +330,94 @@ function showNodeInfo(event, d) {
 function hideNodeInfo() {
     d3.select("#node-info")
         .style("display", "none");
+}
+
+function renderFilteredTree() {
+    const container = d3.select("#tree-container");
+    container.select("svg").remove(); // Clear previous tree
+
+    if (!GLOBAL_TREE_DATA) return;
+
+    const group = GLOBAL_SELECTED_GROUP;
+    const treeData = GLOBAL_TREE_DATA;
+
+    // Clone and filter tree
+    function shouldInclude(node) {
+        if (group === "*") return true;
+        return node.labels && Array.isArray(node.labels) && node.labels.includes(group);
+    }
+
+    function cloneAndFilter(node, includeSelf) {
+        const include = includeSelf || shouldInclude(node);
+        const copy = {...node};
+
+        if (node._children && node._children.length > 0) {
+            const filteredChildren = node._children
+                .map(child => cloneAndFilter(child, include || shouldInclude(child)))
+                .filter(Boolean); // Remove nulls
+
+            if (filteredChildren.length > 0) {
+                copy._children = filteredChildren;
+                copy.children = copy._children; // expanded by default
+            } else {
+                copy._children = [];
+                copy.children = null;
+            }
+        } else {
+            copy._children = [];
+            copy.children = null;
+        }
+
+        // Only return node if it or any descendant is included
+        return include || (copy.children && copy.children.length > 0) ? copy : null;
+    }
+
+    const filteredRoot = cloneAndFilter(treeData.root, shouldInclude(treeData.root));
+    if (!filteredRoot) {
+        container.append("div").text("No nodes match the selected logic group.");
+        return;
+    }
+
+    // Proceed with layout and render (same as before)
+    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    const wrapper = d3.select("#tree-scroll-wrapper");
+    const containerWidth = wrapper.node().clientWidth;
+    const containerHeight = wrapper.node().clientHeight;
+
+    const layoutWidth = Math.max(containerWidth, 600);
+    const layoutHeight = Math.max(containerHeight, 400);
+
+    const svg = container.append("svg");
+    const g = svg.append("g");
+
+    const root = d3.hierarchy(filteredRoot, d => d.children);
+    GLOBAL_TREE_ROOT = root;
+
+    const nodeMap = buildNodeMap(root);
+
+    applyTreeLayoutWithMinSpacing(root, layoutWidth, layoutHeight);
+
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    root.each(d => {
+        if (d.x < xMin) xMin = d.x;
+        if (d.x > xMax) xMax = d.x;
+        if (d.y < yMin) yMin = d.y;
+        if (d.y > yMax) yMax = d.y;
+    });
+
+    const padding = 40;
+    const treeWidth = xMax - xMin + 2 * padding;
+    const treeHeight = yMax - yMin + 2 * padding;
+
+    svg.attr("width", treeWidth + margin.left + margin.right)
+        .attr("height", treeHeight + margin.top + margin.bottom);
+
+    g.attr("transform", `translate(${margin.left - xMin + padding},${margin.top - yMin + padding})`);
+
+    root.each(d => {
+        d.x0 = d.x;
+        d.y0 = d.y;
+    });
+
+    updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap);
 }

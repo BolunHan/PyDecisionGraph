@@ -1,16 +1,60 @@
 body {
-    font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
+    font-family: Arial, sans-serif;
     background-color: #f4f4f4;
-    overflow: hidden; /* Prevent default body scroll, use container scroll */
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden; /* Prevent double scrollbars */
 }
 
 #header {
     background-color: #333;
     color: white;
     padding: 10px 20px;
-    margin-bottom: 20px;
+}
+
+#logic-group-tabs {
+    display: flex;
+    padding: 8px 16px;
+    background-color: #eee;
+    border-bottom: 1px solid #ccc;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tab-button {
+    padding: 6px 12px;
+    border: 1px solid #999;
+    background: #f8f8f8;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.tab-button.active {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+/* Critical: scrollable flex area */
+#tree-scroll-wrapper {
+    flex: 1;
+    min-height: 0; /* ← allows scrolling in flex container */
+    overflow: auto; /* scrollbar if content overflows */
+    padding: 0 20px 20px 20px;
+}
+
+#tree-container {
+    flex: 1; /* Takes remaining space */
+    /*min-width: 600px; !* Prevent horizontal collapse *!*/
+    /*min-height: 400px; !* Prevent vertical collapse *!*/
+    /*height: 80vh;*/
+    /*border: 1px solid #ccc;*/
+    background-color: white;
+    overflow: auto;
+    position: relative;
 }
 
 /* D3.js generated SVG styles */
@@ -25,31 +69,35 @@ body {
     stroke-width: 1.5px;
 }
 
-/* Styles for ActionNode circles */
-.node circle {
-    fill: #fff;
+/* Node type fill colors — defined in CSS */
+.node.LogicNode .node-rect {
+    fill: #9ecae1;
     stroke: steelblue;
     stroke-width: 1.5px;
 }
 
-.node.ActionNode circle {
-    fill: #fd8d3c;
+.node.ActionNode .node-rect {
+    fill: orange;
 }
 
-.node.NoAction circle {
-    fill: #d9d9d9;
+.node.NoAction .node-rect {
+    fill: lightgray;
 }
 
-.node.LongAction circle {
-    fill: #74c476;
+.node.LongAction .node-rect {
+    fill: lightgreen;
 }
 
-.node.ShortAction circle {
-    fill: #fdae6b;
+.node.ShortAction .node-rect {
+    fill: lightcoral;
 }
 
-.node.BreakpointNode circle {
-    fill: #e6550d;
+.node.BreakpointNode .node-rect {
+    fill: red;
+}
+
+.node .node-rect {
+    fill: lightsteelblue;
 }
 
 .link {
@@ -96,18 +144,6 @@ body {
     fill: rgba(255, 255, 0, 0.5);
 }
 
-.link-condition.false .link-condition-bg {
-    fill: rgba(255, 0, 0, 0.5); /* Red with 50% opacity */
-}
-
-.link-condition.unconditional .link-condition-bg {
-    fill: rgba(0, 0, 255, 0.5); /* Blue with 50% opacity */
-}
-
-.link-condition.else .link-condition-bg {
-    fill: rgba(255, 255, 0, 0.5); /* Yellow with 50% opacity */
-}
-
 #node-info {
     position: fixed;
     top: 10px;
@@ -118,20 +154,10 @@ body {
     border-radius: 5px;
     padding: 15px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    z-index: 1000; /* Ensure it's above the tree */
+    z-index: 1000;
+    display: none;
 }
 
 #node-info h3 {
     margin-top: 0;
-}
-
-#tree-container {
-    flex: 1; /* Takes remaining space */
-    min-width: 600px; /* Prevent horizontal collapse */
-    min-height: 400px; /* Prevent vertical collapse */
-    height: 80vh;
-    border: 1px solid #ccc;
-    background-color: white;
-    overflow: auto;
-    position: relative;
 }

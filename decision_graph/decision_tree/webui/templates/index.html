@@ -11,12 +11,26 @@
 <div id="header">
     <h1>Decision Tree Visualization (Tree ID: {{ tree_id }})</h1>
 </div>
-<div id="tree-container"></div>
+
+<!-- Logic Group Tabs -->
+<div id="logic-group-tabs">
+    <button class="tab-button active" data-group="*">All</button>
+    <!-- Other tabs inserted by JS -->
+</div>
+
+<!-- Scrollable Tree Container -->
+<div id="tree-scroll-wrapper">
+    <div id="tree-container"
+         data-initial-tree='{{ initial_tree_data | tojson | e }}'
+         data-tree-id="{{ tree_id }}">
+    </div>
+</div>
 
 <div id="node-info" style="display: none;">
     <h3>Node Details</h3>
     <p><strong>ID:</strong> <span id="info-id"></span></p>
     <p><strong>Name:</strong> <span id="info-name"></span></p>
+    <p><strong>Repr:</strong> <span id="info-repr"></span></p>
     <p><strong>Type:</strong> <span id="info-type"></span></p>
     <p><strong>Labels:</strong> <span id="info-labels"></span></p>
     <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
@@ -25,10 +39,9 @@
 
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 <script>
-    // Pass the initial tree data from Flask template context to JavaScript
-    const initialTreeData = {{ initial_tree_data | tojson }};
-    const treeId = "{{ tree_id }}";
-    // Call the main visualization function
+    const container = d3.select("#tree-container");
+    const initialTreeData = JSON.parse(container.attr("data-initial-tree"));
+    const treeId = container.attr("data-tree-id");
     visualizeTree(initialTreeData);
 </script>
 </body>

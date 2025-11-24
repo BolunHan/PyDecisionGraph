@@ -44,8 +44,9 @@ cdef class RootLogicNode(LogicNode):
     def eval_recursively(self, **kwargs):
         return self.child.eval_recursively(**kwargs)
 
-    def to_html(self, with_group=True, dry_run=True, filename="decision_graph.html", **kwargs):
-        return self.child.to_html(with_group=with_group, dry_run=dry_run, filename=filename, **kwargs)
+    def to_html(self, str file_name="root.html", bint with_eval=True):
+        from ..webui import to_html
+        to_html(self, file_name, with_eval)
 
     @property
     def child(self) -> LogicNode:

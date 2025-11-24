@@ -53,6 +53,19 @@ class RootLogicNode(LogicNode):
             TooManyChildren: If a child is already attached to the root.
         """
 
+    def to_html(self, file_name: str = 'root.html', with_eval: bool = True) -> None:
+        """Render the decision tree to an HTML file.
+
+        This method generates a standalone HTML file visualizing the
+        decision tree structure starting from this root node. If
+        ``with_eval`` is True, the evaluation results are also included
+        in the rendering.
+
+        Args:
+            file_name: Output HTML file name.
+            with_eval: Whether to include evaluation results in the rendering.
+        """
+
     @property
     def child(self) -> LogicNode:
         """Return the single child node attached to the root.

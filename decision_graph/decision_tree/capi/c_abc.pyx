@@ -37,6 +37,9 @@ cdef class NodeEdgeCondition(Singleton):
     def __hash__(self):
         return (<object> self.value_addr).__hash__()
 
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {<uintptr_t> <PyObject*> self:#0x}>'
+
     property value:
         def __get__(self):
             if not self.value_addr:
@@ -57,11 +60,11 @@ cdef class ConditionElse(NodeEdgeCondition):
     def __hash__(self):
         return <uintptr_t> <PyObject*> self
 
+    def __repr__(self):
+        return f'<CONDITION Internal {<uintptr_t> <PyObject*> self:#0x}>(Else)'
+
     def __str__(self):
         return 'Else'
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__}>'
 
     property value:
         def __set__(self, value):
@@ -74,6 +77,9 @@ cdef class ConditionAny(NodeEdgeCondition):
 
     def __hash__(self):
         return <uintptr_t> <PyObject*> self
+
+    def __repr__(self):
+        return f'<CONDITION {<uintptr_t> <PyObject*> self:#0x}>(Unconditional)'
 
     def __str__(self):
         return 'Unconditional'
@@ -89,6 +95,9 @@ cdef class ConditionAuto(NodeEdgeCondition):
 
     def __hash__(self):
         raise NotImplementedError()
+
+    def __repr__(self):
+        return f'<CONDITION Internal {<uintptr_t> <PyObject*> self:#0x}>(AutoInfer)'
 
     def __str__(self):
         return 'AutoInfer'
@@ -107,6 +116,9 @@ cdef class BinaryCondition(NodeEdgeCondition):
 
 
 cdef class ConditionTrue(BinaryCondition):
+    def __repr__(self):
+        return f'<CONDITION {<uintptr_t> <PyObject*> self:#0x}>(True)'
+
     def __str__(self):
         return 'True'
 
@@ -128,6 +140,9 @@ cdef class ConditionTrue(BinaryCondition):
 
 
 cdef class ConditionFalse(BinaryCondition):
+    def __repr__(self):
+        return f'<CONDITION {<uintptr_t> <PyObject*> self:#0x}>(False)'
+
     def __str__(self):
         return 'False'
 
@@ -847,13 +862,12 @@ cdef class LogicGroup:
 
     @classmethod
     def break_(cls, LogicGroup scope=None):
-        cdef LogicGroupFrame* frame = LGM._active_groups.top
-        if not frame:
-            raise RuntimeError("No active LogicGroup to break from.")
-        cdef PyObject* active_node = frame.logic_group
+        if scope is None:
+            scope = LGM.active_group
 
         if scope is None:
-            scope = <LogicGroup> <object> active_node
+            raise RuntimeError("No active LogicGroup to break from.")
+
         if LGM.inspection_mode:
             scope.c_break_inspection()
         else:

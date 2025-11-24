@@ -1,0 +1,137 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+    overflow: hidden; /* Prevent default body scroll, use container scroll */
+}
+
+#header {
+    background-color: #333;
+    color: white;
+    padding: 10px 20px;
+    margin-bottom: 20px;
+}
+
+/* D3.js generated SVG styles */
+.node {
+    cursor: pointer;
+}
+
+/* Styles for LogicNode rectangles */
+.node.LogicNode rect {
+    fill: #9ecae1; /* Light blue */
+    stroke: steelblue;
+    stroke-width: 1.5px;
+}
+
+/* Styles for ActionNode circles */
+.node circle {
+    fill: #fff;
+    stroke: steelblue;
+    stroke-width: 1.5px;
+}
+
+.node.ActionNode circle {
+    fill: #fd8d3c;
+}
+
+.node.NoAction circle {
+    fill: #d9d9d9;
+}
+
+.node.LongAction circle {
+    fill: #74c476;
+}
+
+.node.ShortAction circle {
+    fill: #fdae6b;
+}
+
+.node.BreakpointNode circle {
+    fill: #e6550d;
+}
+
+.link {
+    fill: none;
+    stroke: #ccc;
+    stroke-width: 1.5px;
+}
+
+.link.virtual_parent {
+    stroke: #ff0000; /* Red for virtual links */
+    stroke-dasharray: 5, 5; /* Dashed line */
+}
+
+/* Styles for condition labels */
+.link-condition {
+    font-size: 10px;
+    text-anchor: middle;
+    dominant-baseline: middle; /* Align text vertically in the middle */
+    pointer-events: none; /* Allow clicks to pass through the label */
+}
+
+/* Background rectangle for condition labels */
+.link-condition-bg {
+    fill: white; /* Default background */
+    stroke: black; /* Default border */
+    stroke-width: 0.5;
+    opacity: 0.5; /* 50% transparency */
+}
+
+/* Specific styles for condition types */
+.link-condition-group.true .link-condition-bg {
+    fill: rgba(0, 255, 0, 0.5);
+}
+
+.link-condition-group.false .link-condition-bg {
+    fill: rgba(255, 0, 0, 0.5);
+}
+
+.link-condition-group.unconditional .link-condition-bg {
+    fill: rgba(0, 0, 255, 0.5);
+}
+
+.link-condition-group.else .link-condition-bg {
+    fill: rgba(255, 255, 0, 0.5);
+}
+
+.link-condition.false .link-condition-bg {
+    fill: rgba(255, 0, 0, 0.5); /* Red with 50% opacity */
+}
+
+.link-condition.unconditional .link-condition-bg {
+    fill: rgba(0, 0, 255, 0.5); /* Blue with 50% opacity */
+}
+
+.link-condition.else .link-condition-bg {
+    fill: rgba(255, 255, 0, 0.5); /* Yellow with 50% opacity */
+}
+
+#node-info {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 300px;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    z-index: 1000; /* Ensure it's above the tree */
+}
+
+#node-info h3 {
+    margin-top: 0;
+}
+
+#tree-container {
+    flex: 1; /* Takes remaining space */
+    min-width: 600px; /* Prevent horizontal collapse */
+    min-height: 400px; /* Prevent vertical collapse */
+    height: 80vh;
+    border: 1px solid #ccc;
+    background-color: white;
+    overflow: auto;
+    position: relative;
+}

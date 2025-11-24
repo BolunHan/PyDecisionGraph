@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decision Tree Visualizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+<div id="header">
+    <h1>Decision Tree Visualization (Tree ID: {{ tree_id }})</h1>
+</div>
+<div id="tree-container"></div>
+
+<div id="node-info" style="display: none;">
+    <h3>Node Details</h3>
+    <p><strong>ID:</strong> <span id="info-id"></span></p>
+    <p><strong>Name:</strong> <span id="info-name"></span></p>
+    <p><strong>Type:</strong> <span id="info-type"></span></p>
+    <p><strong>Labels:</strong> <span id="info-labels"></span></p>
+    <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
+    <p><strong>Expression:</strong> <span id="info-expr"></span></p>
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+<script>
+    // Pass the initial tree data from Flask template context to JavaScript
+    const initialTreeData = {{ initial_tree_data | tojson }};
+    const treeId = "{{ tree_id }}";
+    // Call the main visualization function
+    visualizeTree(initialTreeData);
+</script>
+</body>
+</html>

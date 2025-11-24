@@ -2,6 +2,8 @@ import logging
 
 from .. import LOGGER
 
+LOGGER = LOGGER.getChild('CAPI')
+
 from ..exc import (
     NodeError, TooManyChildren, TooFewChildren, NodeNotFountError, NodeValueError,
     EdgeValueError, ResolutionError, ExpressFalse, ContextsNotFound

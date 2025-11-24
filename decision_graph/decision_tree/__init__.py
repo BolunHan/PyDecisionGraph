@@ -5,40 +5,40 @@ from .. import LOGGER
 LOGGER = LOGGER.getChild("DecisionTree")
 
 __all__ = [
-    'LOGGER', 'set_logger', 'activate_expression_model', 'activate_node_model',
+    'LOGGER', 'set_logger',
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'EdgeValueError', 'ResolutionError', 'ExpressFalse', 'ContextsNotFound',
-    'LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'ExpressionCollection', 'LogicNode', 'ActionNode', 'ELSE_CONDITION',
+    'LGM', 'LogicGroup', 'SkipContextsBlock', 'LogicExpression', 'LogicNode', 'ActionNode', 'ELSE_CONDITION',
     'NoAction', 'LongAction', 'ShortAction', 'RootLogicNode', 'ContextLogicExpression', 'AttrExpression', 'MathExpression', 'ComparisonExpression', 'LogicalExpression',
     'LogicMapping', 'LogicGenerator'
 ]
 
 from .exc import *
-from .abc import *
-from .node import *
-from .collection import *
+
+_USING_CAPI = False
+try:
+    # Attempt to import the C API module
+    from . import capi
+    from .capi.c_abc import *
+    from .capi.c_node import *
+    from .capi.c_collection import *
+
+    _USING_CAPI = True
+except Exception:
+    # Fallback to the python node model
+    from . import native
+    from .native.abc import *
+    from .native.node import *
+    from .native.collection import *
+
+    _USING_CAPI = False
 
 
 def set_logger(logger: logging.Logger):
     global LOGGER
     LOGGER = logger
 
-    abc.LOGGER = logger.getChild('abc')
-
-
-def activate_expression_model():
-    import importlib
-    importlib.import_module('decision_graph.decision_tree.expression')
-    importlib.reload(collection)
-    collection.LogicMapping.AttrExpression = AttrExpression
-    collection.LogicGenerator.AttrExpression = AttrExpression
-    # importlib.reload(logic_group)
-
-
-def activate_node_model():
-    import importlib
-
-    importlib.import_module('decision_graph.decision_tree.node')
-    importlib.reload(collection)
-    collection.LogicMapping.AttrExpression = AttrExpression
-    collection.LogicGenerator.AttrExpression = AttrExpression
-    # importlib.reload(logic_group)
+    # ensure abc module (imported above) receives logger
+    if _USING_CAPI:
+        capi.set_logger(logger.getChild('CAPI'))
+    else:
+        native.set_logger(logger.getChild('Native'))

@@ -2,6 +2,8 @@ import logging
 
 from .. import LOGGER
 
+LOGGER = LOGGER.getChild('Native')
+
 # NOTE: Default model
 # The decision tree package exposes expression classes (e.g. AttrExpression) at the
 # package level. The import order below determines which implementation is the

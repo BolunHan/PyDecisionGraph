@@ -1,25 +1,17 @@
-# decision_graph/decision_tree/webui/main.py
-
-import argparse
-import webbrowser
 import threading
 import time
-import logging
+import webbrowser
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
-import flask
-from flask import Flask, render_template, jsonify, request
-from decision_graph.decision_tree.capi import LogicNode, LogicGroup, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, NodeEdgeCondition, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
 
-# --- Configuration ---
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 5000
-FLASK_DEBUG = False  # Set to True for development debugging
-LOG_LEVEL = logging.INFO  # Or logging.DEBUG for more detail
-# --- End Configuration ---
+from flask import Flask, render_template, jsonify
+from jinja2 import Environment, FileSystemLoader
 
-logging.basicConfig(level=LOG_LEVEL)
-logger = logging.getLogger(__name__)
+from decision_graph.decision_tree import LOGGER
+from decision_graph.decision_tree.capi import LogicNode, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
+
+LOGGER = LOGGER.getChild('WebUI')
 
 
 class DecisionTreeWebUi(object):
@@ -59,11 +51,13 @@ class DecisionTreeWebUi(object):
                 return jsonify({"error": "No tree data available"}), 404
             return jsonify({"tree_data": self.current_tree_data, "tree_id": self.current_tree_id})
 
-    def _convert_node_to_dict(self,
-                              node: LogicNode,
-                              visited_nodes: Dict[int, Dict[str, Any]],
-                              virtual_parent_links: List[Dict[str, Any]],
-                              activated_node_ids: Optional[set] = None) -> Dict[str, Any]:
+    def _convert_node_to_dict(
+            self,
+            node: LogicNode,
+            visited_nodes: Dict[int, Dict[str, Any]],
+            virtual_parent_links: List[Dict[str, Any]],
+            activated_node_ids: Optional[set] = None
+    ) -> Dict[str, Any]:
         """Recursively converts a LogicNode tree into a dictionary format suitable for JSON/D3."""
         node_id = id(node)
         if node_id in visited_nodes:
@@ -168,7 +162,7 @@ class DecisionTreeWebUi(object):
         if not isinstance(node, LogicNode):
             raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
 
-        logger.info(f"Preparing to visualize LogicNode tree starting at {node}")
+        LOGGER.info(f"Preparing to visualize LogicNode tree starting at {node}")
 
         activated_node_ids = None
         if with_eval:
@@ -187,12 +181,75 @@ class DecisionTreeWebUi(object):
         browser_thread = threading.Thread(target=open_browser)
         browser_thread.start()
 
-        logger.info(f"Starting Flask server on {url} (with_eval={with_eval})")
+        LOGGER.info(f"Starting Flask server on {url} (with_eval={with_eval})")
         try:
             # Pass with_eval to route context
             self._with_eval = with_eval  # Store temporarily
             self.app.run(host=self.host, port=self.port, debug=self.debug, use_reloader=False, threaded=True)
         except KeyboardInterrupt:
-            logger.info("Flask server stopped by user.")
+            LOGGER.info("Flask server stopped by user.")
         finally:
-            logger.info("Web UI session ended.")
+            LOGGER.info("Web UI session ended.")
+
+    def to_html(self, node: LogicNode, file_name: str, with_eval: bool = True):
+        """
+        Exports a LogicNode tree as a self-contained offline HTML file.
+
+        Args:
+            node (LogicNode): The root node of the tree to visualize.
+            file_name (str): Output HTML file path.
+            with_eval (bool): Whether to include evaluation (activation) data.
+        """
+        if not isinstance(node, LogicNode):
+            raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
+
+        # Prepare tree data
+        activated_node_ids = None
+        if with_eval:
+            v, p = node.eval_recursively()
+            activated_node_ids = {id(n) for n in p}
+
+        tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
+
+        # Determine if evaluation data is present (for toggle visibility)
+        def has_inactive(node_dict):
+            if node_dict.get("activated") is False:
+                return True
+            return any(has_inactive(child) for child in node_dict.get("_children", []))
+
+        has_eval_data = with_eval and has_inactive(tree_data["root"])
+
+        # Locate resource directories
+        module_dir = Path(__file__).parent
+        template_dir = module_dir / "templates"
+        static_dir = module_dir / "static"
+
+        # Read assets
+        css_path = static_dir / "style.css"
+        js_path = static_dir / "script.js"
+        template_path = template_dir / "offline.html"
+
+        for p in [css_path, js_path, template_path]:
+            if not p.exists():
+                raise FileNotFoundError(f"Required resource not found: {p}")
+
+        with open(css_path, "r", encoding="utf-8") as f:
+            css_content = f.read()
+        with open(js_path, "r", encoding="utf-8") as f:
+            js_content = f.read()
+
+        # Render template
+        env = Environment(loader=FileSystemLoader(template_dir))
+        template = env.get_template("offline.html")
+        html_output = template.render(
+            initial_tree_data=tree_data,
+            with_eval=has_eval_data,
+            css_content=css_content,
+            js_content=js_content
+        )
+
+        # Write file
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(html_output)
+
+        LOGGER.info(f"Offline HTML exported to: {file_name}")

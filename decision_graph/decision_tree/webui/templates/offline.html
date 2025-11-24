@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decision Tree Visualization (Offline)</title>
+    <style>
+        {{ css_content | safe }}
+        /* Highlight toggle styles */
+        #highlight-toggle { opacity: 0; position: absolute; width: 0; height: 0; }
+        .highlight-switch-slider { position: relative; display: inline-block; width: 36px; height: 20px; }
+        .highlight-switch-slider::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #6c757d; border-radius: 10px; transition: background-color 0.2s;
+        }
+        .highlight-switch-slider::after {
+            content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+            background-color: white; border-radius: 50%; transition: transform 0.2s;
+        }
+        #highlight-toggle:checked + .highlight-switch-slider::before { background-color: #007bff; }
+        #highlight-toggle:checked + .highlight-switch-slider::after { transform: translateX(16px); }
+    </style>
+</head>
+<body>
+<div id="header">
+    <h1>Decision Tree Visualization (Offline)</h1>
+</div>
+
+{% if with_eval %}
+<div id="highlight-control" style="padding: 8px 20px; display: flex; align-items: center; gap: 8px; background-color: #eee;">
+    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+        <span>Highlight Active Path</span>
+        <input type="checkbox" id="highlight-toggle" checked>
+        <span class="highlight-switch-slider"></span>
+    </label>
+</div>
+{% endif %}
+
+<div id="logic-group-tabs">
+    <button class="tab-button active" data-group="*">All</button>
+</div>
+
+<div id="tree-scroll-wrapper">
+    <div id="tree-container"></div>
+</div>
+
+<div id="node-info" style="display: none;">
+    <h3>Node Details</h3>
+    <p><strong>ID:</strong> <span id="info-id"></span></p>
+    <p><strong>Name:</strong> <span id="info-name"></span></p>
+    <p><strong>Type:</strong> <span id="info-type"></span></p>
+    <p><strong>Labels:</strong> <span id="info-labels"></span></p>
+    <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
+    <p><strong>Expression:</strong> <span id="info-expr"></span></p>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+    const initialTreeData = {{ initial_tree_data | tojson }};
+    const treeId = "offline";
+    {{ js_content | safe }}
+    // Trigger initial render
+    visualizeTree(initialTreeData);
+</script>
+</body>
+</html>

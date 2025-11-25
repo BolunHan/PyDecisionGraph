@@ -1,34 +1,45 @@
-name: Publish Python Package to PYPI
+name: Publish Python Package to PyPI
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*.*.*'
+  workflow_dispatch:  # Allow manual run on latest commit
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel build cython
+      - name: Install cibuildwheel
+        run: python -m pip install --upgrade cibuildwheel
 
-    - name: Build package
-      run: python -m build
+      - name: Install dependencies
+        env:
+          GITHUB_ACTIONS: "true"
+        run: |
+          pip install --upgrade pip setuptools wheel cython
 
-    - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Build wheels
+        run: |
+          python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_SKIP: "pp*"
+          CIBW_BUILD: "cp3*-manylinux*"
+          GITHUB_ACTIONS: "true"
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: "__token__"
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          pip install twine
+          twine upload wheelhouse/*

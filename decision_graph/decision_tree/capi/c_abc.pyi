@@ -470,13 +470,6 @@ class BreakpointNode(LogicNode):
     await_connection: bool
 
 
-class PlaceholderNode(ActionNode):
-    """An action node that serves as a placeholder in the decision tree.
-
-    This node is auto-generated and during evaluation returns itself in vigilant mode, otherwise returns a NoAction instance.
-    """
-
-
 class ActionNode(LogicNode):
     """A terminal node that can execute an optional ``action`` upon selection."""
 
@@ -511,6 +504,13 @@ class ActionNode(LogicNode):
         Raises:
             TooManyChildren: Always raised to signal invalid operation.
         """
+
+
+class PlaceholderNode(ActionNode):
+    """An action node that serves as a placeholder in the decision tree.
+
+    This node is auto-generated and during evaluation returns itself in vigilant mode, otherwise returns a NoAction instance.
+    """
 
 
 class NoAction(ActionNode):

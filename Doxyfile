@@ -1,0 +1,38 @@
+# Doxyfile for PyDecisionGraph
+# Basic configuration for Python code documentation
+
+PROJECT_NAME           = "PyDecisionGraph"
+PROJECT_NUMBER         = "0.2.2"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = decision_graph/
+FILE_PATTERNS          = *.py *.pyi *.pyx *.pxd *.html *.css *.js
+EXTENSION_MAPPING      = pyi=Python
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+QUIET                  = YES
+JAVADOC_AUTOBRIEF      = YES
+MULTILINE_CPP_IS_BRIEF = YES
+
+# Optional: Exclude __pycache__ and build artifacts
+EXCLUDE_PATTERNS       = */__pycache__/* */build/*
+
+# Optional: Add project logo if available
+# PROJECT_LOGO         = logo.png
+
+# Optional: Set input encoding
+INPUT_ENCODING         = UTF-8
+
+# Optional: Add custom footer/header
+# HTML_FOOTER          = footer.html
+# HTML_HEADER          = header.html
+
+# Optional: Enable source browser
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = YES
+
+# Optional: Set main page
+USE_MDFILE_AS_MAINPAGE = mainpage.md
+INPUT += mainpage.md capi_summary.md python_summary.md gallery.md webui.md dev.md example.md

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel", "cython"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,25 +8,26 @@ dynamic = ["version"]
 description = "A rule-based decision tree implementation for Python"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MPL-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Han Bolun", email = "Bolun.Han@outlook.com" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
     "Operating System :: OS Independent",
 ]
-dependencies = []  # No external dependencies
+keywords = ["decision tree", "decision graph", "rules", "cython"]
+dependencies = []
 
 [project.optional-dependencies]
 docs = [
     "sphinx",
     "sphinx-rtd-theme",
-    "sphinx-autodoc-typehints"
+    "sphinx-autodoc-typehints",
 ]
 visualization = [
-    "pyvis",
-    "networkx"
+    "flask",
+    "jinja2"
 ]
 
 [project.urls]

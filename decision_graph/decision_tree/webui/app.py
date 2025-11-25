@@ -5,9 +5,6 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
 
-from flask import Flask, render_template, jsonify
-from jinja2 import Environment, FileSystemLoader
-
 from . import LOGGER
 from .. import LogicNode, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
 
@@ -24,6 +21,8 @@ class DecisionTreeWebUi(object):
             port (int): The port for the Flask server.
             debug (bool): Whether to run Flask in debug mode.
         """
+        from flask import Flask
+
         self.host = host
         self.port = port
         self.debug = debug
@@ -35,6 +34,7 @@ class DecisionTreeWebUi(object):
 
     def _setup_routes(self):
         """Configures the Flask routes for the application."""
+        from flask import render_template, jsonify
 
         @self.app.route('/')
         def index():
@@ -198,6 +198,8 @@ class DecisionTreeWebUi(object):
             file_name (str): Output HTML file path.
             with_eval (bool): Whether to include evaluation (activation) data.
         """
+        from jinja2 import Environment, FileSystemLoader
+
         if not isinstance(node, LogicNode):
             raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
 

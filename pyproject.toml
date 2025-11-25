@@ -20,11 +20,6 @@ keywords = ["decision tree", "decision graph", "rules", "cython"]
 dependencies = []
 
 [project.optional-dependencies]
-docs = [
-    "sphinx",
-    "sphinx-rtd-theme",
-    "sphinx-autodoc-typehints",
-]
 visualization = [
     "flask",
     "jinja2"

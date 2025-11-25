@@ -220,6 +220,11 @@ class AttrNestedExpression(ContextLogicExpression):
         return AttrNestedExpression(attrs=self.attrs + [key], logic_group=self.logic_group)
 
 
+# Python does not enforce strict typing. So the Getter*Expression classes are just aliases.
+GetterExpression = AttrExpression
+GetterNestedExpression = AttrNestedExpression
+
+
 class MathExpressionOperator(enum.StrEnum):
     add = '+'
     sub = '-'

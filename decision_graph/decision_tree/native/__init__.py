@@ -17,6 +17,7 @@ from .abc import (
 from .node import (
     RootLogicNode, ContextLogicExpression,
     AttrExpression, AttrNestedExpression,
+    GetterExpression, GetterNestedExpression,
     MathExpressionOperator, MathExpression,
     ComparisonExpressionOperator, ComparisonExpression,
     LogicalExpressionOperator, LogicalExpression,
@@ -47,6 +48,7 @@ __all__ = [
 
     'RootLogicNode', 'ContextLogicExpression',
     'AttrExpression', 'AttrNestedExpression',
+    'GetterExpression', 'GetterNestedExpression',
     'MathExpressionOperator', 'MathExpression',
     'ComparisonExpressionOperator', 'ComparisonExpression',
     'LogicalExpressionOperator', 'LogicalExpression',

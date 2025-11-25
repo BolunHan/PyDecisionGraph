@@ -8,10 +8,8 @@ from uuid import uuid4
 from flask import Flask, render_template, jsonify
 from jinja2 import Environment, FileSystemLoader
 
-from decision_graph.decision_tree import LOGGER
-from decision_graph.decision_tree.capi import LogicNode, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
-
-LOGGER = LOGGER.getChild('WebUI')
+from . import LOGGER
+from .. import LogicNode, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
 
 
 class DecisionTreeWebUi(object):

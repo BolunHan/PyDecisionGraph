@@ -19,7 +19,7 @@ class LogicMapping(LogicGroup):
 
     data: dict[str, Any]
 
-    def __init__(self, *, name: str, data: dict[str, Any] = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
+    def __init__(self, *, name: str = None, data: dict[str, Any] = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
         """Initialize the LogicMapping.
 
         Arguments:
@@ -98,7 +98,7 @@ class LogicSequence(LogicGroup):
 
     data: list[Any]
 
-    def __init__(self, *, name: str, data: list[Any] = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
+    def __init__(self, *, name: str = None, data: list[Any] = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
         """Initialize the LogicSequence.
 
         Args:
@@ -182,7 +182,7 @@ class LogicGenerator:
 
     data: Generator
 
-    def __init__(self, *, name: str, data: Generator = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
+    def __init__(self, *, name: str = None, data: Generator = None, parent: Any | None = None, contexts: Optional[dict] = None) -> None:
         """Initialize the LogicGenerator.
 
         Args:

@@ -11,7 +11,7 @@ from . import LOGGER
 
 
 cdef class LogicMapping(LogicGroup):
-    def __cinit__(self, *, str name, dict data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+    def __cinit__(self, *, str name=None, dict data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
         cdef object ctx_data
         if data is None:
             ctx_data = self.contexts.setdefault('data', {})
@@ -55,7 +55,7 @@ cdef class LogicMapping(LogicGroup):
 
 
 cdef class LogicSequence(LogicGroup):
-    def __cinit__(self, *, str name, list data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+    def __cinit__(self, *, str name=None, list data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
         cdef object ctx_data
         if data is None:
             ctx_data = self.contexts.setdefault('data', [])
@@ -110,7 +110,7 @@ cdef class LogicSequence(LogicGroup):
 
 
 cdef class LogicGenerator(LogicGroup):
-    def __cinit__(self, *, str name, object data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+    def __cinit__(self, *, str name=None, object data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
         if data is None:
             data = self.contexts.setdefault('data')
 

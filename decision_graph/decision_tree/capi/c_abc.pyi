@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Iterable, Callable
-from typing import Any, Never
+from typing import Any, Never, final
 
 from decision_graph.decision_tree.exc import NO_DEFAULT
 
@@ -91,8 +91,10 @@ class SkipContextsBlock:
 
     default_entry_check: bool
 
+    @final
     def __enter__(self) -> SkipContextsBlock: ...
 
+    @final
     def __exit__(
             self,
             exc_type: type[BaseException] | None,
@@ -279,11 +281,11 @@ class LogicGroup:
     Break: type[BaseException]
     contexts: dict[str, Any]
 
-    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict = None, **kwargs):
+    def __init__(self, *, name: str = None, parent: LogicGroup = None, contexts: dict = None, **kwargs):
         """Initialize a LogicGroup with the given name, parent, and contexts.
 
         Args:
-            name (str): The name of the logic group.
+            name (str): The name of the logic group. If None, a unique name is assigned.
             parent (LogicGroup | None): The parent logic group, if any.
             contexts (dict[str, Any] | None): Optional context-specific storage.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support, not used is this base class.

@@ -1,12 +1,14 @@
 import linecache
 import operator
 import sys
+import uuid
 import warnings
 from typing import Any
 
 from cpython.mem cimport PyMem_Calloc, PyMem_Free
 from cpython.pystate cimport PyThreadState_Get
 from cpython.ref cimport Py_INCREF, Py_DECREF
+from cython import final
 from libc.stdint cimport uintptr_t
 
 from .. import LOGGER
@@ -195,6 +197,7 @@ cdef class SkipContextsBlock:
         pass
 
     # === Python Interfaces ===
+    @final
     def __enter__(self):
         if self.c_entry_check():  # Check if the expression evaluates to True
             self.c_on_enter()
@@ -224,6 +227,7 @@ cdef class SkipContextsBlock:
         PyThreadState_LeaveTracing(tstate)
         return self
 
+    @final
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.restore_tracers(True)
 
@@ -775,8 +779,8 @@ globals()['LGM'] = LGM
 
 
 cdef class LogicGroup:
-    def __cinit__(self, *, str name, LogicGroup parent=None, dict contexts=None, **kwargs):
-        self.name = name
+    def __cinit__(self, *, str name=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+        self.name = f"{self.__class__.__name__}.{uuid.uuid4()}" if name is None else name
 
         if self in LGM:
             raise RuntimeError(f"LogicGroup {name} of type {self.__class__.__name__} already exists!")

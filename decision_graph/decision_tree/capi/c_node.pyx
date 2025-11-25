@@ -288,7 +288,7 @@ cdef class MathExpression(ContextLogicExpression):
     cdef str c_func_style_repr(self):
         if self.right is NO_DEFAULT:
             return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)})'
-        f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
+        return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
 
     cdef object c_eval(self, bint enforce_dtype):
         if self.right is NO_DEFAULT:
@@ -365,7 +365,7 @@ cdef class ComparisonExpression(ContextLogicExpression):
     cdef str c_func_style_repr(self):
         if self.right is NO_DEFAULT:
             return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)})'
-        f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
+        return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
 
     cdef object c_eval(self, bint enforce_dtype):
         cdef object left = ContextLogicExpression.c_safe_eval(self.left)
@@ -453,7 +453,7 @@ cdef class LogicalExpression(ContextLogicExpression):
     cdef str c_func_style_repr(self):
         if self.right is NO_DEFAULT:
             return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)})'
-        f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
+        return f'{self.op_repr}({ContextLogicExpression.c_safe_alias(self.left)}, {ContextLogicExpression.c_safe_alias(self.right)})'
 
     cdef object c_eval(self, bint enforce_dtype):
         cdef uint8_t op_enum = self.op_enum

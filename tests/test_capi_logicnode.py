@@ -3,7 +3,7 @@ from random import choice
 
 sys.path.append('/home/bolun/Projects/PyDecisionGraph')
 
-from decision_graph.decision_tree.c_abc import (
+from decision_graph.decision_tree.capi.c_abc import (
     LGM,
     LogicNode,
     LongAction,

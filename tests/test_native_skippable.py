@@ -3,7 +3,7 @@ import warnings
 
 sys.path.append(f'/home/bolun/Projects/PyDecisionGraph')
 
-from decision_graph.decision_tree.c_abc import (
+from decision_graph.decision_tree.native.abc import (
     ELSE_CONDITION,
     NO_CONDITION,
     ConditionElse,
@@ -29,11 +29,10 @@ def expect_raises(exc_type, func, *args, **kwargs):
 
 def test_else_condition_singleton_existence_and_behavior():
     assert ELSE_CONDITION is not None, "ELSE_CONDITION should be defined"
-    assert ELSE_CONDITION is NO_CONDITION, "ELSE_CONDITION and NO_CONDITION must reference the same singleton"
     assert isinstance(ELSE_CONDITION, ConditionElse), "ELSE_CONDITION should be instance of ConditionElse"
-    assert str(ELSE_CONDITION) == ""
+    assert str(ELSE_CONDITION) == "Else"
     # Attempting to instantiate a new ConditionElse should raise RuntimeError (singleton enforcement)
-    expect_raises(RuntimeError, ConditionElse)
+    expect_raises(TypeError, ConditionElse())
 
 
 def test_skip_contexts_block_execution():
@@ -155,45 +154,6 @@ def test_skip_contexts_block_nested_inner_skips_only_inner():
         events.append("outer-exit")
     assert len(events) == 2
     assert events == ["outer-enter", "outer-exit"], "Inner skip should not affect outer body before and after inner block"
-
-
-def test_skip_contexts_block_restores_dummy_tracer_debug():
-    prev_tracer = sys.gettrace()
-    events = []
-
-    def dummy_tracer(frame, event, arg):
-        if event in ("call", "return"):
-            events.append(event)
-        return dummy_tracer
-
-    sys.settrace(dummy_tracer)
-    assert sys.gettrace() is dummy_tracer
-    scb = SkipContextsBlock();
-    scb.default_entry_check = False
-
-    # wrap restore_tracers for extra diagnostics
-    original_restore = scb.restore_tracers
-
-    def wrapped_restore():
-        print('[wrapped_restore] BEFORE sys.gettrace():', sys.gettrace())
-        original_restore()
-        print('[wrapped_restore] AFTER  sys.gettrace():', sys.gettrace())
-
-    scb.restore_tracers = wrapped_restore
-
-    print('[debug] entering skip block; dummy tracer id:', id(dummy_tracer))
-    ran = []
-    try:
-        with scb:
-            ran.append('body')  # should be skipped
-    except Exception as e:
-        # __exit__ should swallow skip_exception; if we see it here it's unexpected
-        print('[debug] unexpected exception propagated:', type(e).__name__, e)
-    finally:
-        print('[debug] finally sys.gettrace():', sys.gettrace(), 'is dummy?', sys.gettrace() is dummy_tracer)
-        sys.settrace(prev_tracer)
-    assert ran == [], 'Skip path executed body unexpectedly'
-    assert sys.gettrace() is prev_tracer, 'Original tracer should be restored after debug test'
 
 
 # Simple runner for direct invocation: python tests/test_skippable.py

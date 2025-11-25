@@ -5,7 +5,7 @@ HAS_CEXT = True
 IMPORT_ERR = None
 try:
     # Prefer the Cython-compiled extension as requested
-    from decision_graph.decision_tree.c_abc import LogicExpression  # type: ignore
+    from decision_graph.decision_tree.capi.c_abc import LogicExpression  # type: ignore
 except Exception as e:  # pragma: no cover
     HAS_CEXT = False
     IMPORT_ERR = e
@@ -15,33 +15,33 @@ except Exception as e:  # pragma: no cover
 class TestLogicExpression(unittest.TestCase):
     # === eval ===
     def test_eval_literal_bool(self):
-        le_true = LogicExpression(True, bool)
-        le_false = LogicExpression(False, bool)
+        le_true = LogicExpression(expression=True, dtype=bool)
+        le_false = LogicExpression(expression=False, dtype=bool)
         self.assertTrue(le_true.eval())
         self.assertFalse(le_false.eval())
         self.assertTrue(bool(le_true))
         self.assertFalse(bool(le_false))
 
     def test_eval_literal_int_and_enforce_dtype(self):
-        le = LogicExpression(5, int)
+        le = LogicExpression(expression=5, dtype=int)
         self.assertEqual(le.eval(), 5)
         # enforce dtype shouldn't change a matching type
         self.assertEqual(le.eval(enforce_dtype=True), 5)
 
-        le2 = LogicExpression(3.14, str)
+        le2 = LogicExpression(expression=3.14, dtype=str)
         self.assertEqual(le2.eval(enforce_dtype=True), '3.14')
 
-        le3 = LogicExpression('nan', float)
+        le3 = LogicExpression(expression='nan', dtype=float)
         self.assertTrue(math.isnan(le3.eval(enforce_dtype=True)))
 
     def test_eval_callable(self):
-        le = LogicExpression(lambda: 2 + 3, int)
+        le = LogicExpression(expression=lambda: 2 + 3, dtype=int)
         self.assertEqual(le.eval(), 5)
         self.assertEqual(le.eval(enforce_dtype=True), 5)
 
     def test_eval_raises_exception(self):
         with self.assertRaises(ValueError):
-            LogicExpression(ValueError("boom"), object).eval()
+            LogicExpression(expression=ValueError("boom"), dtype=object).eval()
 
     # === cast ===
     def test_cast_from_int(self):

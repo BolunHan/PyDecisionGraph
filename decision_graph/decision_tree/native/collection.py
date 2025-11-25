@@ -47,7 +47,7 @@ class LogicMapping(LogicGroup):
 
 
 class LogicSequence(LogicGroup):
-    def __init__(self, *, name: str, data: list | None = None, parent: LogicGroup | None = None, contexts: dict | None = None, **kwargs):
+    def __init__(self, *, name: str=None, data: list | None = None, parent: LogicGroup | None = None, contexts: dict | None = None, **kwargs):
         super().__init__(name=name, parent=parent, contexts=contexts, **kwargs)
         if data is None:
             ctx_data = self.contexts.setdefault('data', [])

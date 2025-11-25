@@ -3,11 +3,12 @@ from __future__ import annotations
 import linecache
 import operator
 import sys
+import uuid
 from collections.abc import Callable
 from typing import Any, Self, final
 
 from . import LOGGER
-from ..exc import NO_DEFAULT, TooFewChildren, TooManyChildren, EdgeValueError, NodeValueError, EmptyBlock, BreakBlock
+from ..exc import *
 
 LOGGER = LOGGER.getChild('abc')
 
@@ -110,6 +111,9 @@ class BinaryCondition(NodeEdgeCondition):
 
     def __hash__(self):
         return id(self)
+
+    def __invert__(self):
+        raise NotImplementedError()
 
     @NodeEdgeCondition.value.setter
     def value(self, value):
@@ -323,17 +327,14 @@ class LogicExpression(SkipContextsBlock):
         )
         return new_expr
 
-    def __eq__(self, other: int | float | bool | str | Self) -> Self:
-        if isinstance(other, LogicExpression):
-            other_value = other.eval()
-        else:
-            other_value = other
-
-        return LogicExpression(
-            expression=lambda: self.eval() == other_value,
-            dtype=bool,
-            repr=f"({self.repr} == {repr(other_value)})"
-        )
+    def __eq__(self, other: int | float | bool | str | Self) -> bool:
+        """
+        This behavior must differ from the CAPI version.
+        Python interface of __eq__ must return a boolean value.
+        Otherwise it interferes with the __contains__ operation.
+        Comparing reference is the most safe way.
+        """
+        return id(self) == id(other)
 
     def __or__(self, other: Self | bool) -> Self:
         other_expr = self.cast(value=other, dtype=bool)
@@ -346,7 +347,7 @@ class LogicExpression(SkipContextsBlock):
 
     # Math operators
     @staticmethod
-    def _math_op(self: Self, other: int | float | Self, op: Callable, operator_str: str, dtype: type = None) -> Self:
+    def _math_op(self: LogicExpression, other: int | float | LogicExpression, op: Callable, operator_str: str, dtype: type = None) -> LogicExpression:
         other_expr = LogicExpression.cast(other)
 
         if dtype is None:
@@ -530,8 +531,8 @@ LGM = LogicGroupManager()
 
 
 class LogicGroup(object):
-    def __init__(self, *, name: str, parent: LogicGroup = None, contexts: dict | None = None, **kwargs):
-        self.name = name
+    def __init__(self, *, name: str = None, parent: LogicGroup = None, contexts: dict | None = None, **kwargs):
+        self.name = f"{self.__class__.__name__}.{uuid.uuid4()}" if name is None else name
 
         if self in LGM:
             raise RuntimeError(f"LogicGroup {name} of type {self.__class__.__name__} already exists!")
@@ -721,12 +722,7 @@ class LogicNode(LogicExpression):
         new_node.parent = self
         new_node.condition_to_parent = condition
 
-        idx = 0
-        for node in self.subordinates:
-            if node is original_node:
-                break
-            idx += 1
-        self.subordinates[idx] = new_node
+        self.subordinates[self.subordinates.index(original_node)] = new_node
         original_node.parent = None
         original_node.condition_to_parent = NO_CONDITION
 
@@ -736,12 +732,7 @@ class LogicNode(LogicExpression):
             if node is original_node:
                 raise RuntimeError('Must not replace active node. Existing first required.')
 
-        idx = 0
-        for node in self.subordinates:
-            if node is original_node:
-                break
-            idx += 1
-        self.subordinates[idx] = new_node
+        self.subordinates[self.subordinates.index(original_node)] = new_node
 
         self.children[original_node.condition_to_parent] = new_node
         new_node.parent = self
@@ -757,10 +748,7 @@ class LogicNode(LogicExpression):
         for condition, child in self.children.items():
             if child.condition_to_parent is not condition:
                 raise EdgeValueError('Child node condition does not match registered condition.')
-            for node in self.subordinates:
-                if node is child:
-                    break
-            else:
+            if node not in self.subordinates:
                 raise ValueError(f"LogicNode {child} not found in stack")
 
     def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:

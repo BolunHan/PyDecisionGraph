@@ -25,6 +25,14 @@ cdef class AttrNestedExpression(ContextLogicExpression):
     cdef readonly list attrs
 
 
+cdef class GetterExpression(ContextLogicExpression):
+    cdef readonly object key
+
+
+cdef class GetterNestedExpression(ContextLogicExpression):
+    cdef readonly list keys
+
+
 cdef class MathExpressionOperator:
     cdef readonly str name
     cdef readonly str value

@@ -205,6 +205,51 @@ class AttrNestedExpression(ContextLogicExpression):
     def __getattr__(self, key: str) -> AttrNestedExpression: ...
 
 
+class GetterExpression(ContextLogicExpression):
+    """Expression representing a single key/index access from the logic context.
+
+    Attributes:
+        key: The key/index referred to by the expression.
+    """
+
+    key: Any
+
+    def __init__(self, *, key: Any, repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+        """Create a getter expression.
+
+        The constructor automatically passes the kwargs to underlying base classes, if any.
+        See ``ContextLogicExpression`` and ``LogicNode`` for more details.
+
+        Args:
+            key: Key/index or list of nested keys/indexes.
+            repr: Optional textual representation override.
+        """
+
+    def __getitem__(self, key: Any) -> GetterNestedExpression: ...
+
+
+class GetterNestedExpression(ContextLogicExpression):
+    """Expression representing nested key/index access (a[b][c]).
+
+    Attributes:
+        keys: list of keys/indexes in access order.
+    """
+
+    keys: list[Any]
+
+    def __init__(self, *, keys: list[Any], repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+        """Create a nested getter expression.
+
+        The constructor automatically passes the kwargs to underlying base classes, if any.
+        See ``ContextLogicExpression`` and ``LogicNode`` for more details.
+
+        Args:
+            keys: Sequence of keys/indexes describing the access path.
+        """
+
+    def __getitem__(self, key: Any) -> GetterNestedExpression: ...
+
+
 class MathExpressionOperator:
     """A pseudo-enum class representing mathematical operators for MathExpression."""
 

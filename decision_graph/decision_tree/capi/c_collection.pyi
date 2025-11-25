@@ -1,9 +1,11 @@
 from collections.abc import Iterator, Sequence, Generator
-
 from typing import Any, Optional
 
+from .c_abc import LogicGroup
+from .c_node import GetterExpression, AttrExpression
 
-class LogicMapping:
+
+class LogicMapping(LogicGroup):
     """A mapping-like logic group that decouples stored data from the
     runtime context of a logic group.
 
@@ -12,7 +14,7 @@ class LogicMapping:
     consult the mapping stored in the group's contexts.
 
     Attributes:
-        data: The underlying mapping object used to store key/value pairs.
+        data: The underlying dict object used to store key/value pairs.
     """
 
     data: dict[str, Any]
@@ -22,7 +24,7 @@ class LogicMapping:
 
         Arguments:
             name: Logical name for this group.
-            data: Optional initial mapping to use. If ``None``, the mapping
+            data: Optional initial dict to use. If not a dict, it will be converted to a dict. If ``None``, the dict
                 will be taken from or created inside the group's ``contexts``
                 under the key ``'data'``.
             parent: Optional parent logic group (kept for parity with runtime
@@ -46,27 +48,27 @@ class LogicMapping:
             The number of key/value pairs in the underlying mapping.
         """
 
-    def __getitem__(self, key: str) -> Any:
-        """Return an expression representing the named attribute in this mapping.
+    def __getitem__(self, key: str) -> AttrExpression:
+        """Return an expression representing the named key in this mapping.
 
         The return value is an expression object (implementation-specific)
         that, when evaluated, will fetch the value stored under ``key``.
 
         Args:
-            key: The mapping key / logical attribute name.
+            key: The mapping key.
 
         Returns:
-            An expression object that references ``key`` inside this mapping.
+            An AttrExpression that references ``key`` inside this mapping.
         """
 
-    def __getattr__(self, key: str) -> Any:
+    def __getattr__(self, key: str) -> AttrExpression:
         """Alias for ``__getitem__`` that allows attribute-style access.
 
         Args:
             key: The attribute name to access.
 
         Returns:
-            An expression object that references ``key`` inside this mapping.
+            An AttrExpression that references ``key`` inside this mapping.
         """
 
     def __contains__(self, key: str) -> bool:
@@ -82,7 +84,7 @@ class LogicMapping:
         """Remove all items from the underlying mapping."""
 
 
-class LogicSequence:
+class LogicSequence(LogicGroup):
     """A sequence-like logic group that exposes an ordered collection to
     logic expressions.
 
@@ -91,7 +93,7 @@ class LogicSequence:
     iterate over it to produce expression entries.
 
     Attributes:
-        data: The underlying sequence object used to store items.
+        data: The underlying list object used to store items.
     """
 
     data: list[Any]
@@ -101,25 +103,25 @@ class LogicSequence:
 
         Args:
             name: Logical name for this group.
-            data: Optional initial sequence to use. If ``None``, the sequence
+            data: Optional initial list to use. If not a list, it will be converted to a list. If ``None``, the list
                 will be taken from or created inside the group's ``contexts``
                 under the key ``'data'``.
             parent: Optional parent logic group (opaque in this stub).
             contexts: Optional contexts mapping used by the runtime manager.
         """
 
-    def __iter__(self) -> Iterator[Any]:
-        """Yield expressions representing each element in the sequence.
+    def __iter__(self) -> Iterator[GetterExpression]:
+        """Yields GetterExpression objects representing each element in the sequence.
 
         Yields:
-            Expression objects (index-based) that can evaluate to the
+            GetterExpression objects (index-based) that can evaluate to the
             underlying sequence items.
         """
 
     def __len__(self) -> int:
         """Return the length of the underlying sequence."""
 
-    def __getitem__(self, index: int) -> Any:
+    def __getitem__(self, index: int) -> GetterExpression:
         """Return an expression referencing the element at ``index``.
 
         Negative indices follow Python semantics if the underlying
@@ -129,7 +131,7 @@ class LogicSequence:
             index: The index to access.
 
         Returns:
-            An expression object that, when evaluated, returns the item at
+            A GetterExpression that, when evaluated, returns the item at
             the requested index.
         """
 
@@ -185,7 +187,7 @@ class LogicGenerator:
 
         Args:
             name: Logical name for this group.
-            data: A generator/iterator object. If ``None``, the implementation
+            data: Optional generator/iterator object. If ``None``, the implementation
                 may attempt to retrieve a generator from the group's
                 ``contexts`` mapping (behavior depends on the runtime).
         """

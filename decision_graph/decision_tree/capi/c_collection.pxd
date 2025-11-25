@@ -10,7 +10,7 @@ cdef class LogicMapping(LogicGroup):
 cdef class LogicSequence(LogicGroup):
     cdef readonly list data
 
-    cdef object c_get(self, size_t index)
+    cdef object c_get(self, ssize_t index)
 
 
 cdef class LogicGenerator(LogicGroup):

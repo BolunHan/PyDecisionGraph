@@ -1,7 +1,7 @@
 import operator
 
 from .c_abc cimport LogicNodeFrame, PlaceholderNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
-from .c_collection cimport LogicMapping
+from .c_collection cimport LogicMapping, LogicSequence
 from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
 
 
@@ -182,6 +182,48 @@ cdef class AttrNestedExpression(ContextLogicExpression):
 
     def __getattr__(self, str key) -> AttrExpression:
         return AttrNestedExpression(attrs=self.attrs + [key], logic_group=self.logic_group)
+
+
+cdef class GetterExpression(ContextLogicExpression):
+    def __cinit__(self, *, object key, **kwargs):
+        self.key = key
+        self.repr = kwargs['repr'] if 'repr' in kwargs else f'{self.logic_group.name}.{key}'
+
+    cdef object c_eval(self, bint enforce_dtype):
+        if isinstance(self.logic_group, LogicMapping):
+            return (<LogicMapping> self.logic_group).c_get(self.key)
+        elif isinstance(self.logic_group, LogicSequence):
+            return (<LogicSequence> self.logic_group).c_get(self.key)
+        else:
+            if self.key in self.logic_group.contexts:
+                return self.logic_group.contexts[self.key]
+            raise AttributeError(f'Attribute {self.key} does not exist in {self.logic_group}')
+
+    def __getitem__(self, str key):
+        return GetterNestedExpression(keys=[self.key, key], logic_group=self.logic_group)
+
+
+cdef class GetterNestedExpression(ContextLogicExpression):
+    def __cinit__(self, *, list keys, **kwargs):
+        self.keys = keys
+        self.repr = kwargs['repr'] if 'repr' in kwargs else f'{self.logic_group.name}.{".".join(keys)}'
+
+    cdef object c_eval(self, bint enforce_dtype):
+        cdef object nested
+        if isinstance(self.logic_group, LogicMapping):
+            nested = (<LogicMapping> self.logic_group).data
+        elif isinstance(self.logic_group, LogicSequence):
+            return (<LogicSequence> self.logic_group).c_get(self.key)
+        else:
+            nested = self.logic_group.contexts
+
+        cdef object key
+        for key in self.keys:
+            nested = nested[key]
+        return nested
+
+    def __getitem__(self, str key):
+        return GetterNestedExpression(keys=self.keys + [key], logic_group=self.logic_group)
 
 
 cdef class MathExpressionOperator:

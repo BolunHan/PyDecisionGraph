@@ -5,7 +5,7 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 
 from .c_abc cimport LogicGroup
-from .c_node cimport AttrExpression
+from .c_node cimport AttrExpression, GetterExpression
 
 from . import LOGGER
 
@@ -69,20 +69,20 @@ cdef class LogicSequence(LogicGroup):
         else:
             self.data = data
 
-    cdef object c_get(self, size_t index):
+    cdef object c_get(self, ssize_t index):
         return self.data[index]
 
     # === Python interface conveniences ===
 
     def __iter__(self):
         for index, _ in enumerate(self.data):
-            yield AttrExpression(attr=index, logic_group=self)
+            yield GetterExpression(key=index, logic_group=self)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
-        return AttrExpression(attr=index, logic_group=self)
+        return GetterExpression(key=index, logic_group=self)
 
     def __contains__(self, item):
         return item in self.data

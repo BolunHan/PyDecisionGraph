@@ -4,11 +4,6 @@ from .. import LOGGER
 
 LOGGER = LOGGER.getChild("LogicGroup")
 
-__all__ = [
-    'SignalLogicGroup', 'InstantConfirmationLogicGroup',
-    'StateMapping', 'RequestAction', 'PendingRequest', 'RequestConfirmed', 'RequestDenied', 'RequestRegistered', 'DelayedConfirmationLogicGroup',
-]
-
 
 def set_logger(logger: logging.Logger):
     global LOGGER
@@ -20,3 +15,11 @@ def set_logger(logger: logging.Logger):
 
 from .base import *
 from .pending_request import *
+
+__all__ = [
+    'SignalLogicGroup', 'InstantConfirmationLogicGroup',
+
+    'RequestType', 'RequestStatus', 'PendingRequest',
+    'RequestRegistered', 'RequestDenied', 'RequestConfirmed',
+    'DelayedConfirmationLogicGroup'
+]

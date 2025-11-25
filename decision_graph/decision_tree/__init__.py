@@ -6,19 +6,19 @@ LOGGER = LOGGER.getChild("DecisionTree")
 
 from .exc import *
 
-_USING_CAPI = False
+USING_CAPI = False
 try:
     # Attempt to import the C API module
     from . import capi
     from .capi import *
 
-    _USING_CAPI = True
+    USING_CAPI = True
 except Exception:
     # Fallback to the python node model
     from . import native
     from .native import *
 
-    _USING_CAPI = False
+    USING_CAPI = False
 
 from .webui import DecisionTreeWebUi, show, to_html
 
@@ -28,7 +28,7 @@ def set_logger(logger: logging.Logger):
     LOGGER = logger
 
     # ensure abc module (imported above) receives logger
-    if _USING_CAPI:
+    if USING_CAPI:
         capi.set_logger(logger.getChild('CAPI'))
     else:
         native.set_logger(logger.getChild('Native'))
@@ -37,6 +37,16 @@ def set_logger(logger: logging.Logger):
 
 
 __all__ = [
+    'USING_CAPI',
+
+    # .exc
+    'NO_DEFAULT',
+    'EmptyBlock', 'BreakBlock',
+    'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
+    'EdgeValueError',
+    'ResolutionError', 'ExpressFalse', 'ContextsNotFound',
+
+    # .capi.c_abc or .native.abc
     'LOGGER', 'set_logger',
     'Singleton',
     'NodeEdgeCondition', 'ConditionElse', 'ConditionAny', 'ConditionAuto', 'BinaryCondition', 'ConditionTrue', 'ConditionFalse',
@@ -46,6 +56,7 @@ __all__ = [
     'ActionNode', 'BreakpointNode', 'PlaceholderNode',
     'NoAction', 'LongAction', 'ShortAction',
 
+    # .capi.c_node or .native.node
     'RootLogicNode', 'ContextLogicExpression',
     'AttrExpression', 'AttrNestedExpression',
     'GetterExpression', 'GetterNestedExpression',
@@ -53,7 +64,9 @@ __all__ = [
     'ComparisonExpressionOperator', 'ComparisonExpression',
     'LogicalExpressionOperator', 'LogicalExpression',
 
+    # .capi.c_collection or .native.collection
     'LogicMapping', 'LogicSequence', 'LogicGenerator',
 
+    # .webui
     'DecisionTreeWebUi', 'show', 'to_html'
 ]

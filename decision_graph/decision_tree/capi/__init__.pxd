@@ -6,7 +6,7 @@ __all__ = [
     'LogicGroupFrame', 'LogicGroupStack', 'ShelvedStateFrame', 'ShelvedStateStack', 'LogicGroup',
     'LogicNodeFrame', 'LogicNodeStack', 'LogicNode', 'BreakpointNode',
     'ActionNode', 'PlaceholderNode', 'NoAction', 'LongAction', 'ShortAction',
-    'RootLogicNode', 'ContextLogicExpression', 'AttrExpression', 'AttrNestedExpression',
+    'RootLogicNode', 'ContextLogicExpression', 'AttrExpression', 'AttrNestedExpression', 'GetterExpression', 'GetterNestedExpression',
     'MathExpressionOperator', 'MathExpression', 'ComparisonExpressionOperator', 'ComparisonExpression',
     'LogicalExpressionOperator', 'LogicalExpression',
     'LogicMapping', 'LogicSequence', 'LogicGenerator',
@@ -23,7 +23,7 @@ from .c_abc cimport (
 )
 
 from .c_node cimport (
-    RootLogicNode, ContextLogicExpression, AttrExpression, AttrNestedExpression,
+    RootLogicNode, ContextLogicExpression, AttrExpression, AttrNestedExpression,  GetterExpression, GetterNestedExpression,
     MathExpressionOperator, MathExpression, ComparisonExpressionOperator, ComparisonExpression,
     LogicalExpressionOperator, LogicalExpression,
 )

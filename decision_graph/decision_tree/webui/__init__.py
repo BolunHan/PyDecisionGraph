@@ -1,10 +1,11 @@
 import logging
 
-from .. import LOGGER, LogicNode
+from .. import LOGGER
 
 LOGGER = LOGGER.getChild('WebUI')
 
 from .app import DecisionTreeWebUi
+from .. import LogicNode
 
 
 def show(root: LogicNode, **kwargs):

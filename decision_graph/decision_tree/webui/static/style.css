@@ -51,13 +51,33 @@ body {
     padding: 10px 20px;
 }
 
-#logic-group-tabs {
+/* Layout: main split between vertical sidebar and content area */
+#main {
     display: flex;
-    padding: 8px 16px;
+    height: calc(100vh - 60px); /* account for header height (approx) */
+    width: 100%;
+}
+
+/* Content area (right of sidebar) should fill remaining space */
+#content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0; /* allow flex children to shrink past their min-content width */
+}
+
+/* Sidebar: vertical list of logic-group tabs */
+#logic-group-tabs {
+    width: 220px;
+    min-width: 160px;
+    max-width: 320px;
     background-color: var(--tabs-bg);
-    border-bottom: 1px solid var(--muted-border);
-    gap: 8px;
-    flex-wrap: wrap;
+    border-right: 1px solid var(--muted-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    overflow-y: auto; /* allow scrolling when many groups */
 }
 
 .tab-button {
@@ -69,30 +89,44 @@ body {
     border-radius: 4px;
 }
 
+/* Make tab buttons stack vertically and fill width */
+#logic-group-tabs .tab-button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+}
+
 .tab-button.active {
     background: var(--tab-active-bg);
     color: var(--tab-active-text);
     border-color: var(--tab-active-bg);
 }
 
-/* Make the tree-wrapper fill remaining viewport and avoid native scrollbars.
-   Scrolling will be handled by d3.zoom/pan on the SVG instead. */
-#tree-scroll-wrapper {
-    flex: 1;
-    min-height: 0;
-    padding: 0; /* remove extra padding so SVG can use full width */
+/* Controls bar sits above the tree and contains highlight and export/group controls */
+#controls-bar {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    gap: 12px;
+    border-bottom: 1px solid var(--muted-border);
+    background-color: var(--panel-bg);
 }
 
-#tree-container {
-    flex: 1; /* Takes remaining space */
-    width: 100%;
-    height: 100%;
-    background-color: var(--panel-bg);
-    overflow: hidden; /* hide native scrollbars */
-    position: relative;
+/* Right side wrap for export controls (injected by JS) */
+#controls-bar .right-controls {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
+
+/* Highlight control sits on the left of controls-bar */
+#highlight-control { margin-right: 12px; }
+
+/* Make the tree container fill remaining vertical space */
+#tree-container { flex: 1; min-width: 0; }
 
 /* Ensure any SVG fills the container area */
 #tree-container > svg {
@@ -299,4 +333,10 @@ body {
 body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-button, .tab-button.active,
 .node-text, .link-condition, .link-condition-bg, .link {
     transition: background-color 320ms ease, color 320ms ease, fill 320ms ease, stroke 320ms ease, opacity 320ms ease, border-color 320ms ease;
+}
+
+/* Slight spacing tweaks for small screens */
+@media (max-width: 800px) {
+    #logic-group-tabs { width: 140px; }
+    #controls-bar { padding: 6px; }
 }

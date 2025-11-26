@@ -161,14 +161,9 @@ function exportPNG() {
 }
 
 function addExportButtons() {
-    const tabs = d3.select('#logic-group-tabs');
-    if (!tabs.empty() && tabs.select('#export-controls').empty()) {
-        const wrap = tabs.append('div')
-            .attr('id', 'export-controls')
-            .style('margin-left', 'auto')
-            .style('display', 'flex')
-            .style('gap', '8px')
-            .style('align-items', 'center');
+    const controlsBar = d3.select('#controls-bar');
+    if (!controlsBar.empty() && controlsBar.select('.right-controls').empty()) {
+        const wrap = controlsBar.append('div').attr('class', 'right-controls');
         wrap.append('button').attr('id', 'export-png-btn').attr('class', 'tab-button').text('Export PNG').on('click', exportPNG);
         wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'tab-button').text('Export SVG').on('click', exportSVG);
         // Theme toggle
@@ -648,17 +643,41 @@ function renderFilteredTree() {
     const cw = container.node() ? container.node().clientWidth : null;
     const ch = container.node() ? container.node().clientHeight : null;
     if (cw && ch && fullWidth > 0 && fullHeight > 0) {
-        // Use a default scale of 1 on load (you can change later). Compute a
-        // base tx from the tree's xMax so the tree appears centered, and
-        // multiply by the scale so the tx will adjust automatically if the
-        // initial scale is changed in the future.
-        const scale = 1; // default initial scale
-        const txBase = xMax / 2; // base horizontal translation (tree middle)
-        const tx = txBase * scale; // adjust by scale so it's easy to tweak
-        const ty = 200; // leave vertical offset at 0 (changeable later)
+        // Debug information to help diagnose placement and transforms
+        try {
+            console.debug('DG DEBUG -- container size', {cw, ch});
+            console.debug('DG DEBUG -- full canvas', {cw, ch, fullWidth, fullHeight, margin, padding, treeWidth, treeHeight});
+            console.debug('DG DEBUG -- x-range', {xMin, xMax});
+            console.debug('DG DEBUG -- y-range', {yMin, yMax});
+            // root is a d3.hierarchy node representing the root of this filtered tree
+            const rootNode = root; // alias
+            if (rootNode) {
+                console.debug('DG DEBUG -- root coords', {root_x: rootNode.x, root_y: rootNode.y});
+            }
+        } catch (err) {
+            // Fail-safe: don't break rendering if console access is restricted
+            try { console.warn('DG DEBUG logging error', err); } catch (e) { /* ignore */ }
+        }
+        // Place the root node in the horizontal center and at 1/5 of the
+        // container height vertically. Keep the initial zoom scale = 1.
+        // Calculate tx,ty so that: screenX = root.x * scale + tx => centered
+        const scale = fullHeight / ch; // keep initial scale at 1 for predictability
+        const rootX = typeof root.x === 'number' ? root.x : 0;
+        const rootY = typeof root.y === 'number' ? root.y : 0;
+        const tx = (fullWidth / 2) - (rootX * scale);
+        const ty = ((fullHeight * 0.1) - (rootY * scale)) / (cw / treeWidth);
+        // Log computed transform values
+        console.debug('DG DEBUG -- computed transform', {scale, rootX, rootY, tx, ty});
         const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
-        // Apply immediately (no transition) so the tree doesn't slide from (0,0)
+        // Apply immediately (no transition) so the tree appears in place on load
         svg.call(zoom.transform, initialTransform);
+        // Confirm applied transform (read back transform of viewport if possible)
+        try {
+            const applied = d3.zoomTransform(svg.node());
+            console.debug('DG DEBUG -- applied zoom transform', applied);
+        } catch (err) {
+            // ignore if access fails
+        }
     }
 
     root.each(d => {

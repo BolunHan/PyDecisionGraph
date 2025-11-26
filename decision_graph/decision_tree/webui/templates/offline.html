@@ -26,21 +26,31 @@
     <h1>Decision Tree Visualization (Offline)</h1>
 </div>
 
-{% if with_eval %}
-<div id="highlight-control">
-    <label>
-        <span>Highlight Active Path</span>
-        <input type="checkbox" id="highlight-toggle" checked>
-        <span class="highlight-switch-slider"></span>
-    </label>
-</div>
-{% endif %}
+<!-- Main layout: vertical sidebar (logic groups) + content -->
+<div id="main">
+    <!-- Vertical nav sidebar for logic groups -->
+    <aside id="logic-group-tabs" role="navigation" aria-label="Logic groups">
+        <button class="tab-button active" data-group="*">All</button>
+    </aside>
 
-<div id="logic-group-tabs">
-    <button class="tab-button active" data-group="*">All</button>
-</div>
+    <!-- Content area: controls bar + tree -->
+    <div id="content">
+        <div id="controls-bar">
+            {% if with_eval %}
+            <div id="highlight-control">
+                <label>
+                    <span>Highlight Active Path</span>
+                    <input type="checkbox" id="highlight-toggle" checked>
+                    <span class="highlight-switch-slider"></span>
+                </label>
+            </div>
+            {% endif %}
+            <!-- export controls will be injected here by script.js -->
+        </div>
 
-<div id="tree-container"></div>
+        <div id="tree-container"></div>
+    </div>
+</div>
 
 <div id="node-info" style="display: none;">
     <h3>Node Details</h3>

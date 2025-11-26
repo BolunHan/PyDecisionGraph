@@ -11,19 +11,19 @@ from . import LOGGER
 
 
 cdef class LogicMapping(LogicGroup):
-    def __cinit__(self, *, str name=None, dict data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+    def __cinit__(self, *, str name=None, object data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
         cdef object ctx_data
         if data is None:
             ctx_data = self.contexts.setdefault('data', {})
             if isinstance(ctx_data, dict):
-                self.data = ctx_data
+                self.data = <dict> ctx_data
             elif isinstance(ctx_data, Mapping):
                 LOGGER.info(f'Using non-dict mapping for {self} data, unlinking and converting to dict...')
                 self.data = dict(ctx_data)
             else:
                 raise TypeError("The 'data' parameter must be a Mapping!.")
         else:
-            self.data = data
+            self.data = <dict> data
 
     cdef object c_get(self, str key):
         cdef PyObject* v = PyDict_GetItem(self.data, key)
@@ -55,19 +55,19 @@ cdef class LogicMapping(LogicGroup):
 
 
 cdef class LogicSequence(LogicGroup):
-    def __cinit__(self, *, str name=None, list data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
+    def __cinit__(self, *, str name=None, object data=None, LogicGroup parent=None, dict contexts=None, **kwargs):
         cdef object ctx_data
         if data is None:
             ctx_data = self.contexts.setdefault('data', [])
             if isinstance(ctx_data, list):
-                self.data = ctx_data
+                self.data = <list> ctx_data
             elif isinstance(ctx_data, Sequence):
                 LOGGER.info(f'Using non-list sequence for {self} data, converting to list...')
                 self.data = list(ctx_data)
             else:
                 raise TypeError("The 'data' parameter must be a Sequence!.")
         else:
-            self.data = data
+            self.data = <list> data
 
     cdef object c_get(self, ssize_t index):
         return self.data[index]

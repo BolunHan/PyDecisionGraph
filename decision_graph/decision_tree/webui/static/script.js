@@ -3,6 +3,10 @@ let GLOBAL_TREE_DATA = null;
 let GLOBAL_SELECTED_GROUP = "*";
 let GLOBAL_VIRTUAL_LINK_DEFS = [];
 
+// Animation durations (ms)
+const ANIM_SLOW = 500; // node move animations
+const ANIM_FAST = 120; // link/label fade animations (faster)
+
 function visualizeTree(treeData) {
     GLOBAL_TREE_DATA = treeData;
     GLOBAL_VIRTUAL_LINK_DEFS = treeData.virtual_links || [];
@@ -72,8 +76,8 @@ function serializeSvgWithInlineStyles(svgNode) {
     // preserves the page styles.
     // First, inject current computed CSS variables so :root vars are resolved
     const cssVarNames = [
-        '--bg','--panel-bg','--text-color','--header-bg','--header-text',
-        '--tabs-bg','--tab-active-bg','--tab-active-text','--muted-border'
+        '--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text',
+        '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'
     ];
     const comp = getComputedStyle(document.documentElement);
     let varCss = ':root {';
@@ -149,7 +153,10 @@ function exportPNG() {
             URL.revokeObjectURL(url);
         }
     };
-    img.onerror = (e) => { URL.revokeObjectURL(url); alert('Failed to render SVG to PNG'); };
+    img.onerror = (e) => {
+        URL.revokeObjectURL(url);
+        alert('Failed to render SVG to PNG');
+    };
     img.src = url;
 }
 
@@ -286,7 +293,7 @@ function applyTreeLayoutWithMinSpacing(root, width, height) {
     }
 }
 
-function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
+function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) {
     const nodes = root.descendants();
 
     // ── NODES ─────────────────────────────────────
@@ -336,17 +343,26 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     nodeUpdate.select("text.node-text")
         .classed("node-text-inactive", d => shouldDim && d.data.activated === false);
 
-    nodeUpdate.transition().duration(500)
-        .attr("transform", d => `translate(${d.x},${d.y})`);
+    if (animate) {
+        // Start link fades first (ANIM_FAST), then move nodes (ANIM_SLOW) so lines don't lag.
+        nodeUpdate.transition().delay(ANIM_FAST).duration(ANIM_SLOW)
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+    } else {
+        nodeUpdate.attr("transform", d => `translate(${d.x},${d.y})`);
+    }
 
     // Node exit
-    nodeSelection.exit().transition().duration(500)
-        .attr("transform", d => {
-            const parent = d.parent || d;
-            return `translate(${parent.x},${parent.y})`;
-        })
-        .style("opacity", 0)
-        .remove();
+    if (animate) {
+        nodeSelection.exit().transition().delay(ANIM_FAST).duration(ANIM_SLOW)
+            .attr("transform", d => {
+                const parent = d.parent || d;
+                return `translate(${parent.x},${parent.y})`;
+            })
+            .style("opacity", 0)
+            .remove();
+    } else {
+        nodeSelection.exit().remove();
+    }
 
     // ── LINKS ─────────────────────────────────────
     const parentChildLinks = [];
@@ -389,13 +405,21 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     linkUpdate.classed("link-inactive", d => shouldDim && d.activated === false);
 
     const linkGenerator = d3.linkVertical().x(d => d.x).y(d => d.y);
-    linkUpdate.transition().duration(500)
-        .attr("d", d => linkGenerator({source: d.source, target: d.target}))
-        .attr("opacity", 1);
+    if (animate) {
+        linkUpdate.transition().duration(ANIM_FAST)
+            .attr("d", d => linkGenerator({source: d.source, target: d.target}))
+            .attr("opacity", 1);
+    } else {
+        linkUpdate.attr("d", d => linkGenerator({source: d.source, target: d.target})).attr("opacity", 1);
+    }
 
-    linkSelection.exit().transition().duration(500)
-        .attr("opacity", 0)
-        .remove();
+    if (animate) {
+        linkSelection.exit().transition().duration(ANIM_FAST)
+            .attr("opacity", 0)
+            .remove();
+    } else {
+        linkSelection.exit().remove();
+    }
 
     // ── CONDITION LABELS ──────────────────────────
     const labelSelection = g.selectAll("g.link-condition-group").data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
@@ -441,8 +465,13 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     labelUpdate.select("text.link-condition")
         .classed("link-condition-text-inactive", d => shouldDim && d.activated === false);
 
-    labelUpdate.transition().duration(500).style("opacity", 1);
-    labelSelection.exit().transition().duration(500).style("opacity", 0).remove();
+    if (animate) {
+        labelUpdate.transition().duration(ANIM_FAST).style("opacity", 1);
+        labelSelection.exit().transition().duration(ANIM_FAST).style("opacity", 0).remove();
+    } else {
+        labelUpdate.style("opacity", 1);
+        labelSelection.exit().remove();
+    }
 
     nodes.forEach(n => {
         n.x0 = n.x;
@@ -463,26 +492,15 @@ function toggleChildren(event, d) {
         return; // leaf node, nothing to toggle
     }
 
-    // 🔑 Re-render the ENTIRE tree from global root
+    // Update visualization in-place without animation so the tree stays stable
     const container = d3.select("#tree-container");
-    // Select the content group (dg-content) where nodes/links are rendered.
     const g = container.select("svg").select("g.dg-viewport").select("g.dg-content");
-
-    // Re-extract virtual links and nodeMap from global root
     const nodeMap = new Map();
     GLOBAL_TREE_ROOT.each(n => nodeMap.set(n.data.id, n));
-
-    // Find original virtual_links from initial treeData (we don't store it globally, so infer from node types)
-    // Simpler: pass virtualLinkDefs as empty if not stored; or store treeData globally.
-    // For now, assume virtual links are unchanged → reuse from initial load is hard without global state.
-    // Workaround: since virtual links are rare, and your backend sends them, we can store them too.
-    // But to avoid complexity, we'll assume `virtualLinkDefs` is empty for now (or you can store it).
-
-    // ⚠️ If you need virtual links to persist, store `GLOBAL_VIRTUAL_LINK_DEFS` in visualizeTree.
-    // For correctness, let's assume we don't have them here → pass empty.
-    const virtualLinkDefs = []; // or store globally if needed
-
-    updateVisualization(GLOBAL_TREE_ROOT, g, virtualLinkDefs, nodeMap);
+    // Use the stored virtual link defs if available
+    const virtualLinkDefs = GLOBAL_VIRTUAL_LINK_DEFS || [];
+    // Animate expand/collapse so node toggle is smooth for the user
+    updateVisualization(GLOBAL_TREE_ROOT, g, virtualLinkDefs, nodeMap, true);
 }
 
 function showNodeInfo(event, d) {
@@ -639,7 +657,8 @@ function renderFilteredTree() {
         const tx = txBase * scale; // adjust by scale so it's easy to tweak
         const ty = 200; // leave vertical offset at 0 (changeable later)
         const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
-        svg.transition().duration(250).call(zoom.transform, initialTransform);
+        // Apply immediately (no transition) so the tree doesn't slide from (0,0)
+        svg.call(zoom.transform, initialTransform);
     }
 
     root.each(d => {
@@ -647,7 +666,8 @@ function renderFilteredTree() {
         d.y0 = d.y;
     });
 
-    updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap);
+    // Initial render: do not animate layout transitions on load/reload
+    updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap, false);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

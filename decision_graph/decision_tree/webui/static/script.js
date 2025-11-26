@@ -227,25 +227,39 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
 function applyTreeLayoutWithMinSpacing(root, width, height) {
     const MIN_ROW_HEIGHT = 200;   // Your existing vertical constraint
 
-    // --- Step 1: Estimate max node width ---
-    let maxNodeWidth = 40; // fallback
+    // --- Step 1: Estimate per-node width (pixels) from label/text so spacing
+    // can adapt to each node's content. Store on d.data._estWidth.
+    let widths = [];
     root.each(d => {
         const text = d.data.name || d.data.id || "unnamed";
-        // Estimate width from text (approximate; adjust multiplier if needed)
-        const estimatedWidth = Math.max(40, text.length * 8 + 16); // 8px per char, 8px padding each side
-        if (estimatedWidth > maxNodeWidth) {
-            maxNodeWidth = estimatedWidth;
-        }
+        // Estimate width from text (approximate; tweak multiplier if needed)
+        const est = Math.max(40, Math.min(600, Math.round(text.length * 8 + 16)));
+        d.data._estWidth = est;
+        widths.push(est);
     });
 
-    // Ensure reasonable min and cap (avoid extreme values)
-    maxNodeWidth = Math.max(50, Math.min(300, maxNodeWidth));
-    const NODE_HORIZONTAL_SPACING = maxNodeWidth + 40; // 20px gap on each side
+    // Compute an average width to use as a base spacing unit, with sensible caps
+    const avgWidth = widths.length ? Math.round(widths.reduce((a, b) => a + b, 0) / widths.length) : 80;
+    const BASE_HORIZONTAL_SPACING = Math.max(50, Math.min(400, avgWidth + 40));
 
-    // --- Step 2: Apply D3 tree layout with nodeSize (horizontal spacing dynamic, vertical minimal) ---
-    // dy = 1 so vertical spacing is controlled separately below
-    const layout = d3.tree().nodeSize([NODE_HORIZONTAL_SPACING, 1]);
-    layout(root);
+    // --- Step 2: Create d3.tree with a base nodeSize and a custom separation
+    // function that increases spacing proportionally to node widths. nodeSize
+    // is in pixel units here (we treat layout width as pixels so this remains intuitive).
+    const treeLayout = d3.tree()
+        .nodeSize([BASE_HORIZONTAL_SPACING, 1])
+        .separation((a, b) => {
+            // desired spacing (pixels) between a and b should be roughly the
+            // average of their widths plus padding. separation should return a
+            // multiplier relative to nodeSize[0]. Also give larger gaps when
+            // nodes are from different parents to avoid collisions.
+            const wa = (a && a.data && a.data._estWidth) ? a.data._estWidth : avgWidth;
+            const wb = (b && b.data && b.data._estWidth) ? b.data._estWidth : avgWidth;
+            const desiredPx = (wa + wb) / 2 + 20; // small padding
+            const factor = desiredPx / BASE_HORIZONTAL_SPACING;
+            return (a.parent === b.parent) ? Math.max(0.6, factor) : Math.max(1.2, factor * 1.2);
+        });
+
+    treeLayout(root);
 
     // --- Step 3: Preserve your vertical min-spacing logic (unchanged) ---
     if (root.height > 0) {

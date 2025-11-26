@@ -238,6 +238,17 @@ class LogicGroupManager(Singleton):
     def __contains__(self, instance: LogicGroup) -> bool:
         """Return True if the given LogicGroup instance is cached by this manager."""
 
+    def shelve(self) -> None:
+        """Shelve the current active group and node stacks and breakpoint stacks for later restoration.
+
+        This is useful for creating isolated decision sub-graphs without interfering with the others graphs' state.
+
+        With RootLogicNode contexts, the LGM automatically shelved and unshelved. See ``RootLogicNode`` for details.
+        """
+
+    def unshelve(self) -> None:
+        """Restore the most recently shelved active group and node stacks."""
+
     def clear(self) -> None:
         """Clear all cached LogicGroup instances and reset runtime stacks."""
 

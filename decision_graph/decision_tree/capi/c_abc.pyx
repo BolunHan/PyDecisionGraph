@@ -725,16 +725,19 @@ cdef class LogicGroupManager(Singleton):
             while self._active_groups.size:
                 self.c_lg_exit()
             PyMem_Free(self._active_groups)
+            self._active_groups = NULL
 
         if self._active_nodes:
             while self._active_nodes.size:
                 LogicGroupManager.c_ln_stack_pop(self._active_nodes)
             PyMem_Free(self._active_nodes)
+            self._active_nodes = NULL
 
         if self._breakpoint_nodes:
             while self._breakpoint_nodes.size:
                 LogicGroupManager.c_ln_stack_pop(self._breakpoint_nodes)
             PyMem_Free(self._breakpoint_nodes)
+            self._breakpoint_nodes = NULL
 
     def __call__(self, str name, type cls, **kwargs) -> LogicGroup:
         return self.c_cached_init(name, cls, kwargs)
@@ -747,6 +750,12 @@ cdef class LogicGroupManager(Singleton):
             return False
         cdef dict registry = self._cache[reg_key]
         return name in registry
+
+    def shelve(self):
+        self.c_shelve()
+
+    def unshelve(self):
+        self.c_unshelve()
 
     def clear(self):
         self._cache.clear()

@@ -169,8 +169,8 @@ cdef LogicGroupManager LGM
 cdef class LogicGroup:
     cdef readonly str name
     cdef readonly LogicGroup parent
-    cdef type Break
-    cdef dict contexts
+    cdef readonly type Break
+    cdef readonly dict contexts
 
     cdef void c_break_inspection(self)
 
@@ -181,8 +181,7 @@ cdef class LogicGroup:
 
 cdef class LogicNode(LogicExpression):
     cdef LogicNodeStack* subordinates
-    cdef NodeEdgeCondition condition_to_parent
-
+    cdef readonly NodeEdgeCondition condition_to_parent
     cdef readonly LogicNode parent
     cdef readonly dict children
     cdef readonly list labels
@@ -227,12 +226,12 @@ cdef class PlaceholderNode(ActionNode):
 
 
 cdef class NoAction(ActionNode):
-    cdef ssize_t sig
+    cdef readonly ssize_t sig
 
 
 cdef class LongAction(ActionNode):
-    cdef ssize_t sig
+    cdef readonly ssize_t sig
 
 
 cdef class ShortAction(ActionNode):
-    cdef ssize_t sig
+    cdef readonly ssize_t sig

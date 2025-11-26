@@ -10,7 +10,6 @@ USING_CAPI = False
 try:
     # Attempt to import the C API module
     from . import capi
-    from .capi import *
     from .capi import c_abc as abc
     from .capi import c_node as node
     from .capi import c_collection as collection
@@ -19,12 +18,16 @@ try:
 except Exception:
     # Fallback to the python node model
     from . import native
-    from .native import *
     from .native import abc
     from .native import node
     from .native import collection
 
     USING_CAPI = False
+
+if not USING_CAPI:
+    from .native import *
+else:
+    from .capi import *
 
 from .webui import DecisionTreeWebUi, show, to_html
 

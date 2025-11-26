@@ -1,6 +1,8 @@
 __version__ = "0.2.2"
 
+import functools
 import logging
+import os
 import sys
 
 LOGGER = logging.getLogger("DecisionGraph")
@@ -14,3 +16,8 @@ if not LOGGER.hasHandlers():
     LOGGER.addHandler(ch)
 
 
+@functools.cache
+def get_include():
+    res_dir = os.path.dirname(__file__)
+    LOGGER.info(f'Building with <PyDecisionGraph> version: "{__version__}", resource directory: "{res_dir}".')
+    return res_dir

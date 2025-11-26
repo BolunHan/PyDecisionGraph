@@ -6,6 +6,8 @@ let GLOBAL_VIRTUAL_LINK_DEFS = [];
 function visualizeTree(treeData) {
     GLOBAL_TREE_DATA = treeData;
     GLOBAL_VIRTUAL_LINK_DEFS = treeData.virtual_links || [];
+    // Apply stored theme early so UI (export/theme button) initializes correctly
+    if (typeof initTheme === 'function') initTheme();
 
     // Extract all unique logic groups from labels
     const allGroups = new Set();
@@ -68,7 +70,20 @@ function serializeSvgWithInlineStyles(svgNode) {
     const clone = svgNode.cloneNode(true);
     // Prepend a <style> node with collected CSS rules so the exported image
     // preserves the page styles.
-    const cssText = getAllCSS();
+    // First, inject current computed CSS variables so :root vars are resolved
+    const cssVarNames = [
+        '--bg','--panel-bg','--text-color','--header-bg','--header-text',
+        '--tabs-bg','--tab-active-bg','--tab-active-text','--muted-border'
+    ];
+    const comp = getComputedStyle(document.documentElement);
+    let varCss = ':root {';
+    cssVarNames.forEach(name => {
+        const v = comp.getPropertyValue(name).trim();
+        if (v) varCss += `${name}: ${v};`;
+    });
+    varCss += '}\n';
+
+    const cssText = varCss + getAllCSS();
     const styleEl = document.createElement('style');
     styleEl.setAttribute('type', 'text/css');
     styleEl.innerHTML = cssText;
@@ -121,8 +136,10 @@ function exportPNG() {
             canvas.height = Math.round(srcH * scale);
             const ctx = canvas.getContext('2d');
             ctx.setTransform(scale, 0, 0, scale, 0, 0);
-            // Optional white background
-            ctx.fillStyle = '#ffffff';
+            // Use current theme panel background for exported PNG
+            const comp = getComputedStyle(document.documentElement);
+            const panelBg = comp.getPropertyValue('--panel-bg') || '#ffffff';
+            ctx.fillStyle = panelBg.trim() || '#ffffff';
             ctx.fillRect(0, 0, srcW, srcH);
             ctx.drawImage(img, 0, 0, srcW, srcH);
             canvas.toBlob((blob) => {
@@ -139,10 +156,48 @@ function exportPNG() {
 function addExportButtons() {
     const tabs = d3.select('#logic-group-tabs');
     if (!tabs.empty() && tabs.select('#export-controls').empty()) {
-        const wrap = tabs.append('div').attr('id', 'export-controls').style('margin-left', 'auto').style('display', 'flex').style('gap', '8px');
+        const wrap = tabs.append('div')
+            .attr('id', 'export-controls')
+            .style('margin-left', 'auto')
+            .style('display', 'flex')
+            .style('gap', '8px')
+            .style('align-items', 'center');
         wrap.append('button').attr('id', 'export-png-btn').attr('class', 'tab-button').text('Export PNG').on('click', exportPNG);
         wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'tab-button').text('Export SVG').on('click', exportSVG);
+        // Theme toggle
+        wrap.append('button')
+            .attr('id', 'theme-toggle-btn')
+            .attr('class', 'tab-button')
+            .text(getCurrentTheme() === 'dark' ? 'Light' : 'Dark')
+            .on('click', () => {
+                toggleTheme();
+                const btn = document.getElementById('theme-toggle-btn');
+                if (btn) btn.textContent = getCurrentTheme() === 'dark' ? 'Light' : 'Dark';
+            });
     }
+}
+
+// --- Theme utilities -------------------------------------------------
+function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === 'dark') root.classList.add('dark-mode');
+    else root.classList.remove('dark-mode');
+}
+
+function getCurrentTheme() {
+    return localStorage.getItem('dg-theme') || 'light';
+}
+
+function toggleTheme() {
+    const cur = getCurrentTheme();
+    const next = cur === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('dg-theme', next);
+    applyTheme(next);
+}
+
+function initTheme() {
+    const stored = getCurrentTheme();
+    applyTheme(stored);
 }
 
 function buildNodeMap(root) {
@@ -251,8 +306,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
     nodeEnter.append("text")
         .attr("class", "node-text")
         .attr("text-anchor", "middle")
-        .attr("dy", "0.35em")
-        .attr("fill", "black");
+        .attr("dy", "0.35em");
 
     const nodeUpdate = nodeSelection.merge(nodeEnter);
 
@@ -362,7 +416,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap) {
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
         .attr("font-size", "10px")
-        .attr("fill", "black")
         .attr("pointer-events", "none");
 
     labelUpdate.each(function (d) {
@@ -607,4 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // Initialize theme from storage
+    initTheme();
 });

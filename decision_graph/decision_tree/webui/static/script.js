@@ -44,6 +44,105 @@ function visualizeTree(treeData) {
 
     // Initial render
     renderFilteredTree();
+    // Add export controls (PNG/SVG) next to logic group tabs
+    addExportButtons();
+}
+
+// --- Export utilities -----------------------------------------------
+function getAllCSS() {
+    let css = "";
+    for (const sheet of document.styleSheets) {
+        try {
+            if (!sheet.cssRules) continue;
+            for (const rule of sheet.cssRules) {
+                css += rule.cssText + "\n";
+            }
+        } catch (e) {
+            // Ignore cross-origin stylesheets
+        }
+    }
+    return css;
+}
+
+function serializeSvgWithInlineStyles(svgNode) {
+    const clone = svgNode.cloneNode(true);
+    // Prepend a <style> node with collected CSS rules so the exported image
+    // preserves the page styles.
+    const cssText = getAllCSS();
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('type', 'text/css');
+    styleEl.innerHTML = cssText;
+    clone.insertBefore(styleEl, clone.firstChild);
+    // Ensure namespace
+    if (!clone.getAttribute('xmlns')) {
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+    // Ensure xlink namespace
+    if (!clone.getAttribute('xmlns:xlink')) {
+        clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    }
+    return new XMLSerializer().serializeToString(clone);
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
+function exportSVG() {
+    const svgNode = document.querySelector('#tree-container svg');
+    if (!svgNode) return alert('No SVG found to export');
+    const svgText = serializeSvgWithInlineStyles(svgNode);
+    const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+    downloadBlob(blob, 'decision-tree.svg');
+}
+
+function exportPNG() {
+    const svgNode = document.querySelector('#tree-container svg');
+    if (!svgNode) return alert('No SVG found to export');
+    const svgText = serializeSvgWithInlineStyles(svgNode);
+    const svgBlob = new Blob([svgText], {type: 'image/svg+xml'});
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+        try {
+            const vb = svgNode.viewBox && svgNode.viewBox.baseVal ? svgNode.viewBox.baseVal : null;
+            const srcW = vb && vb.width ? vb.width : svgNode.clientWidth || 1000;
+            const srcH = vb && vb.height ? vb.height : svgNode.clientHeight || 800;
+            const scale = window.devicePixelRatio || 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(srcW * scale);
+            canvas.height = Math.round(srcH * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(scale, 0, 0, scale, 0, 0);
+            // Optional white background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, srcW, srcH);
+            ctx.drawImage(img, 0, 0, srcW, srcH);
+            canvas.toBlob((blob) => {
+                if (blob) downloadBlob(blob, 'decision-tree.png');
+            }, 'image/png');
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    };
+    img.onerror = (e) => { URL.revokeObjectURL(url); alert('Failed to render SVG to PNG'); };
+    img.src = url;
+}
+
+function addExportButtons() {
+    const tabs = d3.select('#logic-group-tabs');
+    if (!tabs.empty() && tabs.select('#export-controls').empty()) {
+        const wrap = tabs.append('div').attr('id', 'export-controls').style('margin-left', 'auto').style('display', 'flex').style('gap', '8px');
+        wrap.append('button').attr('id', 'export-png-btn').attr('class', 'tab-button').text('Export PNG').on('click', exportPNG);
+        wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'tab-button').text('Export SVG').on('click', exportSVG);
+    }
 }
 
 function buildNodeMap(root) {

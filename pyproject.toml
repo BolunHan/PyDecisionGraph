@@ -30,5 +30,9 @@ Homepage = "https://github.com/BolunHan/PyDecisionGraph"
 Repository = "https://github.com/BolunHan/PyDecisionGraph"
 Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
+[tool.setuptools.package-data]
+"decision_graph.decision_tree.capi" = ["*.h", "*.pxd", "*.pyx"]
+"decision_graph.decision_tree.webui" = ["templates/*.html", "static/*.css", "static/*.js"]
+
 [tool.setuptools.dynamic]
 version = { attr = "decision_graph.__version__" }

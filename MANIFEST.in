@@ -1,2 +1,6 @@
 include LICENSE
 include README.md
+include decision_graph/decision_tree/capi/*.pyx
+include decision_graph/decision_tree/capi/*.pxd
+include decision_graph/decision_tree/webui/static/*
+include decision_graph/decision_tree/webui/templates/*.html

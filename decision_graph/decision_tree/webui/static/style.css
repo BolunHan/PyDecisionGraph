@@ -38,23 +38,30 @@ body {
     border-color: #007bff;
 }
 
-/* Critical: scrollable flex area */
+/* Make the tree-wrapper fill remaining viewport and avoid native scrollbars.
+   Scrolling will be handled by d3.zoom/pan on the SVG instead. */
 #tree-scroll-wrapper {
     flex: 1;
-    min-height: 0; /* ← allows scrolling in flex container */
-    overflow: auto; /* scrollbar if content overflows */
-    padding: 0 20px 20px 20px;
+    min-height: 0;
+    padding: 0; /* remove extra padding so SVG can use full width */
+    display: flex;
+    flex-direction: column;
 }
 
 #tree-container {
     flex: 1; /* Takes remaining space */
-    /*min-width: 600px; !* Prevent horizontal collapse *!*/
-    /*min-height: 400px; !* Prevent vertical collapse *!*/
-    /*height: 80vh;*/
-    /*border: 1px solid #ccc;*/
+    width: 100%;
+    height: 100%;
     background-color: white;
-    overflow: auto;
+    overflow: hidden; /* hide native scrollbars */
     position: relative;
+}
+
+/* Ensure any SVG fills the container area */
+#tree-container > svg {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 /* D3.js generated SVG styles */

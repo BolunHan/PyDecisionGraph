@@ -29,12 +29,10 @@
     <!-- Other tabs inserted by JS -->
 </div>
 
-<!-- Scrollable Tree Container -->
-<div id="tree-scroll-wrapper">
-    <div id="tree-container"
-         data-initial-tree='{{ initial_tree_data | tojson | e }}'
-         data-tree-id="{{ tree_id }}">
-    </div>
+<!-- Tree Container (no native scrollbars; zoom/pan handles navigation) -->
+<div id="tree-container"
+     data-initial-tree='{{ initial_tree_data | tojson | e }}'
+     data-tree-id="{{ tree_id }}">
 </div>
 
 <div id="node-info" style="display: none;">

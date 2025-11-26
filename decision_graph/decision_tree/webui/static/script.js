@@ -417,9 +417,8 @@ function renderFilteredTree() {
 
     // Proceed with layout and render (same as before)
     const margin = {top: 20, right: 20, bottom: 20, left: 20};
-    const wrapper = d3.select("#tree-scroll-wrapper");
-    const containerWidth = wrapper.node().clientWidth;
-    const containerHeight = wrapper.node().clientHeight;
+    const containerWidth = container.node().clientWidth;
+    const containerHeight = container.node().clientHeight;
 
     const layoutWidth = Math.max(containerWidth, 600);
     const layoutHeight = Math.max(containerHeight, 400);
@@ -451,46 +450,45 @@ function renderFilteredTree() {
     const treeWidth = xMax - xMin + 2 * padding;
     const treeHeight = yMax - yMin + 2 * padding;
 
-    // Make the SVG responsive: use a viewBox that fits the calculated tree bounds
-    // and let the SVG stretch to fill its container with CSS (width/height: 100%).
-    // Using preserveAspectRatio="xMinYMin meet" preserves aspect ratio while
-    // aligning to the top-left of the container. If you prefer the tree to
-    // stretch non-uniformly to completely fill the container, change this to
-    // "none".
+    // Full canvas size includes margins
     const fullWidth = treeWidth + margin.left + margin.right;
     const fullHeight = treeHeight + margin.top + margin.bottom;
 
-    // Ensure the scroll-wrapper allows scrolling when the svg is larger than the viewport
-    wrapper.style("overflow", "auto");
-
-    // If the computed tree width is wider than the wrapper, give the SVG a
-    // pixel width equal to the computed full width so a horizontal scrollbar
-    // will appear; otherwise let it scale down to 100% of the wrapper width.
+    // Configure the SVG viewBox and preserveAspectRatio. We'll use d3.zoom to
+    // fit the tree into the container and allow pan/zoom rather than native scrollbars.
     svg.attr("viewBox", `0 0 ${fullWidth} ${fullHeight}`)
-        .attr("preserveAspectRatio", "xMinYMin meet");
-
-    const wrapperWidthNow = wrapper.node() ? wrapper.node().clientWidth : null;
-    if (wrapperWidthNow && fullWidth > wrapperWidthNow) {
-        // Keep 1:1 pixel mapping so the tree isn't shrunk horizontally — user can scroll
-        svg.style("width", `${fullWidth}px`).style("height", `${fullHeight}px`);
-    } else {
-        // Fit horizontally but keep aspect ratio (height auto) so vertical scrolling still works
-        svg.style("width", "100%").style("height", "auto");
-    }
-
-    // Apply the initial margin translation on the content group. The viewport
-    // transform (from zoom) will be applied on top of this translate.
-    g.attr("transform", `translate(${margin.left - xMin + padding},${margin.top - yMin + padding})`);
+        .attr("preserveAspectRatio", "xMinYMin meet")
+        .style("width", "100%")
+        .style("height", "100%");
 
     // Attach zoom/pan behavior to the svg. The zoom modifies the viewport
     // group's transform, so the internal content translate is preserved.
+    // We disable an upper limit on zoom to support very large trees.
     const zoom = d3.zoom()
-        .scaleExtent([0.2, 4]) // allow zoom out to 20% and zoom in to 400%
+        .scaleExtent([0.01, Number.POSITIVE_INFINITY]) // min zoom, no max cap
         .on("zoom", (event) => {
             viewport.attr("transform", event.transform);
         });
 
     svg.call(zoom);
+
+    // Auto-fit the tree content into the container while preserving aspect
+    // ratio. Compute a scale that fits both width and height, cap at 1 (no upscaling).
+    // Center the content within the container by applying a translate.
+    const cw = container.node() ? container.node().clientWidth : null;
+    const ch = container.node() ? container.node().clientHeight : null;
+    if (cw && ch && fullWidth > 0 && fullHeight > 0) {
+        // Use a default scale of 1 on load (you can change later). Compute a
+        // base tx from the tree's xMax so the tree appears centered, and
+        // multiply by the scale so the tx will adjust automatically if the
+        // initial scale is changed in the future.
+        const scale = 1; // default initial scale
+        const txBase = xMax / 2; // base horizontal translation (tree middle)
+        const tx = txBase * scale; // adjust by scale so it's easy to tweak
+        const ty = 200; // leave vertical offset at 0 (changeable later)
+        const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+        svg.transition().duration(250).call(zoom.transform, initialTransform);
+    }
 
     root.each(d => {
         d.x0 = d.x;

@@ -1,6 +1,8 @@
 import threading
 import time
 import webbrowser
+import socket
+import errno
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
@@ -170,20 +172,64 @@ class DecisionTreeWebUi(object):
         self.current_tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
         self.current_tree_id = str(uuid4())
 
-        url = f"http://{self.host}:{self.port}"
+        # Choose a port to run on. If the configured port is already in use,
+        # auto-find another free port. This behavior is intentionally limited to
+        # the interactive `show()` call so other programmatic uses are unaffected.
+        requested_port = self.port
+        port_to_use = requested_port
+
+        def _port_is_free(host, port):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind((host, port))
+                return True
+            except OSError:
+                return False
+
+        if not _port_is_free(self.host, requested_port):
+            LOGGER.warning(f"Port {requested_port} is in use — searching for a free port...")
+            # Try next N ports, then fall back to ephemeral port
+            found = False
+            for p in range(requested_port + 1, requested_port + 200):
+                if _port_is_free(self.host, p):
+                    port_to_use = p
+                    found = True
+                    break
+            if not found:
+                # Bind to port 0 to get an ephemeral port from the OS
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind((self.host, 0))
+                    port_to_use = s.getsockname()[1]
+
+            LOGGER.info(f"Selected alternative port {port_to_use} for this session")
+
+        url = f"http://{self.host}:{port_to_use}"
 
         def open_browser():
             time.sleep(1)
-            webbrowser.open(url)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                LOGGER.exception("Failed to open browser for URL: %s", url)
 
         browser_thread = threading.Thread(target=open_browser)
+        browser_thread.daemon = True
         browser_thread.start()
 
         LOGGER.info(f"Starting Flask server on {url} (with_eval={with_eval})")
         try:
             # Pass with_eval to route context
             self._with_eval = with_eval  # Store temporarily
-            self.app.run(host=self.host, port=self.port, debug=self.debug, use_reloader=False, threaded=True)
+            # Run the Flask app on the chosen port. If it still fails due to
+            # address-in-use, log and raise to the caller.
+            self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+        except OSError as e:
+            # Address already in use might still occur due to race conditions.
+            if getattr(e, 'errno', None) == errno.EADDRINUSE:
+                LOGGER.error("Failed to bind to port %s: %s", port_to_use, e)
+            raise
         except KeyboardInterrupt:
             LOGGER.info("Flask server stopped by user.")
         finally:

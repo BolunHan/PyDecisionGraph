@@ -4,7 +4,7 @@ from .c_abc cimport LogicNode, LogicGroup
 
 
 cdef class RootLogicNode(LogicNode):
-    pass
+    cdef readonly bint inherit_contexts
 
 
 cdef class ContextLogicExpression(LogicNode):

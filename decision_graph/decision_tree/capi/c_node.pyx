@@ -1,34 +1,52 @@
 import operator
 
-from .c_abc cimport LogicNodeFrame, PlaceholderNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
+from cpython.mem cimport PyMem_Free
+
+from .c_abc cimport LogicNodeFrame, LogicGroupStack, PlaceholderNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
 from .c_collection cimport LogicMapping, LogicSequence
 from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
 
 
 cdef class RootLogicNode(LogicNode):
-    def __cinit__(self, *, str name='Entry Point', **kwargs):
+    def __cinit__(self, *, str name='Entry Point', bint inherit_contexts=False, **kwargs):
         self.expression = True
         self.dtype = bool
         self.repr = name
+        self.inherit_contexts = inherit_contexts
 
     cdef bint c_entry_check(self):
         return True
 
     cdef void c_on_enter(self):
+        cdef LogicGroupStack* active_groups
+        # Step 0: Append placeholder
         self.c_append(PlaceholderNode(auto_connect=False), NO_CONDITION)
 
-        # Pre-shelving entering
+        # Step 1: Pre-shelving enter
         LGM.c_ln_enter(self)
 
-        LGM.c_shelve()
+        # Step 2: Shelve LGM
+        if self.inherit_contexts:
+            active_groups = LGM._active_groups
+            LGM.c_shelve()
+            PyMem_Free(LGM._active_groups)
+            LGM._active_groups = active_groups
+        else:
+            LGM.c_shelve()
+
+        # Step 3: Mark as inspection_mode
         LGM.inspection_mode = True
 
-        # Post-shelving entering
+        # Step 4: Post-shelving enter
         LGM.c_ln_enter(self)
 
     cdef void c_on_exit(self):
+        cdef LogicGroupStack* active_groups
         self.c_consolidate_placeholder()
         LGM.c_ln_exit(self)
+        # Prevent accidentally free the active_group when inherited
+        if self.inherit_contexts:
+            LGM._active_groups = NULL
         LGM.c_unshelve()
         LGM.c_ln_exit(self)
 
@@ -47,6 +65,10 @@ cdef class RootLogicNode(LogicNode):
     def to_html(self, str file_name="root.html", bint with_eval=True):
         from ..webui import to_html
         to_html(self, file_name, with_eval)
+
+    def show(self, **kwargs):
+        from ..webui import show
+        show(self, **kwargs)
 
     @property
     def child(self) -> LogicNode:

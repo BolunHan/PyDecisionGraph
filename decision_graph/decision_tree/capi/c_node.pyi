@@ -22,7 +22,11 @@ class RootLogicNode(LogicNode):
     - automatically triggers inspection mode on entering and restore to previous mode on exit.
 
     With these features, the RootLogicNode is designed as the Root node of a decision tree.
+
+    Attributes:
+        inherit_contexts: Whether to inherit outer logic groups when entered.
     """
+    inherit_contexts: bool
 
     def __init__(self, name: str = 'Entry Point', **kwargs) -> None:  # pragma: no cover - implemented in C
         """Create a RootLogicNode.
@@ -64,6 +68,13 @@ class RootLogicNode(LogicNode):
         Args:
             file_name: Output HTML file name.
             with_eval: Whether to include evaluation results in the rendering.
+        """
+
+    def show(self, **kwargs):
+        """Render and display the decision tree in a interactive web page.
+        This method generates an interactive visualization of the decision
+        tree structure starting from this root node. Additional keyword
+        arguments are passed to the underlying rendering flask engine.
         """
 
     @property

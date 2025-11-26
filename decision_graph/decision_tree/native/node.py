@@ -13,8 +13,9 @@ BINARY_OP_FUNC = Callable[[Any, Any], Any]
 
 
 class RootLogicNode(LogicNode):
-    def __init__(self, *, name: str = 'Entry Point'):
+    def __init__(self, *, name: str = 'Entry Point', inherit_contexts: bool = False):
         super().__init__(expression=True, dtype=bool, repr=name)
+        self.inherit_contexts = inherit_contexts
 
     def _entry_check(self) -> bool:
         return True
@@ -22,6 +23,10 @@ class RootLogicNode(LogicNode):
     def _on_enter(self) -> None:
         self._append(PlaceholderNode(auto_connect=False), NO_CONDITION)
         LGM._ln_enter(self)
+        if self.inherit_contexts:
+            active_group = LGM.active_group
+            LGM.shelve()
+            LGM.active_group = active_group.copy()
         LGM.shelve()
         LGM.inspection_mode = True
         LGM._ln_enter(self)
@@ -45,6 +50,10 @@ class RootLogicNode(LogicNode):
     def to_html(self, file_name: str = "root.html", with_eval: bool = True):
         from ..webui import to_html
         to_html(self, file_name, with_eval)
+
+    def show(self, **kwargs):
+        from ..webui import show
+        show(self, **kwargs)
 
     @property
     def child(self) -> LogicNode:

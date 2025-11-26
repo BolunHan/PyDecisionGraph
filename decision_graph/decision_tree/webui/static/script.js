@@ -224,16 +224,74 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
         .filter(Boolean);
 }
 
+// Layout configuration: can be set at runtime to force consistent scales
+// across different trees. If `baseHorizontalSpacing` is set (number of px)
+// it will be used instead of auto-measured node widths.
+const LAYOUT_CONFIG = {
+    // number (px) or null to auto-calculate per-tree
+    baseHorizontalSpacing: null,
+};
+
+function setLayoutConfig(cfg) {
+    Object.assign(LAYOUT_CONFIG, cfg || {});
+    console.debug('DG DEBUG -- setLayoutConfig', LAYOUT_CONFIG);
+}
+
+// --- Text measurement utility ---------------------------------------
+// Measures rendered text width using an offscreen SVG <text> element so
+// spacing can be accurate. Falls back to a simple char-count heuristic
+// when DOM or SVG measuring isn't available.
+function measureTextWidth(text) {
+    try {
+        if (typeof document === 'undefined') {
+            // Not running in a browser environment (fallback)
+            return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
+        }
+
+        let svg = document.getElementById('dg-measure-svg');
+        if (!svg) {
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('id', 'dg-measure-svg');
+            svg.setAttribute('style', 'position:absolute; left:-9999px; top:-9999px; width:0; height:0; overflow:visible;');
+            document.body.appendChild(svg);
+        }
+
+        // Reuse a single text node for measurement
+        if (!svg._dg_text_el) {
+            const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            t.setAttribute('class', 'node-text'); // use same class so CSS font applies
+            t.setAttribute('x', 0);
+            t.setAttribute('y', 0);
+            svg.appendChild(t);
+            svg._dg_text_el = t;
+        }
+
+        const textEl = svg._dg_text_el;
+        // Set the text content and measure
+        textEl.textContent = text == null ? '' : String(text);
+        const bbox = textEl.getBBox();
+        // Add horizontal padding for node rect
+        const pad = 16;
+        const w = Math.max(40, Math.round(bbox.width + pad));
+        return w;
+    } catch (err) {
+        // Measurement may fail in some environments; fall back gracefully
+        try { console.debug('DG DEBUG -- text measure failed, using heuristic', err); } catch (e) { /* ignore */ }
+        return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
+    }
+}
+
 function applyTreeLayoutWithMinSpacing(root, width, height) {
     const MIN_ROW_HEIGHT = 200;   // Your existing vertical constraint
 
-    // --- Step 1: Estimate per-node width (pixels) from label/text so spacing
-    // can adapt to each node's content. Store on d.data._estWidth.
+    // --- Step 1: Measure per-node width (pixels) using the DOM/SVG helper
+    // and store on d.data._estWidth so separation can consider real sizes.
     let widths = [];
     root.each(d => {
-        const text = d.data.name || d.data.id || "unnamed";
-        // Estimate width from text (approximate; tweak multiplier if needed)
-        const est = Math.max(40, Math.min(600, Math.round(text.length * 8 + 16)));
+        const txt = d.data.name || d.data.id || "unnamed";
+        const measured = measureTextWidth(txt);
+        // Cap extremely large measured widths to avoid huge gaps
+        const est = Math.max(40, Math.min(800, measured));
         d.data._estWidth = est;
         widths.push(est);
     });

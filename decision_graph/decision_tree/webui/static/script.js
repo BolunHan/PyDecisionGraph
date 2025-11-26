@@ -313,7 +313,8 @@ function toggleChildren(event, d) {
 
     // 🔑 Re-render the ENTIRE tree from global root
     const container = d3.select("#tree-container");
-    const g = container.select("svg").select("g");
+    // Select the content group (dg-content) where nodes/links are rendered.
+    const g = container.select("svg").select("g.dg-viewport").select("g.dg-content");
 
     // Re-extract virtual links and nodeMap from global root
     const nodeMap = new Map();
@@ -424,7 +425,12 @@ function renderFilteredTree() {
     const layoutHeight = Math.max(containerHeight, 400);
 
     const svg = container.append("svg");
-    const g = svg.append("g");
+    // Create a viewport group that will be transformed by zoom/pan, and a
+    // nested content group where the tree elements live. Keeping the initial
+    // translate on the content group means zooming the viewport won't clobber
+    // the margin translation.
+    const viewport = svg.append("g").attr("class", "dg-viewport");
+    const g = viewport.append("g").attr("class", "dg-content");
 
     const root = d3.hierarchy(filteredRoot, d => d.children);
     GLOBAL_TREE_ROOT = root;
@@ -445,10 +451,46 @@ function renderFilteredTree() {
     const treeWidth = xMax - xMin + 2 * padding;
     const treeHeight = yMax - yMin + 2 * padding;
 
-    svg.attr("width", treeWidth + margin.left + margin.right)
-        .attr("height", treeHeight + margin.top + margin.bottom);
+    // Make the SVG responsive: use a viewBox that fits the calculated tree bounds
+    // and let the SVG stretch to fill its container with CSS (width/height: 100%).
+    // Using preserveAspectRatio="xMinYMin meet" preserves aspect ratio while
+    // aligning to the top-left of the container. If you prefer the tree to
+    // stretch non-uniformly to completely fill the container, change this to
+    // "none".
+    const fullWidth = treeWidth + margin.left + margin.right;
+    const fullHeight = treeHeight + margin.top + margin.bottom;
 
+    // Ensure the scroll-wrapper allows scrolling when the svg is larger than the viewport
+    wrapper.style("overflow", "auto");
+
+    // If the computed tree width is wider than the wrapper, give the SVG a
+    // pixel width equal to the computed full width so a horizontal scrollbar
+    // will appear; otherwise let it scale down to 100% of the wrapper width.
+    svg.attr("viewBox", `0 0 ${fullWidth} ${fullHeight}`)
+        .attr("preserveAspectRatio", "xMinYMin meet");
+
+    const wrapperWidthNow = wrapper.node() ? wrapper.node().clientWidth : null;
+    if (wrapperWidthNow && fullWidth > wrapperWidthNow) {
+        // Keep 1:1 pixel mapping so the tree isn't shrunk horizontally — user can scroll
+        svg.style("width", `${fullWidth}px`).style("height", `${fullHeight}px`);
+    } else {
+        // Fit horizontally but keep aspect ratio (height auto) so vertical scrolling still works
+        svg.style("width", "100%").style("height", "auto");
+    }
+
+    // Apply the initial margin translation on the content group. The viewport
+    // transform (from zoom) will be applied on top of this translate.
     g.attr("transform", `translate(${margin.left - xMin + padding},${margin.top - yMin + padding})`);
+
+    // Attach zoom/pan behavior to the svg. The zoom modifies the viewport
+    // group's transform, so the internal content translate is preserved.
+    const zoom = d3.zoom()
+        .scaleExtent([0.2, 4]) // allow zoom out to 20% and zoom in to 400%
+        .on("zoom", (event) => {
+            viewport.attr("transform", event.transform);
+        });
+
+    svg.call(zoom);
 
     root.each(d => {
         d.x0 = d.x;

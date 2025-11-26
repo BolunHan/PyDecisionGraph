@@ -127,12 +127,12 @@ class LogicExpression(SkipContextsBlock):
             self,
             *,
             expression: float | int | bool | Exception | Callable[[], Any] = None,
-            dtype: type | None = ...,
-            repr: str | None = ...,
+            dtype: type = None,
+            repr: str = None,
             **kwargs,
     ) -> None: ...
 
-    def eval(self, enforce_dtype: bool = ...) -> Any:
+    def eval(self, enforce_dtype: bool = False) -> Any:
         """Evaluate the expression and return the resulting value.
 
         If ``enforce_dtype`` is True and a ``dtype`` was provided, the result
@@ -142,8 +142,8 @@ class LogicExpression(SkipContextsBlock):
     @classmethod
     def cast(
             cls,
-            value: int | float | bool | Exception | LogicExpression | Callable[..., Any],
-            dtype: type | None = ...,
+            value: int | float | bool | Exception | LogicExpression | Callable[[], Any],
+            dtype: type = None,
     ) -> LogicExpression:
         """
         Cast a value into a LogicExpression.
@@ -318,7 +318,7 @@ class LogicGroup:
         ...
 
     @classmethod
-    def break_(cls, scope: LogicGroup | None = ...) -> None:
+    def break_(cls, scope: LogicGroup = None) -> None:
         """Break out from the given ``scope`` (or the active scope if None).
 
         In inspection mode, the break is recorded to be connected to the next
@@ -379,7 +379,7 @@ class LogicNode(LogicExpression):
         Returns the ``other`` node so calls can be chained.
         """
 
-    def __call__(self, default: Any | None = ...) -> Any:
+    def __call__(self, default: Any = NO_DEFAULT) -> Any:
         """Evaluate the tree from this node and return the final action/value.
 
         If ``default`` is not provided, a ``NoAction`` node will be used as the
@@ -391,7 +391,7 @@ class LogicNode(LogicExpression):
         """
         ...
 
-    def append(self, child: LogicNode, condition: NodeEdgeCondition = ...) -> None:
+    def append(self, child: LogicNode, condition: NodeEdgeCondition = AUTO_CONDITION) -> None:
         """Append a child node with the given edge condition.
 
         If ``condition`` is ``AUTO_CONDITION``, the condition is inferred
@@ -428,7 +428,7 @@ class LogicNode(LogicExpression):
 
     def eval_recursively(
             self,
-            path: list[LogicNode] | None = ...,
+            path: list[LogicNode] = None,
             default: Any = NO_DEFAULT,
     ) -> tuple[Any, list[LogicNode]]:
         """Evaluate the decision tree recursively from this node.
@@ -489,10 +489,10 @@ class ActionNode(LogicNode):
     def __init__(
             self,
             *,
-            action: Callable[[], Any] | None = ...,
-            expression: object | None = ...,
-            dtype: type | None = ...,
-            repr: str | None = ...,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
             auto_connect: bool = True,
             **kwargs,
     ) -> None: ...
@@ -505,7 +505,7 @@ class ActionNode(LogicNode):
             NodeContextError: Using ``with ActionNode()`` is invalid.
         """
 
-    def append(self, child: LogicNode, condition: NodeEdgeCondition = ...) -> Never:
+    def append(self, child: LogicNode, condition: NodeEdgeCondition = AUTO_CONDITION) -> Never:
         """
         Appending children to an ActionNode is not supported.
 

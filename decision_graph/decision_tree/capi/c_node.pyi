@@ -275,7 +275,7 @@ class MathExpressionOperator:
     name: str
     value: str
 
-    def to_func(self) -> Callable[..., Any]: ...
+    def to_func(self) -> UNARY_OP_FUNC | BINARY_OP_FUNC: ...
 
     @classmethod
     def from_str(cls, op_str: str) -> MathExpressionOperator: ...
@@ -334,7 +334,7 @@ class ComparisonExpressionOperator:
     value: str
     int_enum: int
 
-    def to_func(self) -> Callable[..., Any]: ...
+    def to_func(self) -> BINARY_OP_FUNC: ...
 
     @classmethod
     def from_str(cls, op_str: str) -> ComparisonExpressionOperator: ...
@@ -382,7 +382,7 @@ class LogicalExpressionOperator:
     value: str
     int_enum: int
 
-    def to_func(self) -> Callable[..., Any]: ...
+    def to_func(self) -> UNARY_OP_FUNC | BINARY_OP_FUNC: ...
 
     @classmethod
     def from_str(cls, op_str: str) -> LogicalExpressionOperator: ...
@@ -410,7 +410,7 @@ class LogicalExpression(ContextLogicExpression):
             *,
             left: Any,
             op: Any,
-            right: Any = ...,
+            right: Any = NO_DEFAULT,
             **kwargs
     ) -> None:
         """Create a LogicalExpression.

@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import Iterable, Callable
 from typing import Any, Never, final
 
@@ -117,11 +118,13 @@ class LogicExpression(SkipContextsBlock):
         expression (object): The underlying expression (value, exception, or callable).
         dtype (type | None): Optional type to enforce on evaluation, if requested.
         repr (str): String representation for debugging and logging.
+        uid (uuid.UUID): Unique identifier for the LogicExpression instance.
     """
 
     expression: object
     dtype: type | None
     repr: str
+    uid: uuid.UUID
 
     def __init__(
             self,
@@ -129,8 +132,19 @@ class LogicExpression(SkipContextsBlock):
             expression: float | int | bool | Exception | Callable[[], Any] = None,
             dtype: type = None,
             repr: str = None,
+            uid: uuid.UUID = None,
             **kwargs,
-    ) -> None: ...
+    ) -> None:
+        """
+        Initialize the LogicExpression.
+
+        Args:
+            expression (Union[Any, Callable[[], Any]]): A callable or static value.
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            uid (uuid.UUID, optional): Unique identifier for the expression. If None, a new UUID is generated.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support, not used is this base class.
+        """
 
     def eval(self, enforce_dtype: bool = False) -> Any:
         """Evaluate the expression and return the resulting value.
@@ -357,14 +371,15 @@ class LogicNode(LogicExpression):
     labels: list[str]
     autogen: bool
 
-    def __init__(self, *, expression: object = None, dtype: type = None, repr: str = None, **kwargs):
+    def __init__(self, *, expression: object = None, dtype: type = None, repr: str = None, uid: uuid.UUID = None, **kwargs):
         """
         Initialize the LogicExpression.
 
         Args:
             expression (Union[Any, Callable[[], Any]]): A callable or static value.
-            dtype (type, optional): The expected type of the evaluated value (float, int, or bool).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
             repr (str, optional): A string representation of the expression.
+            uid (uuid.UUID, optional): Unique identifier for the expression. If None, a new UUID is generated.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support, not used is this base class.
         """
 
@@ -469,6 +484,9 @@ class BreakpointNode(LogicNode):
     """A logic node that represents a breakpoint in the decision tree, used for breaking out of logic groups.
 
     This node is auto-generated and can connect to at most one child node.
+    To connect as branch to a BreakpointNode, there are 2 ways:
+    - A managed style, powered by LGM, where the BreakpointNode connects to the next entered node, outside the LogicGroup this BreakpointNode from. after a break is recorded.
+    - or a manual way, using with clause. Which entered the BreakpointNode context, and then continue to build the rest of the branch. In this way the LGM will relinquish the management of this node. This could be potentially dangerous, but provides a way to join external branches.
 
     During evaluation, if connected, it delegates to the child's evaluation; otherwise, it returns its default expression (NoAction) in vigilant mode.
 
@@ -479,6 +497,33 @@ class BreakpointNode(LogicNode):
 
     break_from: LogicGroup
     await_connection: bool
+
+    def __init__(self, *, break_from: LogicGroup = None, expression: Any = None, repr: str = None, **kwargs):
+        """
+        Initialize the BreakpointNode.
+
+        Args:
+            break_from (LogicGroup): The logic group from which this breakpoint breaks. Defaults to None.
+            expression (Any): The default expression for this breakpoint node. Defaults to a new unique dangling NoAction node.
+            str (str): A string representation of the expression. Auto-generated if None.
+        """
+
+    def connect(self, child: LogicNode) -> None:
+        """
+        Connect a child node to this BreakpointNode.
+
+        Raises:
+            TooManyChildren: If a child is already connected.
+        """
+
+    @property
+    def linked_to(self) -> LogicNode:
+        """
+        The child node connected to this BreakpointNode.
+
+        Returns:
+            LogicNode: The connected child node, if there is one, otherwise return None.
+        """
 
 
 class ActionNode(LogicNode):
@@ -495,7 +540,18 @@ class ActionNode(LogicNode):
             repr: str = None,
             auto_connect: bool = True,
             **kwargs,
-    ) -> None: ...
+    ) -> None:
+        """
+        Initialize the ActionNode.
+
+        Args:
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """
 
     def __enter__(self) -> Never:
         """
@@ -525,9 +581,37 @@ class PlaceholderNode(ActionNode):
 
 
 class NoAction(ActionNode):
-    """An action node whose evaluation returns itself and performs no action."""
+    """An action node whose evaluation returns itself and performs no action.
 
-    sig: int = 0
+    attributes:
+        sig (int): The signature marker for the no-action. Defaults to ``0``. Internal c fields is a ``ssize_t``
+    """
+
+    sig: int
+
+    def __init__(
+            self,
+            *,
+            sig: int = 0,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
+            auto_connect: bool = True,
+            **kwargs,
+    ) -> None:
+        """
+        Initialize a NoAction node.
+
+        Args:
+            sig (int): The signature marker for the no-action. Defaults to ``0``.
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """
 
 
 class LongAction(ActionNode):
@@ -539,6 +623,30 @@ class LongAction(ActionNode):
 
     sig: int
 
+    def __init__(
+            self,
+            *,
+            sig: int = 1,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
+            auto_connect: bool = True,
+            **kwargs,
+    ) -> None:
+        """
+        Initialize a LongAction node.
+
+        Args:
+            sig (int): The signature marker for the long action. Defaults to ``1``.
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """
+
 
 class ShortAction(ActionNode):
     """An action node variant carrying a negative ``sig`` marker.
@@ -548,3 +656,57 @@ class ShortAction(ActionNode):
     """
 
     sig: int
+
+    def __init__(
+            self,
+            *,
+            sig: int = -1,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
+            auto_connect: bool = True,
+            **kwargs,
+    ) -> None:
+        """
+        Initialize a ShortAction node.
+
+        Args:
+            sig (int): The signature marker for the short action. Defaults to ``-1``.
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """
+
+
+class CancelAction(ActionNode):
+    """An action node whose evaluation returns itself and performs cancel action."""
+
+    sig: int
+
+    def __init__(
+            self,
+            *,
+            sig: int = 0,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
+            auto_connect: bool = True,
+            **kwargs,
+    ) -> None:
+        """
+        Initialize a CancelAction node.
+
+        Args:
+            sig (int): The signature marker for the cancel action. Defaults to ``0``.
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """

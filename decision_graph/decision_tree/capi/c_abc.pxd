@@ -76,6 +76,7 @@ cdef class LogicExpression(SkipContextsBlock):
     cdef readonly object expression
     cdef readonly type dtype
     cdef readonly str repr
+    cdef readonly object uid
 
     cdef object c_eval(self, bint enforce_dtype)
 
@@ -234,4 +235,8 @@ cdef class LongAction(ActionNode):
 
 
 cdef class ShortAction(ActionNode):
+    cdef readonly ssize_t sig
+
+
+cdef class CancelAction(ActionNode):
     cdef readonly ssize_t sig

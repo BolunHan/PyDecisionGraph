@@ -307,10 +307,11 @@ cdef class SkipContextsBlock:
 
 
 cdef class LogicExpression(SkipContextsBlock):
-    def __cinit__(self, *, object expression=None, type dtype=None, str repr=None, **kwargs):
+    def __cinit__(self, *, object expression=None, type dtype=None, str repr=None, object uid=None, **kwargs):
         self.expression = expression
         self.dtype = dtype
         self.repr = repr if repr is not None else str(expression)
+        self.uid = uuid.uuid4() if uid is None else uid
 
     cdef bint c_entry_check(self):
         return bool(self.c_eval(False))
@@ -811,8 +812,7 @@ cdef class LogicGroup:
 
         # Step 2.1: Locating the placeholder node for breakpoint
         cdef PlaceholderNode placeholder = active_node.c_get_placeholder()
-        cdef BreakpointNode breakpoint_node = BreakpointNode()
-        breakpoint_node.break_from = self
+        cdef BreakpointNode breakpoint_node = BreakpointNode(break_from=self)
         active_node.c_replace(placeholder, breakpoint_node)
         # Step 2.2: Push the breakpoint node to the global breakpoint stack
         LogicGroupManager.c_ln_stack_push(LGM._breakpoint_nodes, breakpoint_node)
@@ -897,7 +897,7 @@ cdef class LogicGroup:
 
 
 cdef class LogicNode(LogicExpression):
-    def __cinit__(self, *, object expression=None, type dtype=None, str repr=None, **kwargs):
+    def __cinit__(self, *, **kwargs):
         self.subordinates = <LogicNodeStack*> PyMem_Calloc(1, sizeof(LogicNodeStack))
         self.condition_to_parent = NO_CONDITION
         self.parent = None
@@ -1286,23 +1286,44 @@ cdef class LogicNode(LogicExpression):
 
 
 cdef class BreakpointNode(LogicNode):
-    def __cinit__(self, *, object expression=None, type dtype=None, str repr='<PlaceholderNode>', **kwargs):
+    def __cinit__(self, *, LogicGroup break_from=None, object expression=None, str repr=None, **kwargs):
+        self.break_from = break_from
+        self.expression = NoAction(auto_connect=False) if expression is None else expression
+        self.repr = f'Breakpoint(from={break_from.name})' if repr is None else repr
         self.autogen = True
         self.await_connection = False
-        self.expression = NoAction(auto_connect=False)
-        self.break_from = None
 
     cdef void c_connect(self, LogicNode child):
         if self.subordinates.size:
             raise TooManyChildren(f'{self.__class__.__name__} must not have more than one child node.')
+
+        # Breakpoint will only maintain a virtual connection to child node.
+        # That is if a child already have a parent, it will not modify the child's parent pointer.
+        # Otherwise, it will assign itself as the parent. (Which will be override if the child append to other node later.)
+        cdef LogicNode existing_parent = child.parent
+
         self.c_append(child, NO_CONDITION)
+        if existing_parent is not None:
+            child.parent = existing_parent
+
         self.await_connection = False
 
     cdef void c_on_enter(self):
-        raise NodeContextError('ActionNode does not support context management with <with> statement.')
+        if self.subordinates.size:
+            raise TooManyChildren(f'{self.__class__.__name__} must not have more than one child node.')
+        # On enter, the breakpoint is disabled and removed from LGM._breakpoint_nodes
+        # So that it is not managed and auto connected by LGM anymore.
+        self.await_connection = False
+        try:
+            LogicGroupManager.c_ln_stack_remove(LGM._breakpoint_nodes, self)
+        except NodeNotFountError as _:
+            pass
+        self.c_append(PlaceholderNode(auto_connect=False), NO_CONDITION)
+        LogicGroupManager.c_ln_stack_push(LGM._active_nodes, self)
+        # LGM.c_ln_enter(self)
 
     cdef void c_on_exit(self):
-        pass
+        LGM.c_ln_exit(self)
 
     cdef object c_eval(self, bint enforce_dtype):
         if not self.subordinates.size:
@@ -1331,6 +1352,9 @@ cdef class BreakpointNode(LogicNode):
         else:
             return f'<{self.__class__.__name__} {"active" if self.await_connection else "idle"}>(break_from={self.break_from})'
 
+    def connect(self, LogicNode child):
+        self.c_connect(child)
+
     property linked_to:
         def __get__(self):
             if self.subordinates.size:
@@ -1339,7 +1363,7 @@ cdef class BreakpointNode(LogicNode):
 
 
 cdef class ActionNode(LogicNode):
-    def __cinit__(self, *, object action=None, object expression=None, type dtype=None, str repr=None, bint auto_connect=True, **kwargs):
+    def __cinit__(self, *, object action=None, bint auto_connect=True, **kwargs):
         self.action = action
 
         if auto_connect:
@@ -1399,9 +1423,9 @@ cdef class PlaceholderNode(ActionNode):
 
 
 cdef class NoAction(ActionNode):
-    def __cinit__(self, *, bint auto_connect=True, **kwargs):
-        self.sig = 0
-        self.repr = 'NoAction'
+    def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
+        self.sig = sig
+        self.repr = 'NoAction' if repr is None else repr
 
     cdef object c_eval(self, bint enforce_dtype):
         return self
@@ -1411,9 +1435,9 @@ cdef class NoAction(ActionNode):
 
 
 cdef class LongAction(ActionNode):
-    def __cinit__(self, *, ssize_t sig=1, bint auto_connect=True, **kwargs):
+    def __cinit__(self, *, ssize_t sig=1, str repr=None, bint auto_connect=True, **kwargs):
         self.sig = sig
-        self.repr = 'LongAction'
+        self.repr = 'LongAction' if repr is None else repr
 
     cdef object c_eval(self, bint enforce_dtype):
         return self
@@ -1423,9 +1447,21 @@ cdef class LongAction(ActionNode):
 
 
 cdef class ShortAction(ActionNode):
-    def __cinit__(self, *, ssize_t sig=-1, bint auto_connect=True, **kwargs):
+    def __cinit__(self, *, ssize_t sig=-1, str repr=None, bint auto_connect=True, **kwargs):
         self.sig = sig
-        self.repr = 'ShortAction'
+        self.repr = 'ShortAction' if repr is None else repr
+
+    cdef object c_eval(self, bint enforce_dtype):
+        return self
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+cdef class CancelAction(ActionNode):
+    def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
+        self.sig = sig
+        self.repr = 'CancelAction' if repr is None else repr
 
     cdef object c_eval(self, bint enforce_dtype):
         return self

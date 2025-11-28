@@ -1,0 +1,23 @@
+# Doxyfile generated for DecisionGraph API
+PROJECT_NAME           = "DecisionGraph API"
+OUTPUT_DIRECTORY       = "doxygen"
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = "xml"
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+HAVE_DOT               = NO
+
+# Input: scan the capi directory and any C/C++/pyx sources
+INPUT                  = ../decision_graph
+RECURSIVE              = YES
+FILE_PATTERNS          = *.py *.pyi
+EXTENSION_MAPPING = pyi=Python
+
+# quiet operation
+QUIET                  = YES
+WARNINGS               = YES
+

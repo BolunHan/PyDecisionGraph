@@ -18,7 +18,7 @@ __all__ = ['Singleton',
            'SkipContextsBlock', 'LogicExpression', 'LogicNode',
            'LogicGroupManager', 'LGM', 'LogicGroup',
            'ActionNode', 'BreakpointNode', 'PlaceholderNode',
-           'NoAction', 'LongAction', 'ShortAction']
+           'NoAction', 'LongAction', 'ShortAction', 'CancelAction']
 
 
 class Singleton(type):
@@ -224,9 +224,6 @@ class SkipContextsBlock(object):
 
     @staticmethod
     def get_trace():
-        """
-        Safely retrieve the current trace function, prioritizing the PyDev debugger's trace function.
-        """
         try:
             # Check if PyDev debugger is active
             # noinspection PyUnresolvedReferences
@@ -260,11 +257,12 @@ class SkipContextsBlock(object):
 
 
 class LogicExpression(SkipContextsBlock):
-    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None, uid: uuid.UUID = None):
         super().__init__()
         self.expression = expression
         self.dtype = dtype
         self.repr = repr if repr is not None else str(expression)
+        self.uid = uuid.uuid4() if uid is None else uid
 
     def _entry_check(self) -> Any:
         return bool(self._eval(False))
@@ -481,7 +479,6 @@ class LogicGroupManager(metaclass=Singleton):
         self._active_nodes.pop(0)
 
     def shelve(self):
-        """Temporarily save and clear runtime state."""
         shelved = {
             'active_groups': self._active_groups.copy(),
             'active_nodes': self._active_nodes.copy(),
@@ -499,7 +496,6 @@ class LogicGroupManager(metaclass=Singleton):
         return shelved
 
     def unshelve(self):
-        """Restore the most recent shelved state."""
         if not self._shelved_state:
             raise RuntimeError("No shelved state to unshelve.")
 
@@ -512,7 +508,6 @@ class LogicGroupManager(metaclass=Singleton):
         self.vigilant_mode = state['vigilant_mode']
 
     def clear(self):
-        """Clear cache and reset all stacks."""
         self._cache.clear()
         self._active_groups.clear()
         self._active_nodes.clear()
@@ -624,8 +619,8 @@ class LogicGroup(object):
 
 
 class LogicNode(LogicExpression):
-    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None):
-        super().__init__(expression=expression, dtype=dtype, repr=repr)
+    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any], dtype: type = None, repr: str = None, uid: uuid.UUID = None):
+        super().__init__(expression=expression, dtype=dtype, repr=repr, uid=uid)
 
         self.subordinates = []
         self.condition_to_parent = NO_CONDITION
@@ -936,13 +931,17 @@ class LogicNode(LogicExpression):
 
 
 class BreakpointNode(LogicNode):
-    def __init__(self, *, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None):
-        super().__init__(expression=expression, dtype=dtype, repr=repr)
+    def __init__(self, *,break_from: LogicGroup = None, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None, uid: uuid.UUID = None):
+        super().__init__(
+            expression=NoAction(auto_connect=False) if expression is None else expression,
+            dtype=dtype,
+            repr=repr,
+            uid=uid
+        )
 
+        self.break_from = break_from
         self.autogen = True
         self.await_connection = False
-        self.expression = NoAction(auto_connect=False)
-        self.break_from: LogicGroup = None
 
     def _connect(self, child: LogicNode) -> None:
         if self.subordinates:
@@ -951,10 +950,18 @@ class BreakpointNode(LogicNode):
         self.await_connection = False
 
     def _on_enter(self) -> None:
-        raise NodeContextError('BreakpointNode does not support context management with <with> statement.')
+        if self.subordinates:
+            raise TooManyChildren(f'{self.__class__.__name__} must not have more than one child node.')
+        self.await_connection = False
+        try:
+            LGM._breakpoint_nodes.remove(self)
+        except NodeNotFountError as _:
+            pass
+        self._append(PlaceholderNode(auto_connect=False), NO_CONDITION)
+        LGM._active_nodes.insert(0, self)
 
     def _on_exit(self) -> None:
-        pass
+        LGM._ln_exit(self)
 
     def _eval(self, enforce_dtype: bool) -> Any:
         if not self.subordinates:
@@ -985,6 +992,9 @@ class BreakpointNode(LogicNode):
             status = "active" if self.await_connection else "idle"
             return f'<{self.__class__.__name__} {status}>(break_from={self.break_from})'
 
+    def connect(self, child: LogicNode) -> None:
+        self._connect(child)
+
     @property
     def linked_to(self) -> LogicNode | None:
         return self.subordinates[0] if self.subordinates else None
@@ -998,11 +1008,12 @@ class ActionNode(LogicNode):
             expression: Any = None,
             dtype: type = None,
             repr: str | None = None,
+            uid: uuid.UUID = None,
             auto_connect: bool = True,
             **kwargs
     ):
         # Do not capture logic group labels — action nodes are leaves
-        super().__init__(expression=expression, dtype=dtype, repr=repr)
+        super().__init__(expression=expression, dtype=dtype, repr=repr, uid=uid)
 
         self.action = action
 
@@ -1060,11 +1071,9 @@ class PlaceholderNode(ActionNode):
 
 
 class NoAction(ActionNode):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-        self.sig = 0
-        self.repr = 'NoAction'
+    def __init__(self, sig: int = 0, repr='NoAction', **kwargs):
+        super().__init__(repr=repr, **kwargs)
+        self.sig = sig
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self
@@ -1074,10 +1083,9 @@ class NoAction(ActionNode):
 
 
 class LongAction(ActionNode):
-    def __init__(self, *, sig: int = 1, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, sig: int = 1, repr='LongAction', **kwargs):
+        super().__init__(repr=repr, **kwargs)
         self.sig = sig
-        self.repr = 'LongAction'
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self
@@ -1087,10 +1095,21 @@ class LongAction(ActionNode):
 
 
 class ShortAction(ActionNode):
-    def __init__(self, *, sig: int = -1, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, sig: int = -1, repr='ShortAction', **kwargs):
+        super().__init__(repr=repr, **kwargs)
         self.sig = sig
-        self.repr = 'ShortAction'
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        return self
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+class CancelAction(ActionNode):
+    def __init__(self, sig: int = 0, repr='CancelAction', **kwargs):
+        super().__init__(repr=repr, **kwargs)
+        self.sig = sig
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self

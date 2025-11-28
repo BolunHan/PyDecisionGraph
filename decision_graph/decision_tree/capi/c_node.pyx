@@ -8,10 +8,10 @@ from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, C
 
 
 cdef class RootLogicNode(LogicNode):
-    def __cinit__(self, *, str name='Entry Point', bint inherit_contexts=False, **kwargs):
-        self.expression = True
-        self.dtype = bool
-        self.repr = name
+    def __cinit__(self, *, str name='Entry Point', object expression=None, type dtype=None, str repr=None, object uid=None, bint inherit_contexts=False, **kwargs):
+        self.expression = True if expression is None else expression
+        self.dtype = bool if dtype is None else dtype
+        self.repr = name if repr is None else repr
         self.inherit_contexts = inherit_contexts
 
     cdef bint c_entry_check(self):
@@ -61,6 +61,12 @@ cdef class RootLogicNode(LogicNode):
 
     def eval_recursively(self, **kwargs):
         return self.child.eval_recursively(**kwargs)
+
+    cpdef BreakpointNode get_breakpoint(self):
+        for leaf in self.leaves:
+            if isinstance(leaf, BreakpointNode):
+                return leaf
+        return None
 
     def to_html(self, str file_name="root.html", bint with_eval=True):
         from ..webui import to_html

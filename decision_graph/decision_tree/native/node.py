@@ -4,7 +4,7 @@ import enum
 import operator
 from typing import Any, Callable
 
-from .abc import LGM, LogicNode, LogicGroup, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition, PlaceholderNode
+from .abc import LGM, LogicNode, LogicGroup, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition, PlaceholderNode, BreakpointNode
 from .collection import LogicMapping
 from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
 
@@ -13,8 +13,8 @@ BINARY_OP_FUNC = Callable[[Any, Any], Any]
 
 
 class RootLogicNode(LogicNode):
-    def __init__(self, *, name: str = 'Entry Point', inherit_contexts: bool = False):
-        super().__init__(expression=True, dtype=bool, repr=name)
+    def __init__(self, *, name: str = 'Entry Point', expression=True, dtype=bool, repr: str = None, inherit_contexts: bool = False, **kwargs):
+        super().__init__(expression=expression, dtype=dtype, repr=name or repr, **kwargs)
         self.inherit_contexts = inherit_contexts
 
     def _entry_check(self) -> bool:
@@ -46,6 +46,12 @@ class RootLogicNode(LogicNode):
 
     def eval_recursively(self, **kwargs):
         return self.child.eval_recursively(**kwargs)
+
+    def get_breakpoint(self) -> BreakpointNode | None:
+        for leaf in self.leaves:
+            if isinstance(leaf, BreakpointNode):
+                return leaf
+        return None
 
     def to_html(self, file_name: str = "root.html", with_eval: bool = True):
         from ..webui import to_html

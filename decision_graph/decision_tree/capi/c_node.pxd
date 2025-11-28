@@ -1,10 +1,12 @@
 from libc.stdint cimport uint8_t
 
-from .c_abc cimport LogicNode, LogicGroup
+from .c_abc cimport LogicNode, LogicGroup, BreakpointNode
 
 
 cdef class RootLogicNode(LogicNode):
     cdef readonly bint inherit_contexts
+
+    cpdef BreakpointNode get_breakpoint(self)
 
 
 cdef class ContextLogicExpression(LogicNode):

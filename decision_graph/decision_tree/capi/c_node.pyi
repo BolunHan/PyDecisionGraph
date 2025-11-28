@@ -1,7 +1,8 @@
+import enum
 from collections.abc import Callable
-from typing import Any
+from typing import Any, final
 
-from .c_abc import LogicNode, LogicGroup, NodeEdgeCondition
+from .c_abc import LogicNode, LogicGroup, NodeEdgeCondition, BreakpointNode
 from ..exc import NO_DEFAULT
 
 UNARY_OP_FUNC = Callable[[Any], Any]
@@ -28,7 +29,7 @@ class RootLogicNode(LogicNode):
     """
     inherit_contexts: bool
 
-    def __init__(self, name: str = 'Entry Point', **kwargs) -> None:  # pragma: no cover - implemented in C
+    def __init__(self, name: str = 'Entry Point', inherit_contexts: bool = False, **kwargs) -> None:  # pragma: no cover - implemented in C
         """Create a RootLogicNode.
 
         The constructor automatically passes the kwargs to underlying base classes. If any kwargs are provided, it can mess up the normal initializing process. It is recommended to not provide any kwargs and leave as is.
@@ -43,6 +44,30 @@ class RootLogicNode(LogicNode):
         Args:
             name: Optional name for the root node.
             **kwargs: Implementation-specific options.
+        """
+
+    @final
+    def __enter__(self) -> RootLogicNode:
+        """Enter context manager for the root node, to build a new decision graph in a seperated context.
+
+        On entering:
+        0. The RootLogicNode itself will be appended to active node stack.
+        1. Then the LGM will be shelved to preserve outer contexts.
+        2. With ``inherit_contexts`` flags, the outer LogicGroup contexts will be inherited.
+        3. After shelfing, a fresh LGM will be provided, with only this RootLogicNode activated.
+
+        Then on exiting, the LGM will be restored to previous state.
+
+        The __enter__ method is not overridden actually, only the internal c hook function.
+
+        Returns:
+            The RootLogicNode instance.
+        """
+
+    def get_breakpoint(self) -> BreakpointNode | None:
+        """Get dangling breakpoint node attached to the root, if any.
+        Returns:
+            BreakpointNode if exists, else None.
         """
 
     def append(self, child: LogicNode, condition: NodeEdgeCondition = NO_DEFAULT) -> None:
@@ -261,7 +286,7 @@ class GetterNestedExpression(ContextLogicExpression):
     def __getitem__(self, key: Any) -> GetterNestedExpression: ...
 
 
-class MathExpressionOperator:
+class MathExpressionOperator(enum.StrEnum):
     """A pseudo-enum class representing mathematical operators for MathExpression."""
 
     add: MathExpressionOperator
@@ -271,9 +296,6 @@ class MathExpressionOperator:
     floordiv: MathExpressionOperator
     pow: MathExpressionOperator
     neg: MathExpressionOperator
-
-    name: str
-    value: str
 
     def to_func(self) -> UNARY_OP_FUNC | BINARY_OP_FUNC: ...
 
@@ -320,7 +342,7 @@ class MathExpression(ContextLogicExpression):
         """
 
 
-class ComparisonExpressionOperator:
+class ComparisonExpressionOperator(enum.StrEnum):
     """A pseudo-enum class representing comparison operators for ComparisonExpression."""
 
     eq: ComparisonExpressionOperator
@@ -330,14 +352,13 @@ class ComparisonExpressionOperator:
     lt: ComparisonExpressionOperator
     le: ComparisonExpressionOperator
 
-    name: str
-    value: str
-    int_enum: int
-
     def to_func(self) -> BINARY_OP_FUNC: ...
 
     @classmethod
     def from_str(cls, op_str: str) -> ComparisonExpressionOperator: ...
+
+    @property
+    def int_enum(self) -> int: ...
 
 
 class ComparisonExpression(ContextLogicExpression):
@@ -371,21 +392,20 @@ class ComparisonExpression(ContextLogicExpression):
         """
 
 
-class LogicalExpressionOperator:
+class LogicalExpressionOperator(enum.StrEnum):
     """Pseudo-enum class representing logical operators for LogicalExpression."""
 
     and_: LogicalExpressionOperator
     or_: LogicalExpressionOperator
     not_: LogicalExpressionOperator
 
-    name: str
-    value: str
-    int_enum: int
-
     def to_func(self) -> UNARY_OP_FUNC | BINARY_OP_FUNC: ...
 
     @classmethod
     def from_str(cls, op_str: str) -> LogicalExpressionOperator: ...
+
+    @property
+    def int_enum(self) -> int: ...
 
 
 class LogicalExpression(ContextLogicExpression):

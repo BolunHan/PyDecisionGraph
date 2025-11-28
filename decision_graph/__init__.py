@@ -1,4 +1,4 @@
-__version__ = "0.2.3.post1"
+__version__ = "0.2.3.post2"
 
 import functools
 import logging
@@ -14,6 +14,9 @@ if not LOGGER.hasHandlers():
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     ch.setFormatter(formatter)
     LOGGER.addHandler(ch)
+
+from . import decision_tree
+from . import logic_group
 
 
 @functools.cache

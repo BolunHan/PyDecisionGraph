@@ -11,7 +11,7 @@ from .c_abc import (
     SkipContextsBlock, LogicExpression, LogicNode,
     LogicGroupManager, LGM, LogicGroup,
     ActionNode, BreakpointNode, PlaceholderNode,
-    NoAction, LongAction, ShortAction
+    NoAction, LongAction, ShortAction, CancelAction
 )
 
 from .c_node import (
@@ -44,7 +44,7 @@ __all__ = [
     'SkipContextsBlock', 'LogicExpression', 'LogicNode',
     'LogicGroupManager', 'LGM', 'LogicGroup',
     'ActionNode', 'BreakpointNode', 'PlaceholderNode',
-    'NoAction', 'LongAction', 'ShortAction',
+    'NoAction', 'LongAction', 'ShortAction', 'CancelAction',
 
     'RootLogicNode', 'ContextLogicExpression',
     'AttrExpression', 'AttrNestedExpression',

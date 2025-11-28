@@ -1,18 +1,21 @@
+import errno
+import pathlib
+import socket
 import threading
 import time
 import webbrowser
-import socket
-import errno
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-from uuid import uuid4
+from typing import Any
 
 from . import LOGGER
-from .. import LogicNode, ActionNode, BreakpointNode, NoAction, LongAction, ShortAction, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
+from .. import LogicNode, ActionNode, BreakpointNode, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
 
 
 class DecisionTreeWebUi(object):
     """Class to manage the Flask web UI for visualizing LogicNode trees."""
+    _builtin_node_type = [
+        'LogicNode', 'RootLogicNode', 'BreakpointNode',
+        'ActionNode', 'NoAction', 'LongAction', 'ShortAction', 'CancelAction'
+    ]
 
     def __init__(self, host: str, port: int, debug: bool):
         """
@@ -29,8 +32,8 @@ class DecisionTreeWebUi(object):
         self.port = port
         self.debug = debug
         self.app = Flask(__name__, template_folder='templates', static_folder='static')
-        self.current_tree_data: Optional[Dict[str, Any]] = None
-        self.current_tree_id: Optional[str] = None
+        self.current_tree_data: dict[str, Any] | None = None
+        self.current_tree_id: str | None = None
         self._setup_routes()
         self._with_eval = False
 
@@ -54,29 +57,21 @@ class DecisionTreeWebUi(object):
     def _convert_node_to_dict(
             self,
             node: LogicNode,
-            visited_nodes: Dict[int, Dict[str, Any]],
-            virtual_parent_links: List[Dict[str, Any]],
-            activated_node_ids: Optional[set] = None
-    ) -> Dict[str, Any]:
+            visited_nodes: dict[str, dict[str, Any]],
+            virtual_parent_links: list[dict[str, Any]],
+            activated_node_ids: set = None
+    ) -> dict[str, Any]:
         """Recursively converts a LogicNode tree into a dictionary format suitable for JSON/D3."""
-        node_id = id(node)
+        node_id = str(node.uid)
         if node_id in visited_nodes:
             return {"id": node_id, "is_reference": True}
 
-        # Determine node type for styling
-        if isinstance(node, BreakpointNode):
-            node_type = "BreakpointNode"
-        elif isinstance(node, ActionNode):
-            if isinstance(node, NoAction):
-                node_type = "NoAction"
-            elif isinstance(node, LongAction):
-                node_type = "LongAction"
-            elif isinstance(node, ShortAction):
-                node_type = "ShortAction"
-            else:
+        node_type = node.__class__.__name__
+        if node_type not in self._builtin_node_type:
+            if isinstance(node, ActionNode):
                 node_type = "ActionNode"
-        else:
-            node_type = "LogicNode"
+            else:
+                node_type = "LogicNode"
 
         # Determine if node is activated (only if activated_node_ids is provided)
         is_activated = activated_node_ids is None or node_id in activated_node_ids
@@ -95,62 +90,51 @@ class DecisionTreeWebUi(object):
         visited_nodes[node_id] = node_obj
 
         # Process children
-        for condition, child_node in node.children.items():
-            if condition == TRUE_CONDITION:
-                condition_type = "true"
-            elif condition == FALSE_CONDITION:
-                condition_type = "false"
-            elif condition == ELSE_CONDITION:
-                condition_type = "else"
-            elif condition == NO_CONDITION:
+        if node_type == 'BreakpointNode':
+            # For BreakpointNode, should not scan its only child, but just add to virtual_parent_links
+            node: BreakpointNode
+            child_node = node.linked_to
+            if child_node is not None:
                 condition_type = "unconditional"
-            else:
-                condition_type = "other"
+                virtual_parent_links.append(
+                    {
+                        "source": node_id,
+                        "target": str(child_node.uid),
+                        "type": "virtual_parent"
+                    }
+                )
+                if child_node.parent is node:
+                    child_dict = self._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
+                    child_with_condition = child_dict.copy()
+                    child_with_condition['condition_to_child'] = "unconditional"
+                    child_with_condition['condition_type'] = condition_type
+                    node_obj["_children"].append(child_with_condition)
+        else:
+            for condition, child_node in node.children.items():
+                if condition == TRUE_CONDITION:
+                    condition_type = "true"
+                elif condition == FALSE_CONDITION:
+                    condition_type = "false"
+                elif condition == ELSE_CONDITION:
+                    condition_type = "else"
+                elif condition == NO_CONDITION:
+                    condition_type = "unconditional"
+                else:
+                    condition_type = "other"
 
-            child_dict = self._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
-            child_with_condition = child_dict.copy()
-            child_with_condition['condition_to_child'] = f'<{str(condition)}>' if condition is not None else "<Unknown>"
-            child_with_condition['condition_type'] = condition_type
-            node_obj["_children"].append(child_with_condition)
-
+                child_dict = self._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
+                child_with_condition = child_dict.copy()
+                child_with_condition['condition_to_child'] = f'<{str(condition)}>' if condition is not None else "<Unknown>"
+                child_with_condition['condition_type'] = condition_type
+                node_obj["_children"].append(child_with_condition)
         return node_obj
 
-    def _find_virtual_parents(self, root_node: LogicNode, target_node_id: int) -> List[LogicNode]:
-        """Finds all BreakpointNodes in the tree that target the given node_id."""
-        # Note: This is a simplified placeholder based on the limitations discussed previously.
-        # A robust implementation requires specific details from the core library.
-        virtual_parents = []
-
-        def scan(node):
-            if isinstance(node, BreakpointNode):
-                virtual_parents.append(node)
-            for child_node in node.children.values():
-                scan(child_node)
-
-        scan(root_node)
-        return [bp for bp in virtual_parents if id(bp) != target_node_id]
-
-    def convert_tree_to_d3_format(self, root_node: LogicNode, activated_node_ids: Optional[set] = None) -> Dict[str, Any]:
+    def convert_tree_to_d3_format(self, root_node: LogicNode, activated_node_ids: set = None) -> dict[str, Any]:
         """Converts the LogicNode tree into a D3 hierarchical format."""
         visited_nodes = {}
         virtual_parent_links = []
 
         root_dict = self._convert_node_to_dict(root_node, visited_nodes, virtual_parent_links, activated_node_ids)
-
-        # Build virtual links (unchanged logic)
-        all_node_ids = set(visited_nodes.keys())
-        for node_id in all_node_ids:
-            node_obj = visited_nodes[node_id]
-            if node_obj["type"] == "BreakpointNode":
-                for target_id in all_node_ids:
-                    if target_id != node_id:
-                        virtual_parent_links.append(
-                            {
-                                "source": node_id,
-                                "target": target_id,
-                                "type": "virtual_parent"
-                            }
-                        )
 
         return {
             "root": root_dict,
@@ -170,7 +154,7 @@ class DecisionTreeWebUi(object):
             activated_node_ids = {id(n) for n in p}
 
         self.current_tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
-        self.current_tree_id = str(uuid4())
+        self.current_tree_id = str(node.uid)
 
         # Choose a port to run on. If the configured port is already in use,
         # auto-find another free port. This behavior is intentionally limited to
@@ -266,7 +250,7 @@ class DecisionTreeWebUi(object):
         has_eval_data = with_eval and has_inactive(tree_data["root"])
 
         # Locate resource directories
-        module_dir = Path(__file__).parent
+        module_dir = pathlib.Path(__file__).parent
         template_dir = module_dir / "templates"
         static_dir = module_dir / "static"
 

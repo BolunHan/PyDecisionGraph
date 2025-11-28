@@ -11,17 +11,17 @@
     --muted-border: #cccccc;
     --link-text: #000000; /* default link label text color */
     --control-bg: #eeeeee; /* highlight control background (light) */
-    --link-bg: rgba(255,255,255,0.9);
-    --link-stroke: rgba(0,0,0,0.6);
+    --link-bg: rgba(255, 255, 255, 0.9);
+    --link-stroke: rgba(0, 0, 0, 0.6);
 }
 
 /* Dark theme overrides */
 .dark-mode {
     /* Softer, less contrasty dark-theme values */
-    --bg: #10232d;         /* slightly lighter than pure near-black */
-    --panel-bg: #122b33;   /* gentle panel background */
+    --bg: #10232d; /* slightly lighter than pure near-black */
+    --panel-bg: #122b33; /* gentle panel background */
     --text-color: #dbeaf2; /* softer off-white for text */
-    --header-bg: #0d2630;  /* header slightly lighter */
+    --header-bg: #0d2630; /* header slightly lighter */
     --header-text: #e6eef6;
     --tabs-bg: #11272f;
     --tab-active-bg: #2b6fa0; /* less saturated active tab */
@@ -29,8 +29,8 @@
     --muted-border: #233b46; /* slightly lighter border */
     --link-text: #ffffff; /* link labels white in dark mode */
     --control-bg: #12272f; /* highlight control background */
-    --link-bg: rgba(0,0,0,0.45); /* slightly less dark label bg */
-    --link-stroke: rgba(255,255,255,0.12);
+    --link-bg: rgba(0, 0, 0, 0.45); /* slightly less dark label bg */
+    --link-stroke: rgba(255, 255, 255, 0.12);
 }
 
 body {
@@ -123,10 +123,15 @@ body {
 }
 
 /* Highlight control sits on the left of controls-bar */
-#highlight-control { margin-right: 12px; }
+#highlight-control {
+    margin-right: 12px;
+}
 
 /* Make the tree container fill remaining vertical space */
-#tree-container { flex: 1; min-width: 0; }
+#tree-container {
+    flex: 1;
+    min-width: 0;
+}
 
 /* Ensure any SVG fills the container area */
 #tree-container > svg {
@@ -155,7 +160,7 @@ body {
 }
 
 .node.ActionNode .node-rect {
-    fill: orange;
+    fill: lightskyblue;
 }
 
 .node.NoAction .node-rect {
@@ -168,6 +173,14 @@ body {
 
 .node.ShortAction .node-rect {
     fill: lightcoral;
+}
+
+.node.CancelAction .node-rect {
+    fill: lightsalmon;
+}
+
+.node.RootLogicNode .node-rect {
+    fill: steelblue;
 }
 
 .node.BreakpointNode .node-rect {
@@ -260,7 +273,12 @@ body {
     color: var(--text-color);
 }
 
-#highlight-control label { cursor: pointer; display:flex; align-items:center; gap:6px; }
+#highlight-control label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 
 #node-info {
     position: fixed;
@@ -337,6 +355,11 @@ body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-butt
 
 /* Slight spacing tweaks for small screens */
 @media (max-width: 800px) {
-    #logic-group-tabs { width: 140px; }
-    #controls-bar { padding: 6px; }
+    #logic-group-tabs {
+        width: 140px;
+    }
+
+    #controls-bar {
+        padding: 6px;
+    }
 }

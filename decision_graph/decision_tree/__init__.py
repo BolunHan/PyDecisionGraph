@@ -10,9 +10,9 @@ USING_CAPI = False
 try:
     # Attempt to import the C API module
     from . import capi
-    from .capi import c_abc as abc
-    from .capi import c_node as node
-    from .capi import c_collection as collection
+    from .capi import c_abc
+    from .capi import c_node
+    from .capi import c_collection
 
     USING_CAPI = True
 except Exception:

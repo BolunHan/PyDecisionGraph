@@ -914,7 +914,7 @@ class LogicNode(LogicExpression):
         return labels
 
     @property
-    def leaves(self) -> Iterator[LogicNode]:
+    def leaves(self):
         if not self.subordinates:
             yield self
         else:
@@ -926,8 +926,15 @@ class LogicNode(LogicExpression):
         return not self.children
 
     @property
-    def child_stack(self) -> Iterator[LogicNode]:
+    def child_stack(self):
         yield from self.subordinates
+
+    @property
+    def descendants(self):
+        for child in self.subordinates:
+            yield child
+            yield from child.descendants
+            frame = frame.prev
 
 
 class BreakpointNode(LogicNode):

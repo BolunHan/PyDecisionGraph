@@ -1,6 +1,6 @@
 import logging
 import uuid
-from collections.abc import Iterable, Callable
+from collections.abc import Iterable, Callable, Generator
 from typing import Any, Never, final
 
 from decision_graph.decision_tree.exc import NO_DEFAULT
@@ -468,7 +468,7 @@ class LogicNode(LogicExpression):
         """
 
     @property
-    def leaves(self) -> Iterable[LogicNode]:
+    def leaves(self) -> Generator[LogicNode]:
         """An iterable of all leaf nodes in the subtree rooted at this node."""
 
     @property
@@ -478,6 +478,11 @@ class LogicNode(LogicExpression):
     @property
     def child_stack(self) -> Iterable[LogicNode]:
         """An iterable of all child nodes in the subtree rooted at this node."""
+
+    @property
+    def descendants(self) -> Generator[LogicNode, None, None]:
+        """A generator yielding all descendant nodes in the subtree rooted at this node."""
+        ...
 
 
 class BreakpointNode(LogicNode):

@@ -1,9 +1,9 @@
 import linecache
 import operator
 import sys
+import traceback
 import uuid
 import warnings
-from typing import Any
 
 from cpython.mem cimport PyMem_Calloc, PyMem_Free
 from cpython.pystate cimport PyThreadState_Get
@@ -1077,7 +1077,14 @@ cdef class LogicNode(LogicExpression):
         else:
             path.append(self)
 
-        cdef object value = self.c_eval(False)
+        cdef object value
+        if LGM.vigilant_mode:
+            try:
+                value = self.c_eval(False)
+            except Exception as e:
+                raise ExpressEvaluationError(f"Failed to evaluate {self}, {traceback.format_exc()}") from e
+        else:
+            value = self.c_eval(False)
 
         if self.is_leaf:
             return value, path
@@ -1282,6 +1289,16 @@ cdef class LogicNode(LogicExpression):
             while frame:
                 child = <LogicNode> <object> frame.logic_node
                 yield child
+                frame = frame.prev
+
+    property descendants:
+        def __get__(self):
+            cdef LogicNodeFrame* frame = self.subordinates.top
+            cdef LogicNode child
+            while frame:
+                child = <LogicNode> <object> frame.logic_node
+                yield child
+                yield from child.descendants
                 frame = frame.prev
 
 

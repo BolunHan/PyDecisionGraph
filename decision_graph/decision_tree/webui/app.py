@@ -126,19 +126,20 @@ class DecisionTreeWebUi(object):
             child_node = node.linked_to
             if child_node is not None:
                 condition_type = "unconditional"
-                virtual_parent_links.append(
-                    {
-                        "source": node_id,
-                        "target": str(child_node.uid),
-                        "type": "virtual_parent"
-                    }
-                )
                 if child_node.parent is node:
                     child_dict = cls._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
                     child_with_condition = child_dict.copy()
                     child_with_condition['condition_to_child'] = "unconditional"
                     child_with_condition['condition_type'] = condition_type
                     node_obj["_children"].append(child_with_condition)
+                else:
+                    virtual_parent_links.append(
+                        {
+                            "source": node_id,
+                            "target": str(child_node.uid),
+                            "type": "virtual_parent"
+                        }
+                    )
         else:
             for condition, child_node in node.children.items():
                 if condition == TRUE_CONDITION:

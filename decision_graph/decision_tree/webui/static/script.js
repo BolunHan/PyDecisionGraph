@@ -308,8 +308,6 @@ function updateTreeLayout(root) {
     if (GLOBAL_HORIZONTAL_SPACING_BASE === null) {
         GLOBAL_HORIZONTAL_SPACING_BASE = Math.max(50, Math.min(400, avgWidth + 40));
         GLOBAL_VERTICAL_SPACING = avgHeight * ROW_VERTICAL_SPACE_FACTOR;
-        console.log('[D3.Tree] GLOBAL_HORIZONTAL_SPACING_BASE:', GLOBAL_HORIZONTAL_SPACING_BASE);
-        console.log('[D3.Tree] GLOBAL_VERTICAL_SPACING:', GLOBAL_VERTICAL_SPACING);
     }
     const treeLayout = d3.tree()
         .nodeSize([GLOBAL_HORIZONTAL_SPACING_BASE, 1])

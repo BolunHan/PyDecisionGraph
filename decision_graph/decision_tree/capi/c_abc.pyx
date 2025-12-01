@@ -1073,11 +1073,11 @@ cdef class LogicNode(LogicExpression):
 
     cdef tuple c_eval_recursively(self, list path=None, object default=NO_DEFAULT):
         if path is None:
-            path = [self]
+            path = []
         else:
             path.append(self)
 
-        value = self.c_eval(False)
+        cdef object value = self.c_eval(False)
 
         if self.is_leaf:
             return value, path
@@ -1213,7 +1213,7 @@ cdef class LogicNode(LogicExpression):
         self.c_append(other, AUTO_CONDITION)
         return other  # Allow chaining
 
-    def __call__(self, default=None) -> Any:
+    def __call__(self, object default=None):
         if default is None:
             default = NoAction(auto_connect=False)
 
@@ -1336,8 +1336,9 @@ cdef class BreakpointNode(LogicNode):
 
     cdef tuple c_eval_recursively(self, list path=None, object default=NO_DEFAULT):
         if path is None:
-            path = []
-        path.append(self)
+            path = [self]
+        else:
+            path.append(self)
 
         if not self.subordinates.size:
             if LGM.vigilant_mode:

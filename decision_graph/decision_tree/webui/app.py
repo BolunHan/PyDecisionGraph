@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import queue
 import socket
@@ -319,6 +320,7 @@ class DecisionTreeWebUi(object):
                 else:
                     activated_node_ids = {str(n.uid) for n in node.eval_recursively()[1]}
             except Exception:
+                LOGGER.error(f"Could not find evaluation path for node {node}", exc_info=True)
                 activated_node_ids = None
         else:
             activated_node_ids = None
@@ -355,4 +357,4 @@ class DecisionTreeWebUi(object):
         with open(file_name, "w", encoding="utf-8") as f:
             f.write(html_output)
 
-        LOGGER.info(f"Offline HTML exported to: {file_name}")
+        LOGGER.info(f'Offline HTML exported to: "{os.path.realpath(file_name)}"')

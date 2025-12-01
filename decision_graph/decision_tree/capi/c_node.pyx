@@ -84,9 +84,9 @@ cdef class RootLogicNode(LogicNode):
                 return leaf
         return None
 
-    def to_html(self, str file_name="root.html", bint with_eval=True):
+    def to_html(self, str file_name=None, bint with_eval=True):
         from ..webui import to_html
-        to_html(self, file_name, with_eval)
+        to_html(self, file_name or f'{self.repr}.html', with_eval)
 
     def show(self, **kwargs):
         from ..webui import show

@@ -34,7 +34,11 @@ def watch(root: RootLogicNode, interval: float = .5, block: bool = False, **kwar
 
 
 def to_html(root: LogicNode, file_name: str, with_eval: bool = True):
-    DecisionTreeWebUi.to_html(root, file_name, with_eval)
+    DecisionTreeWebUi.to_html(
+        node=root,
+        file_name=file_name,
+        with_eval=with_eval
+    )
 
 
 def set_logger(logger: logging.Logger):

@@ -20,7 +20,7 @@ def show(root: LogicNode, with_eval: bool = True, **kwargs):
     )
 
 
-def watch(root: RootLogicNode, interval: float = .5, **kwargs):
+def watch(root: RootLogicNode, interval: float = .5, block: bool = False, **kwargs):
     _app = DecisionTreeWebUi(
         host=kwargs.get('host', "127.0.0.1"),
         port=kwargs.get('port', 5000),
@@ -28,7 +28,8 @@ def watch(root: RootLogicNode, interval: float = .5, **kwargs):
     )
     _app.watch(
         node=root,
-        interval=interval
+        interval=interval,
+        block=block
     )
 
 

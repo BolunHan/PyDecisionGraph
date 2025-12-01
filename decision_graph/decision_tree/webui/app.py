@@ -233,10 +233,11 @@ class DecisionTreeWebUi(object):
         LOGGER.info(f"Starting Flask server on {url} (with_eval={with_eval})")
         self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
 
-    def watch(self, node: RootLogicNode, interval: float = 0.5):
+    def watch(self, node: RootLogicNode, interval: float = 0.5, block: bool = False):
         """
         Starts a watch server that streams activation diffs via SSE.
         Each client connection gets its own worker and queue, so multiple tabs/windows do not interfere.
+        If block is False, runs Flask in a background thread and returns immediately.
         """
         from flask import Response, stream_with_context
         last_activated = set(str(n.uid) for n in node.eval_path)
@@ -284,7 +285,15 @@ class DecisionTreeWebUi(object):
         url = f"http://{self.host}:{port_to_use}"
         self._open_browser(url)
         LOGGER.info(f"Starting SSE watch server on port {port_to_use}")
-        self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+        if block:
+            self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+        else:
+            def run_flask():
+                self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+            flask_thread = threading.Thread(target=run_flask)
+            flask_thread.daemon = True
+            flask_thread.start()
+            return flask_thread
 
     @classmethod
     def to_html(cls, node: LogicNode, file_name: str, with_eval: bool = True):

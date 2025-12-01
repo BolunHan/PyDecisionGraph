@@ -3,17 +3,14 @@ let GLOBAL_TREE_DATA = null;
 let GLOBAL_SELECTED_GROUP = "*";
 let GLOBAL_VIRTUAL_LINK_DEFS = [];
 
-// Animation durations (ms)
-const ANIM_SLOW = 500; // node move animations
-const ANIM_FAST = 120; // link/label fade animations (faster)
+const ANIM_SLOW = 500;
+const ANIM_FAST = 120;
 
 function visualizeTree(treeData) {
     GLOBAL_TREE_DATA = treeData;
     GLOBAL_VIRTUAL_LINK_DEFS = treeData.virtual_links || [];
-    // Apply stored theme early so UI (export/theme button) initializes correctly
     if (typeof initTheme === 'function') initTheme();
 
-    // Extract all unique logic groups from labels
     const allGroups = new Set();
 
     function collectGroups(node) {
@@ -29,7 +26,6 @@ function visualizeTree(treeData) {
 
     const groups = ["*"].concat(Array.from(allGroups).sort());
 
-    // Render tabs
     const tabContainer = d3.select("#logic-group-tabs");
     tabContainer.selectAll("button").remove();
     const tabs = tabContainer.selectAll("button")
@@ -40,7 +36,6 @@ function visualizeTree(treeData) {
         .attr("data-group", String)
         .text(d => d === "*" ? "All" : d)
         .on("click", function (event, group) {
-            // Update active tab
             d3.selectAll(".tab-button").classed("active", false);
             d3.select(this).classed("active", true);
 
@@ -48,13 +43,10 @@ function visualizeTree(treeData) {
             renderFilteredTree();
         });
 
-    // Initial render
     renderFilteredTree();
-    // Add export controls (PNG/SVG) next to logic group tabs
     addExportButtons();
 }
 
-// --- Export utilities -----------------------------------------------
 function getAllCSS() {
     let css = "";
     for (const sheet of document.styleSheets) {
@@ -64,7 +56,6 @@ function getAllCSS() {
                 css += rule.cssText + "\n";
             }
         } catch (e) {
-            // Ignore cross-origin stylesheets
         }
     }
     return css;
@@ -72,9 +63,6 @@ function getAllCSS() {
 
 function serializeSvgWithInlineStyles(svgNode) {
     const clone = svgNode.cloneNode(true);
-    // Prepend a <style> node with collected CSS rules so the exported image
-    // preserves the page styles.
-    // First, inject current computed CSS variables so :root vars are resolved
     const cssVarNames = [
         '--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text',
         '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'
@@ -92,11 +80,9 @@ function serializeSvgWithInlineStyles(svgNode) {
     styleEl.setAttribute('type', 'text/css');
     styleEl.innerHTML = cssText;
     clone.insertBefore(styleEl, clone.firstChild);
-    // Ensure namespace
     if (!clone.getAttribute('xmlns')) {
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     }
-    // Ensure xlink namespace
     if (!clone.getAttribute('xmlns:xlink')) {
         clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
     }
@@ -140,7 +126,6 @@ function exportPNG() {
             canvas.height = Math.round(srcH * scale);
             const ctx = canvas.getContext('2d');
             ctx.setTransform(scale, 0, 0, scale, 0, 0);
-            // Use current theme panel background for exported PNG
             const comp = getComputedStyle(document.documentElement);
             const panelBg = comp.getPropertyValue('--panel-bg') || '#ffffff';
             ctx.fillStyle = panelBg.trim() || '#ffffff';
@@ -166,7 +151,6 @@ function addExportButtons() {
         const wrap = controlsBar.append('div').attr('class', 'right-controls');
         wrap.append('button').attr('id', 'export-png-btn').attr('class', 'tab-button').text('Export PNG').on('click', exportPNG);
         wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'tab-button').text('Export SVG').on('click', exportSVG);
-        // Theme toggle
         wrap.append('button')
             .attr('id', 'theme-toggle-btn')
             .attr('class', 'tab-button')
@@ -179,7 +163,6 @@ function addExportButtons() {
     }
 }
 
-// --- Theme utilities -------------------------------------------------
 function applyTheme(theme) {
     const root = document.documentElement;
     if (theme === 'dark') root.classList.add('dark-mode');
@@ -224,27 +207,17 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
         .filter(Boolean);
 }
 
-// Layout configuration: can be set at runtime to force consistent scales
-// across different trees. If `baseHorizontalSpacing` is set (number of px)
-// it will be used instead of auto-measured node widths.
 const LAYOUT_CONFIG = {
-    // number (px) or null to auto-calculate per-tree
     baseHorizontalSpacing: null,
 };
 
 function setLayoutConfig(cfg) {
     Object.assign(LAYOUT_CONFIG, cfg || {});
-    console.debug('DG DEBUG -- setLayoutConfig', LAYOUT_CONFIG);
 }
 
-// --- Text measurement utility ---------------------------------------
-// Measures rendered text width using an offscreen SVG <text> element so
-// spacing can be accurate. Falls back to a simple char-count heuristic
-// when DOM or SVG measuring isn't available.
 function measureTextWidth(text) {
     try {
         if (typeof document === 'undefined') {
-            // Not running in a browser environment (fallback)
             return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
         }
 
@@ -256,10 +229,9 @@ function measureTextWidth(text) {
             document.body.appendChild(svg);
         }
 
-        // Reuse a single text node for measurement
         if (!svg._dg_text_el) {
             const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            t.setAttribute('class', 'node-text'); // use same class so CSS font applies
+            t.setAttribute('class', 'node-text');
             t.setAttribute('x', 0);
             t.setAttribute('y', 0);
             svg.appendChild(t);
@@ -267,59 +239,43 @@ function measureTextWidth(text) {
         }
 
         const textEl = svg._dg_text_el;
-        // Set the text content and measure
         textEl.textContent = text == null ? '' : String(text);
         const bbox = textEl.getBBox();
-        // Add horizontal padding for node rect
         const pad = 16;
         const w = Math.max(40, Math.round(bbox.width + pad));
         return w;
     } catch (err) {
-        // Measurement may fail in some environments; fall back gracefully
-        try { console.debug('DG DEBUG -- text measure failed, using heuristic', err); } catch (e) { /* ignore */ }
         return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
     }
 }
 
 function applyTreeLayoutWithMinSpacing(root, width, height) {
-    const MIN_ROW_HEIGHT = 200;   // Your existing vertical constraint
+    const MIN_ROW_HEIGHT = 200;
 
-    // --- Step 1: Measure per-node width (pixels) using the DOM/SVG helper
-    // and store on d.data._estWidth so separation can consider real sizes.
     let widths = [];
     root.each(d => {
         const txt = d.data.name || d.data.id || "unnamed";
         const measured = measureTextWidth(txt);
-        // Cap extremely large measured widths to avoid huge gaps
         const est = Math.max(40, Math.min(800, measured));
         d.data._estWidth = est;
         widths.push(est);
     });
 
-    // Compute an average width to use as a base spacing unit, with sensible caps
     const avgWidth = widths.length ? Math.round(widths.reduce((a, b) => a + b, 0) / widths.length) : 80;
     const BASE_HORIZONTAL_SPACING = Math.max(50, Math.min(400, avgWidth + 40));
 
-    // --- Step 2: Create d3.tree with a base nodeSize and a custom separation
-    // function that increases spacing proportionally to node widths. nodeSize
-    // is in pixel units here (we treat layout width as pixels so this remains intuitive).
     const treeLayout = d3.tree()
         .nodeSize([BASE_HORIZONTAL_SPACING, 1])
         .separation((a, b) => {
-            // desired spacing (pixels) between a and b should be roughly the
-            // average of their widths plus padding. separation should return a
-            // multiplier relative to nodeSize[0]. Also give larger gaps when
-            // nodes are from different parents to avoid collisions.
             const wa = (a && a.data && a.data._estWidth) ? a.data._estWidth : avgWidth;
             const wb = (b && b.data && b.data._estWidth) ? b.data._estWidth : avgWidth;
-            const desiredPx = (wa + wb) / 2 + 20; // small padding
+            const desiredPx = (wa + wb) / 2 + 20;
             const factor = desiredPx / BASE_HORIZONTAL_SPACING;
             return (a.parent === b.parent) ? Math.max(0.6, factor) : Math.max(1.2, factor * 1.2);
         });
 
     treeLayout(root);
 
-    // --- Step 3: Preserve your vertical min-spacing logic (unchanged) ---
     if (root.height > 0) {
         const naturalRowHeight = height / root.height;
         if (naturalRowHeight < MIN_ROW_HEIGHT) {
@@ -330,8 +286,6 @@ function applyTreeLayoutWithMinSpacing(root, width, height) {
                 d.y = scaleY(d.depth);
             });
         } else {
-            // If natural spacing is sufficient, use original y from layout (which is depth * 1)
-            // But scale to full height for better use of space
             const scaleY = d3.scaleLinear()
                 .domain([0, root.height])
                 .range([0, height]);
@@ -340,12 +294,9 @@ function applyTreeLayoutWithMinSpacing(root, width, height) {
             });
         }
     } else {
-        // Single node
         root.each(d => d.y = height / 2);
     }
 
-    // --- Step 4: Optional – center the root horizontally if tree is narrow ---
-    // Not required, but improves appearance
     let xMin = Infinity, xMax = -Infinity;
     root.each(d => {
         if (d.x < xMin) xMin = d.x;
@@ -363,7 +314,6 @@ function applyTreeLayoutWithMinSpacing(root, width, height) {
 function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) {
     const nodes = root.descendants();
 
-    // ── NODES ─────────────────────────────────────
     const nodeSelection = g.selectAll("g.node").data(nodes, d => d.data.id);
     const nodeEnter = nodeSelection.enter().append("g")
         .attr("class", d => `node ${d.data.type}`)
@@ -390,10 +340,16 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
     nodeUpdate.each(function (d) {
         const text = d3.select(this).select("text").node();
         if (!text) return;
-        const bbox = text.getBBox();
-        const pad = 8;
-        const w = Math.max(bbox.width + pad, 40);
-        const h = Math.max(bbox.height + pad, 16);
+        let w, h;
+        if (d.depth === 0) {
+            w = 94;
+            h = 32;
+        } else {
+            const bbox = text.getBBox();
+            const pad = 8;
+            w = Math.max(bbox.width + pad, 40);
+            h = Math.max(bbox.height + pad, 16);
+        }
         d3.select(this).select("rect")
             .attr("x", -w / 2)
             .attr("y", -h / 2)
@@ -401,7 +357,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
             .attr("height", h);
     });
 
-    // Apply dimming ONLY if highlight mode is ON
     const highlightToggle = document.getElementById('highlight-toggle');
     const shouldDim = highlightToggle ? highlightToggle.checked : false;
     nodeUpdate.select("rect.node-rect")
@@ -411,14 +366,12 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
         .classed("node-text-inactive", d => shouldDim && d.data.activated === false);
 
     if (animate) {
-        // Start link fades first (ANIM_FAST), then move nodes (ANIM_SLOW) so lines don't lag.
         nodeUpdate.transition().delay(ANIM_FAST).duration(ANIM_SLOW)
             .attr("transform", d => `translate(${d.x},${d.y})`);
     } else {
         nodeUpdate.attr("transform", d => `translate(${d.x},${d.y})`);
     }
 
-    // Node exit
     if (animate) {
         nodeSelection.exit().transition().delay(ANIM_FAST).duration(ANIM_SLOW)
             .attr("transform", d => {
@@ -431,7 +384,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
         nodeSelection.exit().remove();
     }
 
-    // ── LINKS ─────────────────────────────────────
     const parentChildLinks = [];
     root.each(d => {
         if (d.children) {
@@ -488,7 +440,6 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
         linkSelection.exit().remove();
     }
 
-    // ── CONDITION LABELS ──────────────────────────
     const labelSelection = g.selectAll("g.link-condition-group").data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
     const labelEnter = labelSelection.enter().append("g")
         .attr("class", d => `link-condition-group ${d.condition_type || "default"}`)
@@ -556,17 +507,14 @@ function toggleChildren(event, d) {
         d.children = d._children;
         d._children = null;
     } else {
-        return; // leaf node, nothing to toggle
+        return;
     }
 
-    // Update visualization in-place without animation so the tree stays stable
     const container = d3.select("#tree-container");
     const g = container.select("svg").select("g.dg-viewport").select("g.dg-content");
     const nodeMap = new Map();
     GLOBAL_TREE_ROOT.each(n => nodeMap.set(n.data.id, n));
-    // Use the stored virtual link defs if available
     const virtualLinkDefs = GLOBAL_VIRTUAL_LINK_DEFS || [];
-    // Animate expand/collapse so node toggle is smooth for the user
     updateVisualization(GLOBAL_TREE_ROOT, g, virtualLinkDefs, nodeMap, true);
 }
 
@@ -579,7 +527,6 @@ function showNodeInfo(event, d) {
     d3.select("#info-labels").text(Array.isArray(info.labels) ? info.labels.join(", ") : String(info.labels || "N/A"));
     d3.select("#info-autogen").text(String(info.autogen || "N/A"));
 
-    // Expression: fall back to name or condition if available
     let expr = "N/A";
     if (info.expression !== undefined) {
         expr = info.expression;
@@ -588,7 +535,6 @@ function showNodeInfo(event, d) {
     }
     d3.select("#info-expr").text(expr);
 
-    // Show panel
     const panel = d3.select("#node-info");
     panel.style("display", "block");
     const mouseX = event.pageX;
@@ -608,14 +554,13 @@ function hideNodeInfo() {
 
 function renderFilteredTree() {
     const container = d3.select("#tree-container");
-    container.select("svg").remove(); // Clear previous tree
+    container.select("svg").remove();
 
     if (!GLOBAL_TREE_DATA) return;
 
     const group = GLOBAL_SELECTED_GROUP;
     const treeData = GLOBAL_TREE_DATA;
 
-    // Clone and filter tree
     function shouldInclude(node) {
         if (group === "*") return true;
         return node.labels && Array.isArray(node.labels) && node.labels.includes(group);
@@ -628,11 +573,11 @@ function renderFilteredTree() {
         if (node._children && node._children.length > 0) {
             const filteredChildren = node._children
                 .map(child => cloneAndFilter(child, include || shouldInclude(child)))
-                .filter(Boolean); // Remove nulls
+                .filter(Boolean);
 
             if (filteredChildren.length > 0) {
                 copy._children = filteredChildren;
-                copy.children = copy._children; // expanded by default
+                copy.children = copy._children;
             } else {
                 copy._children = [];
                 copy.children = null;
@@ -642,7 +587,6 @@ function renderFilteredTree() {
             copy.children = null;
         }
 
-        // Only return node if it or any descendant is included
         return include || (copy.children && copy.children.length > 0) ? copy : null;
     }
 
@@ -652,19 +596,11 @@ function renderFilteredTree() {
         return;
     }
 
-    // Proceed with layout and render (same as before)
-    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    const margin = {top: 0, right: 0, bottom: 0, left: 0};
     const containerWidth = container.node().clientWidth;
     const containerHeight = container.node().clientHeight;
 
-    const layoutWidth = Math.max(containerWidth, 600);
-    const layoutHeight = Math.max(containerHeight, 400);
-
     const svg = container.append("svg");
-    // Create a viewport group that will be transformed by zoom/pan, and a
-    // nested content group where the tree elements live. Keeping the initial
-    // translate on the content group means zooming the viewport won't clobber
-    // the margin translation.
     const viewport = svg.append("g").attr("class", "dg-viewport");
     const g = viewport.append("g").attr("class", "dg-content");
 
@@ -673,7 +609,7 @@ function renderFilteredTree() {
 
     const nodeMap = buildNodeMap(root);
 
-    applyTreeLayoutWithMinSpacing(root, layoutWidth, layoutHeight);
+    applyTreeLayoutWithMinSpacing(root, containerWidth, containerHeight);
 
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     root.each(d => {
@@ -683,73 +619,36 @@ function renderFilteredTree() {
         if (d.y > yMax) yMax = d.y;
     });
 
-    const padding = 40;
+    const padding = 0;
     const treeWidth = xMax - xMin + 2 * padding;
     const treeHeight = yMax - yMin + 2 * padding;
 
-    // Full canvas size includes margins
     const fullWidth = treeWidth + margin.left + margin.right;
     const fullHeight = treeHeight + margin.top + margin.bottom;
 
-    // Configure the SVG viewBox and preserveAspectRatio. We'll use d3.zoom to
-    // fit the tree into the container and allow pan/zoom rather than native scrollbars.
     svg.attr("viewBox", `0 0 ${fullWidth} ${fullHeight}`)
         .attr("preserveAspectRatio", "xMinYMin meet")
         .style("width", "100%")
         .style("height", "100%");
 
-    // Attach zoom/pan behavior to the svg. The zoom modifies the viewport
-    // group's transform, so the internal content translate is preserved.
-    // We disable an upper limit on zoom to support very large trees.
     const zoom = d3.zoom()
-        .scaleExtent([0.01, Number.POSITIVE_INFINITY]) // min zoom, no max cap
+        .scaleExtent([0.0, Number.POSITIVE_INFINITY])
         .on("zoom", (event) => {
             viewport.attr("transform", event.transform);
         });
 
     svg.call(zoom);
 
-    // Auto-fit the tree content into the container while preserving aspect
-    // ratio. Compute a scale that fits both width and height, cap at 1 (no upscaling).
-    // Center the content within the container by applying a translate.
     const cw = container.node() ? container.node().clientWidth : null;
     const ch = container.node() ? container.node().clientHeight : null;
     if (cw && ch && fullWidth > 0 && fullHeight > 0) {
-        // Debug information to help diagnose placement and transforms
-        try {
-            console.debug('DG DEBUG -- container size', {cw, ch});
-            console.debug('DG DEBUG -- full canvas', {cw, ch, fullWidth, fullHeight, margin, padding, treeWidth, treeHeight});
-            console.debug('DG DEBUG -- x-range', {xMin, xMax});
-            console.debug('DG DEBUG -- y-range', {yMin, yMax});
-            // root is a d3.hierarchy node representing the root of this filtered tree
-            const rootNode = root; // alias
-            if (rootNode) {
-                console.debug('DG DEBUG -- root coords', {root_x: rootNode.x, root_y: rootNode.y});
-            }
-        } catch (err) {
-            // Fail-safe: don't break rendering if console access is restricted
-            try { console.warn('DG DEBUG logging error', err); } catch (e) { /* ignore */ }
-        }
-        // Place the root node in the horizontal center and at 1/5 of the
-        // container height vertically. Keep the initial zoom scale = 1.
-        // Calculate tx,ty so that: screenX = root.x * scale + tx => centered
-        const scale = fullHeight / ch; // keep initial scale at 1 for predictability
+        const scale = fullHeight / ch;
         const rootX = typeof root.x === 'number' ? root.x : 0;
         const rootY = typeof root.y === 'number' ? root.y : 0;
         const tx = (fullWidth / 2) - (rootX * scale);
-        const ty = ((fullHeight * 0.1) - (rootY * scale)) / (cw / treeWidth);
-        // Log computed transform values
-        console.debug('DG DEBUG -- computed transform', {scale, rootX, rootY, tx, ty});
+        const ty = ((fullHeight * 0.1) - (rootY * scale)) / Math.max(cw / treeWidth, ch / treeHeight);
         const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
-        // Apply immediately (no transition) so the tree appears in place on load
         svg.call(zoom.transform, initialTransform);
-        // Confirm applied transform (read back transform of viewport if possible)
-        try {
-            const applied = d3.zoomTransform(svg.node());
-            console.debug('DG DEBUG -- applied zoom transform', applied);
-        } catch (err) {
-            // ignore if access fails
-        }
     }
 
     root.each(d => {
@@ -757,7 +656,6 @@ function renderFilteredTree() {
         d.y0 = d.y;
     });
 
-    // Initial render: do not animate layout transitions on load/reload
     updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap, false);
 }
 
@@ -765,13 +663,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggle = document.getElementById('highlight-toggle');
     if (toggle) {
         toggle.addEventListener('change', function () {
-            // Re-render tree on toggle
             if (typeof renderFilteredTree === 'function') {
                 renderFilteredTree();
             }
         });
     }
 
-    // Initialize theme from storage
     initTheme();
 });

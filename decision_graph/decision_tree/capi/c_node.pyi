@@ -102,6 +102,20 @@ class RootLogicNode(LogicNode):
         This method generates an interactive visualization of the decision
         tree structure starting from this root node. Additional keyword
         arguments are passed to the underlying rendering flask engine.
+
+        Arguments:
+            **kwargs: keyword arguments passed into ``decision_graph.decision_tree.webui.show`` method.
+        """
+
+    def watch(self, **kwargs):
+        """Continuously monitor and update the decision tree visualization in a web page.
+
+        This method sets up a live monitoring session where the decision
+        tree structure and evaluation results are periodically refreshed
+        and displayed in an interactive web page.
+
+        Arguments:
+            **kwargs: keyword arguments passed into ``decision_graph.decision_tree.webui.watch`` method.
         """
 
     @property

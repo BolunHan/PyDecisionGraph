@@ -77,6 +77,10 @@ class RootLogicNode(LogicNode):
         from ..webui import show
         show(self, **kwargs)
 
+    def watch(self, **kwargs):
+        from ..webui import watch
+        watch(self, **kwargs)
+
     @property
     def child(self) -> LogicNode:
         if self.subordinates:

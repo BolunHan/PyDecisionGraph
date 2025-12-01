@@ -83,8 +83,9 @@ class DecisionTreeWebUi(object):
                     LOGGER.error("Error getting active nodes", exc_info=True)
             return jsonify({'active_ids': []})
 
+    @classmethod
     def _convert_node_to_dict(
-            self,
+            cls,
             node: LogicNode,
             visited_nodes: dict[str, dict[str, Any]],
             virtual_parent_links: list[dict[str, Any]],
@@ -96,7 +97,7 @@ class DecisionTreeWebUi(object):
             return {"id": node_id, "is_reference": True}
 
         node_type = node.__class__.__name__
-        if node_type not in self._builtin_node_type:
+        if node_type not in cls._builtin_node_type:
             if isinstance(node, ActionNode):
                 node_type = "ActionNode"
             else:
@@ -105,7 +106,7 @@ class DecisionTreeWebUi(object):
         # Determine if node is activated (only if activated_node_ids is provided)
         is_activated = activated_node_ids is None or node_id in activated_node_ids
 
-        node_obj = {
+        node_obj: dict[str, Any] = {
             "id": node_id,
             "name": node.repr,
             "repr": repr(node),
@@ -133,7 +134,7 @@ class DecisionTreeWebUi(object):
                     }
                 )
                 if child_node.parent is node:
-                    child_dict = self._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
+                    child_dict = cls._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
                     child_with_condition = child_dict.copy()
                     child_with_condition['condition_to_child'] = "unconditional"
                     child_with_condition['condition_type'] = condition_type
@@ -151,19 +152,20 @@ class DecisionTreeWebUi(object):
                 else:
                     condition_type = "other"
 
-                child_dict = self._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
+                child_dict = cls._convert_node_to_dict(child_node, visited_nodes, virtual_parent_links, activated_node_ids)
                 child_with_condition = child_dict.copy()
                 child_with_condition['condition_to_child'] = f'<{str(condition)}>' if condition is not None else "<Unknown>"
                 child_with_condition['condition_type'] = condition_type
                 node_obj["_children"].append(child_with_condition)
         return node_obj
 
-    def _convert_tree_to_d3_format(self, root_node: LogicNode, activated_node_ids: set = None) -> dict[str, Any]:
+    @classmethod
+    def _convert_tree_to_d3_format(cls, root_node: LogicNode, activated_node_ids: set = None) -> dict[str, Any]:
         """Converts the LogicNode tree into a D3 hierarchical format."""
         visited_nodes = {}
         virtual_parent_links = []
 
-        root_dict = self._convert_node_to_dict(root_node, visited_nodes, virtual_parent_links, activated_node_ids)
+        root_dict = cls._convert_node_to_dict(root_node, visited_nodes, virtual_parent_links, activated_node_ids)
 
         return {
             "root": root_dict,
@@ -210,7 +212,7 @@ class DecisionTreeWebUi(object):
         browser_thread.daemon = True
         browser_thread.start()
 
-    def show(self, node: LogicNode, with_eval: bool = True, **kwargs):
+    def show(self, node: LogicNode, with_eval: bool = True):
         """Starts the Flask web UI to visualize a LogicNode tree."""
         if not isinstance(node, LogicNode):
             raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
@@ -284,7 +286,8 @@ class DecisionTreeWebUi(object):
         LOGGER.info(f"Starting SSE watch server on port {port_to_use}")
         self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
 
-    def to_html(self, node: LogicNode, file_name: str, with_eval: bool = True):
+    @classmethod
+    def to_html(cls, node: LogicNode, file_name: str, with_eval: bool = True):
         """
         Exports a LogicNode tree as a self-contained offline HTML file.
 
@@ -304,7 +307,7 @@ class DecisionTreeWebUi(object):
             v, p = node.eval_recursively()
             activated_node_ids = {str(n.uid) for n in p}
 
-        tree_data = self._convert_tree_to_d3_format(node, activated_node_ids)
+        tree_data = cls._convert_tree_to_d3_format(node, activated_node_ids)
 
         # Determine if evaluation data is present (for toggle visibility)
         def has_inactive(node_dict):

@@ -207,14 +207,6 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
         .filter(Boolean);
 }
 
-const LAYOUT_CONFIG = {
-    baseHorizontalSpacing: null,
-};
-
-function setLayoutConfig(cfg) {
-    Object.assign(LAYOUT_CONFIG, cfg || {});
-}
-
 function measureTextWidth(text) {
     try {
         if (typeof document === 'undefined') {
@@ -242,8 +234,7 @@ function measureTextWidth(text) {
         textEl.textContent = text == null ? '' : String(text);
         const bbox = textEl.getBBox();
         const pad = 16;
-        const w = Math.max(40, Math.round(bbox.width + pad));
-        return w;
+        return Math.max(40, Math.round(bbox.width + pad));
     } catch (err) {
         return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
     }
@@ -659,13 +650,51 @@ function renderFilteredTree() {
     updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap, false);
 }
 
+function updateHighlightClasses() {
+    const highlightToggle = document.getElementById('highlight-toggle');
+    const shouldDim = highlightToggle ? highlightToggle.checked : false;
+    d3.selectAll('rect.node-rect')
+        .classed('node-rect-inactive', function() {
+            const d = d3.select(this.parentNode).datum();
+            if (!d || !d.data) return false;
+            return shouldDim && d.data.activated === false;
+        });
+    d3.selectAll('text.node-text')
+        .classed('node-text-inactive', function() {
+            const d = d3.select(this.parentNode).datum();
+            if (!d || !d.data) return false;
+            return shouldDim && d.data.activated === false;
+        });
+    d3.selectAll('path.link')
+        .classed('link-inactive', function() {
+            const d = d3.select(this).datum();
+            if (!d) return false;
+            return shouldDim && d.activated === false;
+        })
+        .classed('link-active', function() {
+            const d = d3.select(this).datum();
+            if (!d) return false;
+            return shouldDim && d.activated !== false;
+        });
+    d3.selectAll('rect.link-condition-bg')
+        .classed('link-condition-bg-inactive', function() {
+            const d = d3.select(this.parentNode).datum();
+            if (!d) return false;
+            return shouldDim && d.activated === false;
+        });
+    d3.selectAll('text.link-condition')
+        .classed('link-condition-text-inactive', function() {
+            const d = d3.select(this.parentNode).datum();
+            if (!d) return false;
+            return shouldDim && d.activated === false;
+        });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const toggle = document.getElementById('highlight-toggle');
     if (toggle) {
         toggle.addEventListener('change', function () {
-            if (typeof renderFilteredTree === 'function') {
-                renderFilteredTree();
-            }
+            updateHighlightClasses();
         });
     }
 

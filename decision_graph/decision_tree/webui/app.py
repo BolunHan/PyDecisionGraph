@@ -151,7 +151,7 @@ class DecisionTreeWebUi(object):
         activated_node_ids = None
         if with_eval:
             v, p = node.eval_recursively()
-            activated_node_ids = {id(n) for n in p}
+            activated_node_ids = {str(n.uid) for n in p}
 
         self.current_tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
         self.current_tree_id = str(node.uid)
@@ -237,7 +237,7 @@ class DecisionTreeWebUi(object):
         activated_node_ids = None
         if with_eval:
             v, p = node.eval_recursively()
-            activated_node_ids = {id(n) for n in p}
+            activated_node_ids = {str(n.uid) for n in p}
 
         tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
 

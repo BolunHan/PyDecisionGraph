@@ -252,7 +252,6 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
 }
 
 function measureNodeBBox(nodeData) {
-
     let svg = document.getElementById('dg-measure-svg');
     if (!svg) {
         svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -260,48 +259,33 @@ function measureNodeBBox(nodeData) {
         svg.setAttribute('style', 'position:absolute; left:-9999px; top:-9999px; width:0; height:0; overflow:visible;');
         document.body.appendChild(svg);
     }
-
     if (svg._dg_node_group) {
         svg.removeChild(svg._dg_node_group);
         svg._dg_node_group = null;
     }
-
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('class', `node ${nodeData.type || ''}`);
-
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.setAttribute('class', 'node-rect');
     rect.setAttribute('rx', 6);
     rect.setAttribute('ry', 6);
-
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('class', 'node-text');
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dy', '0.35em');
     text.textContent = nodeData.name || nodeData.id || 'unnamed';
-
     g.appendChild(text);
     svg.appendChild(g);
-
     const textBBox = text.getBBox();
-    let w, h;
-    if (nodeData.depth === 0) {
-        w = 94;
-        h = 32;
-    } else {
-        const pad = 8;
-        w = Math.max(textBBox.width + pad, 40);
-        h = Math.max(textBBox.height + pad, 16);
-    }
+    const pad = 8;
+    const w = Math.max(textBBox.width + pad, 40);
+    const h = Math.max(textBBox.height + pad, 16);
     rect.setAttribute('x', -w / 2);
     rect.setAttribute('y', -h / 2);
     rect.setAttribute('width', w);
     rect.setAttribute('height', h);
-
     g.insertBefore(rect, text);
-
     const groupBBox = g.getBBox();
-
     svg.removeChild(g);
     svg._dg_node_group = null;
     return {width: groupBBox.width, height: groupBBox.height};
@@ -373,15 +357,10 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
         const text = d3.select(this).select("text").node();
         if (!text) return;
         let w, h;
-        if (d.depth === 0) {
-            w = 94;
-            h = 32;
-        } else {
-            const bbox = text.getBBox();
-            const pad = 8;
-            w = Math.max(bbox.width + pad, 40);
-            h = Math.max(bbox.height + pad, 16);
-        }
+        const bbox = text.getBBox();
+        const pad = 8;
+        w = Math.max(bbox.width + pad, 40);
+        h = Math.max(bbox.height + pad, 16);
         d3.select(this).select("rect")
             .attr("x", -w / 2)
             .attr("y", -h / 2)

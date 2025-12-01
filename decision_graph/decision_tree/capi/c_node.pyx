@@ -1,11 +1,11 @@
 import operator
-from typing import Protocol
+import traceback
 
 from cpython.mem cimport PyMem_Free
 
-from .c_abc cimport LogicNodeFrame, LogicGroupStack, PlaceholderNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
+from .c_abc cimport LogicNodeFrame, LogicGroupStack, PlaceholderNode, ActionNode, LGM, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition
 from .c_collection cimport LogicMapping, LogicSequence
-from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
+from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound, ExpressEvaluationError
 
 
 cdef class RootLogicNode(LogicNode):
@@ -77,6 +77,16 @@ cdef class RootLogicNode(LogicNode):
             v, p = self.c_eval_recursively(path, default)
             self.eval_path.extend(p)
         return v, p
+
+    def dry_run(self, bint enforce_dtype=False):
+        cdef LogicNode child
+        for child in self.descendants:
+            if isinstance(child, ActionNode):
+                continue
+            try:
+                child.c_eval(enforce_dtype)
+            except Exception as e:
+                raise ExpressEvaluationError(f"Failed to evaluate {self}, {traceback.format_exc()}") from e
 
     cpdef BreakpointNode get_breakpoint(self):
         for leaf in self.leaves:

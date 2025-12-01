@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import enum
 import operator
-from typing import Any, Callable
+import traceback
+from collections.abc import Callable
+from typing import Any
 
-from .abc import LGM, LogicNode, LogicGroup, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition, PlaceholderNode, BreakpointNode
+from .abc import LGM, LogicNode, LogicGroup, NO_CONDITION, AUTO_CONDITION, NodeEdgeCondition, PlaceholderNode, BreakpointNode, ActionNode
 from .collection import LogicMapping
-from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound
+from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound, ExpressEvaluationError
 
 UNARY_OP_FUNC = Callable[[Any], Any]
 BINARY_OP_FUNC = Callable[[Any, Any], Any]
@@ -62,6 +64,15 @@ class RootLogicNode(LogicNode):
             # accumulate path into the root's cached eval_path
             self.eval_path.extend(p)
         return v, p
+
+    def dry_run(self, enforce_dtype: bool = False):
+        for child in self.descendants:
+            if isinstance(child, ActionNode):
+                continue
+            try:
+                child._eval(enforce_dtype)
+            except Exception as e:
+                raise ExpressEvaluationError(f"Failed to evaluate {self}, {traceback.format_exc()}") from e
 
     def get_breakpoint(self) -> BreakpointNode | None:
         for leaf in self.leaves:

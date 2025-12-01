@@ -66,6 +66,17 @@ class RootLogicNode(LogicNode):
             The RootLogicNode instance.
         """
 
+    def dry_run(self) -> None:
+        """Perform a dry run evaluation of the decision tree without executing actions.
+
+        This method traverses the decision tree starting from the root node,
+        evaluating conditions and logging the evaluation path without
+        executing any actions associated with the nodes.
+
+        Raises:
+            ExpressEvaluationError: If an error occurs during evaluation.
+        """
+
     def get_breakpoint(self) -> BreakpointNode | None:
         """Get dangling breakpoint node attached to the root, if any.
         Returns:

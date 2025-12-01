@@ -1,3 +1,5 @@
+import time
+
 from decision_graph.decision_tree import RootLogicNode, LogicMapping, NoAction, LongAction, ShortAction, LGM
 
 
@@ -69,7 +71,16 @@ def build_dummy():
 
 
 def main():
-    state = {
+    state_long_action = {
+        "exposure": 0,
+        "working_order": 0,
+        "up_prob": 0.8,
+        "down_prob": 0.2,
+        "volatility": 0.26,
+        "ttl": 15.3
+    }
+
+    state_no_action = {
         "exposure": 0,
         "working_order": 0,
         "up_prob": 0.8,
@@ -78,11 +89,30 @@ def main():
         "ttl": 15.3
     }
 
+    state = {}
+    state.update(state_long_action)
     root = build(state)
     # root = build_dummy()
-    from decision_graph.decision_tree.webui import show, to_html
     root.to_html()
-    show(root, with_eval=True)
+    # root.show()
+    root.watch(block=False)
+
+    def worker():
+        while True:
+            t = time.time() // 1.
+            if t % 2 == 0:
+                state.update(state_long_action)
+            else:
+                state.update(state_no_action)
+            print(f'[timer] Updated state: {state}')
+            root()
+            for i, _ in enumerate(root.eval_path):
+                print(i, _)
+            time.sleep(3)
+
+    import threading
+    timer = threading.Thread(target=worker)
+    timer.start()
 
 
 if __name__ == '__main__':

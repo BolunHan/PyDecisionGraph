@@ -2,6 +2,7 @@ let GLOBAL_TREE_ROOT = null;
 let GLOBAL_TREE_DATA = null;
 let GLOBAL_SELECTED_GROUP = "*";
 let GLOBAL_VIRTUAL_LINK_DEFS = [];
+let LAST_ACTIVE_IDS = [];
 
 const ANIM_SLOW = 500;
 const ANIM_FAST = 120;
@@ -63,10 +64,7 @@ function getAllCSS() {
 
 function serializeSvgWithInlineStyles(svgNode) {
     const clone = svgNode.cloneNode(true);
-    const cssVarNames = [
-        '--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text',
-        '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'
-    ];
+    const cssVarNames = ['--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text', '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'];
     const comp = getComputedStyle(document.documentElement);
     let varCss = ':root {';
     cssVarNames.forEach(name => {
@@ -82,9 +80,6 @@ function serializeSvgWithInlineStyles(svgNode) {
     clone.insertBefore(styleEl, clone.firstChild);
     if (!clone.getAttribute('xmlns')) {
         clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    }
-    if (!clone.getAttribute('xmlns:xlink')) {
-        clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
     }
     return new XMLSerializer().serializeToString(clone);
 }
@@ -165,8 +160,7 @@ function addExportButtons() {
 
 function applyTheme(theme) {
     const root = document.documentElement;
-    if (theme === 'dark') root.classList.add('dark-mode');
-    else root.classList.remove('dark-mode');
+    if (theme === 'dark') root.classList.add('dark-mode'); else root.classList.remove('dark-mode');
 }
 
 function getCurrentTheme() {
@@ -197,11 +191,7 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
             const src = nodeMap.get(link.source);
             const tgt = nodeMap.get(link.target);
             return src && tgt ? {
-                source: src,
-                target: tgt,
-                condition: "virtual",
-                condition_type: "virtual",
-                type: link.type
+                source: src, target: tgt, condition: "virtual", condition_type: "virtual", type: link.type
             } : null;
         })
         .filter(Boolean);
@@ -308,6 +298,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
     const nodeSelection = g.selectAll("g.node").data(nodes, d => d.data.id);
     const nodeEnter = nodeSelection.enter().append("g")
         .attr("class", d => `node ${d.data.type}`)
+        .attr("data-id", d => d.data.id)
         .attr("transform", d => `translate(${d.x0},${d.y0})`)
         .on("click", toggleChildren)
         .on("mouseover", showNodeInfo)
@@ -381,11 +372,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
             d.children.forEach(child => {
                 const isLinkActivated = (d.data.activated !== false) && (child.data.activated !== false);
                 parentChildLinks.push({
-                    source: d,
-                    target: child,
-                    condition: child.data.condition_to_child || "",
-                    condition_type: child.data.condition_type || "default",
-                    activated: isLinkActivated
+                    source: d, target: child, condition: child.data.condition_to_child || "", condition_type: child.data.condition_type || "default", activated: isLinkActivated
                 });
             });
         }
@@ -395,8 +382,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
         const srcActivated = link.source.data.activated !== false;
         const tgtActivated = link.target.data.activated !== false;
         return {
-            ...link,
-            activated: srcActivated && tgtActivated
+            ...link, activated: srcActivated && tgtActivated
         };
     });
 
@@ -434,6 +420,7 @@ function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) 
     const labelSelection = g.selectAll("g.link-condition-group").data(allLinks, d => `${d.source.data.id}-${d.target.data.id}`);
     const labelEnter = labelSelection.enter().append("g")
         .attr("class", d => `link-condition-group ${d.condition_type || "default"}`)
+        .attr("data-link", d => `${d.source.data.id}-${d.target.data.id}`)
         .style("opacity", 0);
 
     labelEnter.append("rect")
@@ -650,47 +637,184 @@ function renderFilteredTree() {
     updateVisualization(root, g, GLOBAL_VIRTUAL_LINK_DEFS, nodeMap, false);
 }
 
+function applyActivationDiff(diff) {
+    diff.added.forEach(function (id) {
+        let rectSel = d3.select(`g.node[data-id='${id}'] rect.node-rect`);
+        let textSel = d3.select(`g.node[data-id='${id}'] text.node-text`);
+        if (!rectSel.empty()) {
+            rectSel.classed('node-rect-inactive', false);
+        }
+        if (!textSel.empty()) {
+            textSel.classed('node-text-inactive', false);
+        }
+    });
+    diff.removed.forEach(function (id) {
+        let rectSel = d3.select(`g.node[data-id='${id}'] rect.node-rect`);
+        let textSel = d3.select(`g.node[data-id='${id}'] text.node-text`);
+        if (!rectSel.empty()) {
+            rectSel.classed('node-rect-inactive', true);
+        }
+        if (!textSel.empty()) {
+            textSel.classed('node-text-inactive', true);
+        }
+    });
+
+    d3.selectAll('path.link').each(function (d) {
+        if (!d || !d.source || !d.target) return;
+        let srcRect = d3.select(`g.node[data-id='${d.source.data.id}'] rect.node-rect`);
+        let tgtRect = d3.select(`g.node[data-id='${d.target.data.id}'] rect.node-rect`);
+        const srcActive = !srcRect.empty() && !srcRect.classed('node-rect-inactive');
+        const tgtActive = !tgtRect.empty() && !tgtRect.classed('node-rect-inactive');
+        const linkActive = srcActive && tgtActive;
+        d3.select(this).classed('link-inactive', !linkActive);
+        d3.select(this).classed('link-active', linkActive);
+
+        let labelGroup = d3.select(`g.link-condition-group[data-link='${d.source.data.id}-${d.target.data.id}']`);
+        let labelBg = labelGroup.select('rect.link-condition-bg');
+        let labelText = labelGroup.select('text.link-condition');
+        if (!labelBg.empty()) {
+            labelBg.classed('link-condition-bg-inactive', !linkActive);
+        }
+        if (!labelText.empty()) {
+            labelText.classed('link-condition-text-inactive', !linkActive);
+        }
+    });
+}
+
 function updateHighlightClasses() {
     const highlightToggle = document.getElementById('highlight-toggle');
     const shouldDim = highlightToggle ? highlightToggle.checked : false;
     d3.selectAll('rect.node-rect')
-        .classed('node-rect-inactive', function() {
+        .classed('node-rect-inactive', function () {
             const d = d3.select(this.parentNode).datum();
             if (!d || !d.data) return false;
             return shouldDim && d.data.activated === false;
         });
     d3.selectAll('text.node-text')
-        .classed('node-text-inactive', function() {
+        .classed('node-text-inactive', function () {
             const d = d3.select(this.parentNode).datum();
             if (!d || !d.data) return false;
             return shouldDim && d.data.activated === false;
         });
     d3.selectAll('path.link')
-        .classed('link-inactive', function() {
+        .classed('link-inactive', function () {
             const d = d3.select(this).datum();
             if (!d) return false;
             return shouldDim && d.activated === false;
         })
-        .classed('link-active', function() {
+        .classed('link-active', function () {
             const d = d3.select(this).datum();
             if (!d) return false;
             return shouldDim && d.activated !== false;
         });
     d3.selectAll('rect.link-condition-bg')
-        .classed('link-condition-bg-inactive', function() {
+        .classed('link-condition-bg-inactive', function () {
             const d = d3.select(this.parentNode).datum();
             if (!d) return false;
             return shouldDim && d.activated === false;
         });
     d3.selectAll('text.link-condition')
-        .classed('link-condition-text-inactive', function() {
+        .classed('link-condition-text-inactive', function () {
             const d = d3.select(this.parentNode).datum();
             if (!d) return false;
             return shouldDim && d.activated === false;
         });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function pollActiveNodes() {
+    const highlightToggle = document.getElementById('highlight-toggle');
+    const watchToggle = document.getElementById('watch-toggle');
+    if ((highlightToggle && !highlightToggle.checked) || (watchToggle && !watchToggle.checked)) {
+
+        return;
+    }
+    fetch('/api/active_nodes')
+        .then(response => response.json())
+        .then(data => {
+            if (!data || !Array.isArray(data.active_ids)) return;
+            const newActive = data.active_ids;
+            const added = newActive.filter(id => !LAST_ACTIVE_IDS.includes(id));
+            const removed = LAST_ACTIVE_IDS.filter(id => !newActive.includes(id));
+            if (added.length > 0 || removed.length > 0) {
+                applyActivationDiff({added, removed});
+            }
+            LAST_ACTIVE_IDS = newActive;
+        })
+        .catch(err => {
+            console.warn('Failed to fetch active nodes:', err);
+        });
+}
+
+if (typeof window.with_watch !== 'undefined' && window.with_watch) {
+    document.addEventListener('DOMContentLoaded', function () {
+        var controlsBar = document.getElementById('controls-bar');
+        if (controlsBar && !document.getElementById('watch-control')) {
+            var div = document.createElement('div');
+            div.id = 'watch-control';
+            div.innerHTML = `<label>
+                <span>Watch Active Path</span>
+                <input type="checkbox" id="watch-toggle" checked>
+                <span class="watch-switch-slider"></span>
+            </label>`;
+            controlsBar.prepend(div);
+        }
+    });
+
+    setInterval(pollActiveNodes, 500);
+}
+
+if (typeof window.with_eval !== 'undefined' && window.with_eval) {
+    document.addEventListener('DOMContentLoaded', function () {
+        var controlsBar = document.getElementById('controls-bar');
+        if (controlsBar && !document.getElementById('highlight-control')) {
+            var div = document.createElement('div');
+            div.id = 'highlight-control';
+            div.innerHTML = `<label>
+                <span>Highlight Active Path</span>
+                <input type="checkbox" id="highlight-toggle" checked>
+                <span class="highlight-switch-slider"></span>
+            </label>`;
+            controlsBar.prepend(div);
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    LAST_ACTIVE_IDS = [];
+    d3.selectAll('g.node').each(function (d) {
+        if (d && d.data) {
+            const rectSel = d3.select(this).select('rect.node-rect');
+            const textSel = d3.select(this).select('text.node-text');
+            if (d.data.activated === false) {
+                rectSel.classed('node-rect-inactive', true);
+                textSel.classed('node-text-inactive', true);
+            } else {
+                rectSel.classed('node-rect-inactive', false);
+                textSel.classed('node-text-inactive', false);
+                LAST_ACTIVE_IDS.push(d.data.id);
+            }
+        }
+    });
+
+    d3.selectAll('path.link').each(function (d) {
+        if (!d || !d.source || !d.target) return;
+        const srcNode = d.source.data;
+        const tgtNode = d.target.data;
+        const linkActive = srcNode.activated !== false && tgtNode.activated !== false;
+        d3.select(this).classed('link-inactive', !linkActive);
+        d3.select(this).classed('link-active', linkActive);
+
+        let labelGroup = d3.select(`g.link-condition-group[data-link='${srcNode.id}-${tgtNode.id}']`);
+        let labelBg = labelGroup.select('rect.link-condition-bg');
+        let labelText = labelGroup.select('text.link-condition');
+        if (!labelBg.empty()) {
+            labelBg.classed('link-condition-bg-inactive', !linkActive);
+        }
+        if (!labelText.empty()) {
+            labelText.classed('link-condition-text-inactive', !linkActive);
+        }
+    });
+
     const toggle = document.getElementById('highlight-toggle');
     if (toggle) {
         toggle.addEventListener('change', function () {

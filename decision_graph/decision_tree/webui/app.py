@@ -1,13 +1,13 @@
-import errno
+import json
 import pathlib
+import queue
 import socket
 import threading
 import time
-import webbrowser
 from typing import Any
 
 from . import LOGGER
-from .. import LogicNode, ActionNode, BreakpointNode, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION
+from .. import LogicNode, ActionNode, BreakpointNode, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION, RootLogicNode
 
 
 class DecisionTreeWebUi(object):
@@ -34,8 +34,11 @@ class DecisionTreeWebUi(object):
         self.app = Flask(__name__, template_folder='templates', static_folder='static')
         self.current_tree_data: dict[str, Any] | None = None
         self.current_tree_id: str | None = None
+        self.node: LogicNode | None = None
+        self.with_eval = False
+        self.with_watch = False
+
         self._setup_routes()
-        self._with_eval = False
 
     def _setup_routes(self):
         """Configures the Flask routes for the application."""
@@ -44,15 +47,41 @@ class DecisionTreeWebUi(object):
         @self.app.route('/')
         def index():
             if self.current_tree_data is None:
-                # If no tree is loaded, render with empty data or an error message
-                return render_template('index.html', initial_tree_data={}, tree_id="empty", with_eval=self._with_eval)
-            return render_template('index.html', initial_tree_data=self.current_tree_data, tree_id=self.current_tree_id, with_eval=self._with_eval)
+                return render_template(
+                    'index.html',
+                    initial_tree_data={},
+                    tree_id="empty",
+                    with_eval=self.with_eval,
+                    with_watch=False
+                )
+            else:
+                return render_template(
+                    'index.html',
+                    initial_tree_data=self.current_tree_data,
+                    tree_id=self.current_tree_id,
+                    with_eval=self.with_eval,
+                    with_watch=self.with_watch
+                )
 
         @self.app.route('/api/tree_data')
         def get_tree_data():
             if self.current_tree_data is None:
                 return jsonify({"error": "No tree data available"}), 404
             return jsonify({"tree_data": self.current_tree_data, "tree_id": self.current_tree_id})
+
+        @self.app.route('/api/active_nodes')
+        def get_active_nodes():
+            # Returns the current set of active node IDs as JSON
+            if self.node is not None:
+                try:
+                    if isinstance(self.node, RootLogicNode):
+                        active_ids = [str(n.uid) for n in self.node.eval_path]
+                    else:
+                        active_ids = [str(n.uid) for n in self.node.eval_recursively()[1]]
+                    return jsonify({'active_ids': active_ids})
+                except Exception:
+                    LOGGER.error("Error getting active nodes", exc_info=True)
+            return jsonify({'active_ids': []})
 
     def _convert_node_to_dict(
             self,
@@ -129,7 +158,7 @@ class DecisionTreeWebUi(object):
                 node_obj["_children"].append(child_with_condition)
         return node_obj
 
-    def convert_tree_to_d3_format(self, root_node: LogicNode, activated_node_ids: set = None) -> dict[str, Any]:
+    def _convert_tree_to_d3_format(self, root_node: LogicNode, activated_node_ids: set = None) -> dict[str, Any]:
         """Converts the LogicNode tree into a D3 hierarchical format."""
         visited_nodes = {}
         virtual_parent_links = []
@@ -141,56 +170,35 @@ class DecisionTreeWebUi(object):
             "virtual_links": virtual_parent_links
         }
 
-    def show(self, node: LogicNode, with_eval: bool = True, **kwargs):
-        """Starts the Flask web UI to visualize a LogicNode tree."""
-        if not isinstance(node, LogicNode):
-            raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
+    def _port_is_free(self, port: int) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((self.host, port))
+            return True
+        except OSError:
+            return False
 
-        LOGGER.info(f"Preparing to visualize LogicNode tree starting at {node}")
-
-        activated_node_ids = None
-        if with_eval:
-            v, p = node.eval_recursively()
-            activated_node_ids = {str(n.uid) for n in p}
-
-        self.current_tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
-        self.current_tree_id = str(node.uid)
-
-        # Choose a port to run on. If the configured port is already in use,
-        # auto-find another free port. This behavior is intentionally limited to
-        # the interactive `show()` call so other programmatic uses are unaffected.
+    def _auto_port(self, max_tries: int = 200) -> int:
         requested_port = self.port
-        port_to_use = requested_port
-
-        def _port_is_free(host, port):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    s.bind((host, port))
-                return True
-            except OSError:
-                return False
-
-        if not _port_is_free(self.host, requested_port):
+        if not self._port_is_free(requested_port):
             LOGGER.warning(f"Port {requested_port} is in use — searching for a free port...")
             # Try next N ports, then fall back to ephemeral port
-            found = False
-            for p in range(requested_port + 1, requested_port + 200):
-                if _port_is_free(self.host, p):
-                    port_to_use = p
-                    found = True
-                    break
-            if not found:
-                # Bind to port 0 to get an ephemeral port from the OS
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    s.bind((self.host, 0))
-                    port_to_use = s.getsockname()[1]
+            for i in range(max_tries):
+                requested_port += 1
+                if self._port_is_free(requested_port):
+                    return requested_port
+            # If no port found in range, get an ephemeral port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((self.host, 0))
+                requested_port = s.getsockname()[1]
+            LOGGER.info(f"Selected alternative port {requested_port} for this session")
+        return requested_port
 
-            LOGGER.info(f"Selected alternative port {port_to_use} for this session")
-
-        url = f"http://{self.host}:{port_to_use}"
-
+    @staticmethod
+    def _open_browser(url):
+        import webbrowser
         def open_browser():
             time.sleep(1)
             try:
@@ -202,22 +210,79 @@ class DecisionTreeWebUi(object):
         browser_thread.daemon = True
         browser_thread.start()
 
+    def show(self, node: LogicNode, with_eval: bool = True, **kwargs):
+        """Starts the Flask web UI to visualize a LogicNode tree."""
+        if not isinstance(node, LogicNode):
+            raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
+
+        LOGGER.info(f"Preparing to visualize LogicNode tree starting at {node}")
+
+        activated_node_ids = None if not with_eval \
+            else {str(n.uid) for n in node.eval_path} if isinstance(node, RootLogicNode) \
+            else {str(n.uid) for n in node.eval_recursively()[1]}
+        self.with_eval = with_eval
+        self.current_tree_data = self._convert_tree_to_d3_format(node, activated_node_ids)
+        self.current_tree_id = str(node.uid)
+        self.with_watch = False
+
+        port_to_use = self._auto_port()
+        url = f"http://{self.host}:{port_to_use}"
+        self._open_browser(url)
         LOGGER.info(f"Starting Flask server on {url} (with_eval={with_eval})")
-        try:
-            # Pass with_eval to route context
-            self._with_eval = with_eval  # Store temporarily
-            # Run the Flask app on the chosen port. If it still fails due to
-            # address-in-use, log and raise to the caller.
-            self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
-        except OSError as e:
-            # Address already in use might still occur due to race conditions.
-            if getattr(e, 'errno', None) == errno.EADDRINUSE:
-                LOGGER.error("Failed to bind to port %s: %s", port_to_use, e)
-            raise
-        except KeyboardInterrupt:
-            LOGGER.info("Flask server stopped by user.")
-        finally:
-            LOGGER.info("Web UI session ended.")
+        self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+
+    def watch(self, node: RootLogicNode, interval: float = 0.5):
+        """
+        Starts a watch server that streams activation diffs via SSE.
+        Each client connection gets its own worker and queue, so multiple tabs/windows do not interfere.
+        """
+        from flask import Response, stream_with_context
+        last_activated = set(str(n.uid) for n in node.eval_path)
+        self.current_tree_data = self._convert_tree_to_d3_format(node, last_activated)
+        self.current_tree_id = str(node.uid)
+        self.with_eval = True
+        self.with_watch = True
+        self.node = node
+
+        @self.app.route('/watch')
+        def sse_watch():
+            q = queue.Queue()
+            stop_event = threading.Event()
+
+            def worker():
+                nonlocal last_activated
+                while not stop_event.is_set():
+                    activated_now = set(str(n.uid) for n in node.eval_path)
+                    added = list(activated_now - last_activated)
+                    removed = list(last_activated - activated_now)
+                    if added or removed:
+                        q.put(json.dumps({'added': added, 'removed': removed}))
+                        last_activated = activated_now
+                    time.sleep(interval)
+
+            t = threading.Thread(target=worker)
+            t.daemon = True
+            t.start()
+
+            def event_stream():
+                try:
+                    while True:
+                        try:
+                            diff = q.get(timeout=interval)
+                        except queue.Empty:
+                            continue
+                        LOGGER.info(f"Watching {diff}")
+                        yield f"data: {diff}\n\n"
+                except GeneratorExit:
+                    stop_event.set()
+
+            return Response(stream_with_context(event_stream()), mimetype='text/event-stream')
+
+        port_to_use = self._auto_port()
+        url = f"http://{self.host}:{port_to_use}"
+        self._open_browser(url)
+        LOGGER.info(f"Starting SSE watch server on port {port_to_use}")
+        self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
 
     def to_html(self, node: LogicNode, file_name: str, with_eval: bool = True):
         """
@@ -239,7 +304,7 @@ class DecisionTreeWebUi(object):
             v, p = node.eval_recursively()
             activated_node_ids = {str(n.uid) for n in p}
 
-        tree_data = self.convert_tree_to_d3_format(node, activated_node_ids)
+        tree_data = self._convert_tree_to_d3_format(node, activated_node_ids)
 
         # Determine if evaluation data is present (for toggle visibility)
         def has_inactive(node_dict):

@@ -24,15 +24,7 @@
     <div id="content">
         <!-- Controls bar: left = highlight toggle, right = export/theme buttons -->
         <div id="controls-bar">
-            {% if with_eval %}
-            <div id="highlight-control">
-                <label>
-                    <span>Highlight Active Path</span>
-                    <input type="checkbox" id="highlight-toggle" checked>
-                    <span class="highlight-switch-slider"></span>
-                </label>
-            </div>
-            {% endif %}
+            <!-- highlight-control will be injected by JS if window.with_eval is true -->
             <!-- export controls will be injected here by script.js -->
         </div>
 
@@ -54,6 +46,11 @@
     <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
     <p><strong>Expression:</strong> <span id="info-expr"></span></p>
 </div>
+
+<script>
+    window.with_eval = {{ 'true' if with_eval else 'false' }};
+    window.with_watch = {{ 'true' if with_watch else 'false' }};
+</script>
 
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 <script>

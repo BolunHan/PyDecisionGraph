@@ -35,19 +35,7 @@
 
     <!-- Content area: controls bar + tree -->
     <div id="content">
-        <div id="controls-bar">
-            {% if with_eval %}
-            <div id="highlight-control">
-                <label>
-                    <span>Highlight Active Path</span>
-                    <input type="checkbox" id="highlight-toggle" checked>
-                    <span class="highlight-switch-slider"></span>
-                </label>
-            </div>
-            {% endif %}
-            <!-- export controls will be injected here by script.js -->
-        </div>
-
+        <div id="controls-bar"></div>
         <div id="tree-container"></div>
     </div>
 </div>
@@ -56,12 +44,17 @@
     <h3>Node Details</h3>
     <p><strong>ID:</strong> <span id="info-id"></span></p>
     <p><strong>Name:</strong> <span id="info-name"></span></p>
+    <p><strong>Repr:</strong> <span id="info-repr"></span></p>
     <p><strong>Type:</strong> <span id="info-type"></span></p>
     <p><strong>Labels:</strong> <span id="info-labels"></span></p>
     <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
     <p><strong>Expression:</strong> <span id="info-expr"></span></p>
 </div>
 
+<script>
+    window.with_eval = {{ 'true' if with_eval else 'false' }};
+    window.with_watch = false;
+</script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
     const initialTreeData = {{ initial_tree_data | tojson }};

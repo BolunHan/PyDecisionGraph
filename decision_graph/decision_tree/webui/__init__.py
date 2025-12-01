@@ -1,6 +1,6 @@
 import logging
 
-from .. import LOGGER
+from .. import LOGGER, RootLogicNode
 
 LOGGER = LOGGER.getChild('WebUI')
 
@@ -15,6 +15,18 @@ def show(root: LogicNode, with_eval: bool = True, **kwargs):
         debug=kwargs.get('debug', False)
     )
     _app.show(root, with_eval=with_eval, **kwargs)
+
+
+def watch(root: RootLogicNode, interval: float = .5, **kwargs):
+    _app = DecisionTreeWebUi(
+        host=kwargs.get('host', "127.0.0.1"),
+        port=kwargs.get('port', 5000),
+        debug=kwargs.get('debug', False)
+    )
+    _app.watch(
+        node=root,
+        interval=interval
+    )
 
 
 def to_html(root: LogicNode, file_name: str, with_eval: bool = True):

@@ -6,6 +6,9 @@ let LAST_ACTIVE_IDS = [];
 
 const ANIM_SLOW = 500;
 const ANIM_FAST = 120;
+const ROW_VERTICAL_SPACE_FACTOR = 8;
+let GLOBAL_HORIZONTAL_SPACING_BASE = null;
+let GLOBAL_VERTICAL_SPACING = null;
 
 function visualizeTree(treeData) {
     GLOBAL_TREE_DATA = treeData;
@@ -62,28 +65,6 @@ function getAllCSS() {
     return css;
 }
 
-function serializeSvgWithInlineStyles(svgNode) {
-    const clone = svgNode.cloneNode(true);
-    const cssVarNames = ['--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text', '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'];
-    const comp = getComputedStyle(document.documentElement);
-    let varCss = ':root {';
-    cssVarNames.forEach(name => {
-        const v = comp.getPropertyValue(name).trim();
-        if (v) varCss += `${name}: ${v};`;
-    });
-    varCss += '}\n';
-
-    const cssText = varCss + getAllCSS();
-    const styleEl = document.createElement('style');
-    styleEl.setAttribute('type', 'text/css');
-    styleEl.innerHTML = cssText;
-    clone.insertBefore(styleEl, clone.firstChild);
-    if (!clone.getAttribute('xmlns')) {
-        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    }
-    return new XMLSerializer().serializeToString(clone);
-}
-
 function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -95,10 +76,58 @@ function downloadBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
+function getFullTreeBounds() {
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    if (!GLOBAL_TREE_ROOT) return {xMin: 0, xMax: 1000, yMin: 0, yMax: 800};
+    GLOBAL_TREE_ROOT.each(d => {
+        const bbox = d.data._nodeBBox || {width: 80, height: 32};
+
+        const left = d.x - bbox.width / 2;
+        const right = d.x + bbox.width / 2;
+        const top = d.y - bbox.height / 2;
+        const bottom = d.y + bbox.height / 2;
+        if (left < xMin) xMin = left;
+        if (right > xMax) xMax = right;
+        if (top < yMin) yMin = top;
+        if (bottom > yMax) yMax = bottom;
+    });
+
+    const pad = 40;
+    return {
+        xMin: xMin - pad, xMax: xMax + pad, yMin: yMin - pad, yMax: yMax + pad
+    };
+}
+
 function exportSVG() {
     const svgNode = document.querySelector('#tree-container svg');
     if (!svgNode) return alert('No SVG found to export');
-    const svgText = serializeSvgWithInlineStyles(svgNode);
+
+    const clone = svgNode.cloneNode(true);
+    const bounds = getFullTreeBounds();
+    clone.setAttribute('viewBox', `${bounds.xMin} ${bounds.yMin} ${bounds.xMax - bounds.xMin} ${bounds.yMax - bounds.yMin}`);
+
+    const viewport = clone.querySelector('g.dg-viewport');
+    if (viewport) viewport.removeAttribute('transform');
+    const content = viewport ? viewport.querySelector('g.dg-content') : null;
+    if (content) content.removeAttribute('transform');
+
+    const cssVarNames = ['--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text', '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'];
+    const comp = getComputedStyle(document.documentElement);
+    let varCss = ':root {';
+    cssVarNames.forEach(name => {
+        const v = comp.getPropertyValue(name).trim();
+        if (v) varCss += `${name}: ${v};`;
+    });
+    varCss += '}\n';
+    const cssText = varCss + getAllCSS();
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('type', 'text/css');
+    styleEl.innerHTML = cssText;
+    clone.insertBefore(styleEl, clone.firstChild);
+    if (!clone.getAttribute('xmlns')) {
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+    const svgText = new XMLSerializer().serializeToString(clone);
     const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
     downloadBlob(blob, 'decision-tree.svg');
 }
@@ -106,26 +135,51 @@ function exportSVG() {
 function exportPNG() {
     const svgNode = document.querySelector('#tree-container svg');
     if (!svgNode) return alert('No SVG found to export');
-    const svgText = serializeSvgWithInlineStyles(svgNode);
+
+    const clone = svgNode.cloneNode(true);
+    const bounds = getFullTreeBounds();
+    clone.setAttribute('viewBox', `${bounds.xMin} ${bounds.yMin} ${bounds.xMax - bounds.xMin} ${bounds.yMax - bounds.yMin}`);
+
+    const viewport = clone.querySelector('g.dg-viewport');
+    if (viewport) viewport.removeAttribute('transform');
+    const content = viewport ? viewport.querySelector('g.dg-content') : null;
+    if (content) content.removeAttribute('transform');
+
+    const cssVarNames = ['--bg', '--panel-bg', '--text-color', '--header-bg', '--header-text', '--tabs-bg', '--tab-active-bg', '--tab-active-text', '--muted-border'];
+    const comp = getComputedStyle(document.documentElement);
+    let varCss = ':root {';
+    cssVarNames.forEach(name => {
+        const v = comp.getPropertyValue(name).trim();
+        if (v) varCss += `${name}: ${v};`;
+    });
+    varCss += '}\n';
+    const cssText = varCss + getAllCSS();
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('type', 'text/css');
+    styleEl.innerHTML = cssText;
+    clone.insertBefore(styleEl, clone.firstChild);
+    if (!clone.getAttribute('xmlns')) {
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+    const svgText = new XMLSerializer().serializeToString(clone);
     const svgBlob = new Blob([svgText], {type: 'image/svg+xml'});
     const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     img.onload = () => {
         try {
-            const vb = svgNode.viewBox && svgNode.viewBox.baseVal ? svgNode.viewBox.baseVal : null;
-            const srcW = vb && vb.width ? vb.width : svgNode.clientWidth || 1000;
-            const srcH = vb && vb.height ? vb.height : svgNode.clientHeight || 800;
+            const w = bounds.xMax - bounds.xMin;
+            const h = bounds.yMax - bounds.yMin;
             const scale = window.devicePixelRatio || 1;
             const canvas = document.createElement('canvas');
-            canvas.width = Math.round(srcW * scale);
-            canvas.height = Math.round(srcH * scale);
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
             const ctx = canvas.getContext('2d');
             ctx.setTransform(scale, 0, 0, scale, 0, 0);
             const comp = getComputedStyle(document.documentElement);
             const panelBg = comp.getPropertyValue('--panel-bg') || '#ffffff';
             ctx.fillStyle = panelBg.trim() || '#ffffff';
-            ctx.fillRect(0, 0, srcW, srcH);
-            ctx.drawImage(img, 0, 0, srcW, srcH);
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
             canvas.toBlob((blob) => {
                 if (blob) downloadBlob(blob, 'decision-tree.png');
             }, 'image/png');
@@ -197,99 +251,95 @@ function buildVirtualLinks(virtualLinkDefs, nodeMap) {
         .filter(Boolean);
 }
 
-function measureTextWidth(text) {
-    try {
-        if (typeof document === 'undefined') {
-            return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
-        }
+function measureNodeBBox(nodeData) {
 
-        let svg = document.getElementById('dg-measure-svg');
-        if (!svg) {
-            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute('id', 'dg-measure-svg');
-            svg.setAttribute('style', 'position:absolute; left:-9999px; top:-9999px; width:0; height:0; overflow:visible;');
-            document.body.appendChild(svg);
-        }
-
-        if (!svg._dg_text_el) {
-            const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            t.setAttribute('class', 'node-text');
-            t.setAttribute('x', 0);
-            t.setAttribute('y', 0);
-            svg.appendChild(t);
-            svg._dg_text_el = t;
-        }
-
-        const textEl = svg._dg_text_el;
-        textEl.textContent = text == null ? '' : String(text);
-        const bbox = textEl.getBBox();
-        const pad = 16;
-        return Math.max(40, Math.round(bbox.width + pad));
-    } catch (err) {
-        return Math.max(40, Math.round((text ? text.length : 0) * 8 + 16));
+    let svg = document.getElementById('dg-measure-svg');
+    if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('id', 'dg-measure-svg');
+        svg.setAttribute('style', 'position:absolute; left:-9999px; top:-9999px; width:0; height:0; overflow:visible;');
+        document.body.appendChild(svg);
     }
+
+    if (svg._dg_node_group) {
+        svg.removeChild(svg._dg_node_group);
+        svg._dg_node_group = null;
+    }
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', `node ${nodeData.type || ''}`);
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('class', 'node-rect');
+    rect.setAttribute('rx', 6);
+    rect.setAttribute('ry', 6);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('class', 'node-text');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dy', '0.35em');
+    text.textContent = nodeData.name || nodeData.id || 'unnamed';
+
+    g.appendChild(text);
+    svg.appendChild(g);
+
+    const textBBox = text.getBBox();
+    let w, h;
+    if (nodeData.depth === 0) {
+        w = 94;
+        h = 32;
+    } else {
+        const pad = 8;
+        w = Math.max(textBBox.width + pad, 40);
+        h = Math.max(textBBox.height + pad, 16);
+    }
+    rect.setAttribute('x', -w / 2);
+    rect.setAttribute('y', -h / 2);
+    rect.setAttribute('width', w);
+    rect.setAttribute('height', h);
+
+    g.insertBefore(rect, text);
+
+    const groupBBox = g.getBBox();
+
+    svg.removeChild(g);
+    svg._dg_node_group = null;
+    return {width: groupBBox.width, height: groupBBox.height};
 }
 
-function applyTreeLayoutWithMinSpacing(root, width, height) {
-    const MIN_ROW_HEIGHT = 200;
-
-    let widths = [];
+function updateTreeLayout(root) {
+    let nodeBBoxes = [];
+    let nodeHeights = [];
     root.each(d => {
-        const txt = d.data.name || d.data.id || "unnamed";
-        const measured = measureTextWidth(txt);
-        const est = Math.max(40, Math.min(800, measured));
-        d.data._estWidth = est;
-        widths.push(est);
+        const bbox = measureNodeBBox({
+            name: d.data.name, id: d.data.id, type: d.data.type, depth: d.depth
+        });
+        d.data._nodeBBox = bbox;
+        nodeBBoxes.push(bbox.width);
+        nodeHeights.push(bbox.height);
     });
+    const avgWidth = nodeBBoxes.length ? Math.round(nodeBBoxes.reduce((a, b) => a + b, 0) / nodeBBoxes.length) : 80;
+    const avgHeight = nodeHeights.length ? Math.round(nodeHeights.reduce((a, b) => a + b, 0) / nodeHeights.length) : 32;
 
-    const avgWidth = widths.length ? Math.round(widths.reduce((a, b) => a + b, 0) / widths.length) : 80;
-    const BASE_HORIZONTAL_SPACING = Math.max(50, Math.min(400, avgWidth + 40));
-
+    if (GLOBAL_HORIZONTAL_SPACING_BASE === null) {
+        GLOBAL_HORIZONTAL_SPACING_BASE = Math.max(50, Math.min(400, avgWidth + 40));
+        GLOBAL_VERTICAL_SPACING = avgHeight * ROW_VERTICAL_SPACE_FACTOR;
+        console.log('[D3.Tree] GLOBAL_HORIZONTAL_SPACING_BASE:', GLOBAL_HORIZONTAL_SPACING_BASE);
+        console.log('[D3.Tree] GLOBAL_VERTICAL_SPACING:', GLOBAL_VERTICAL_SPACING);
+    }
     const treeLayout = d3.tree()
-        .nodeSize([BASE_HORIZONTAL_SPACING, 1])
+        .nodeSize([GLOBAL_HORIZONTAL_SPACING_BASE, 1])
         .separation((a, b) => {
-            const wa = (a && a.data && a.data._estWidth) ? a.data._estWidth : avgWidth;
-            const wb = (b && b.data && b.data._estWidth) ? b.data._estWidth : avgWidth;
+            const wa = (a && a.data && a.data._nodeBBox) ? a.data._nodeBBox.width : avgWidth;
+            const wb = (b && b.data && b.data._nodeBBox) ? b.data._nodeBBox.width : avgWidth;
             const desiredPx = (wa + wb) / 2 + 20;
-            const factor = desiredPx / BASE_HORIZONTAL_SPACING;
-            return (a.parent === b.parent) ? Math.max(0.6, factor) : Math.max(1.2, factor * 1.2);
+            const factor = desiredPx / GLOBAL_HORIZONTAL_SPACING_BASE;
+            return (a.parent === b.parent) ? Math.max(0.5, factor) : Math.max(2, factor * 1.2);
         });
-
     treeLayout(root);
-
-    if (root.height > 0) {
-        const naturalRowHeight = height / root.height;
-        if (naturalRowHeight < MIN_ROW_HEIGHT) {
-            const scaleY = d3.scaleLinear()
-                .domain([0, root.height])
-                .range([0, root.height * MIN_ROW_HEIGHT]);
-            root.each(d => {
-                d.y = scaleY(d.depth);
-            });
-        } else {
-            const scaleY = d3.scaleLinear()
-                .domain([0, root.height])
-                .range([0, height]);
-            root.each(d => {
-                d.y = scaleY(d.depth);
-            });
-        }
-    } else {
-        root.each(d => d.y = height / 2);
-    }
-
-    let xMin = Infinity, xMax = -Infinity;
     root.each(d => {
-        if (d.x < xMin) xMin = d.x;
-        if (d.x > xMax) xMax = d.x;
+        d.y = d.depth * GLOBAL_VERTICAL_SPACING;
     });
-    const treeWidth = xMax - xMin;
-    const offset = (width - treeWidth) / 2;
-    if (isFinite(offset)) {
-        root.each(d => {
-            d.x += offset - xMin;
-        });
-    }
 }
 
 function updateVisualization(root, g, virtualLinkDefs, nodeMap, animate = true) {
@@ -574,10 +624,6 @@ function renderFilteredTree() {
         return;
     }
 
-    const margin = {top: 0, right: 0, bottom: 0, left: 0};
-    const containerWidth = container.node().clientWidth;
-    const containerHeight = container.node().clientHeight;
-
     const svg = container.append("svg");
     const viewport = svg.append("g").attr("class", "dg-viewport");
     const g = viewport.append("g").attr("class", "dg-content");
@@ -587,27 +633,7 @@ function renderFilteredTree() {
 
     const nodeMap = buildNodeMap(root);
 
-    applyTreeLayoutWithMinSpacing(root, containerWidth, containerHeight);
-
-    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    root.each(d => {
-        if (d.x < xMin) xMin = d.x;
-        if (d.x > xMax) xMax = d.x;
-        if (d.y < yMin) yMin = d.y;
-        if (d.y > yMax) yMax = d.y;
-    });
-
-    const padding = 0;
-    const treeWidth = xMax - xMin + 2 * padding;
-    const treeHeight = yMax - yMin + 2 * padding;
-
-    const fullWidth = treeWidth + margin.left + margin.right;
-    const fullHeight = treeHeight + margin.top + margin.bottom;
-
-    svg.attr("viewBox", `0 0 ${fullWidth} ${fullHeight}`)
-        .attr("preserveAspectRatio", "xMinYMin meet")
-        .style("width", "100%")
-        .style("height", "100%");
+    updateTreeLayout(root);
 
     const zoom = d3.zoom()
         .scaleExtent([0.0, Number.POSITIVE_INFINITY])
@@ -619,13 +645,12 @@ function renderFilteredTree() {
 
     const cw = container.node() ? container.node().clientWidth : null;
     const ch = container.node() ? container.node().clientHeight : null;
-    if (cw && ch && fullWidth > 0 && fullHeight > 0) {
-        const scale = fullHeight / ch;
+    if (cw && ch) {
         const rootX = typeof root.x === 'number' ? root.x : 0;
         const rootY = typeof root.y === 'number' ? root.y : 0;
-        const tx = (fullWidth / 2) - (rootX * scale);
-        const ty = ((fullHeight * 0.1) - (rootY * scale)) / Math.max(cw / treeWidth, ch / treeHeight);
-        const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+        const tx = (cw / 2) - rootX;
+        const ty = ((ch * 0.1) - rootY);
+        const initialTransform = d3.zoomIdentity.translate(tx, ty).scale(1);
         svg.call(zoom.transform, initialTransform);
     }
 

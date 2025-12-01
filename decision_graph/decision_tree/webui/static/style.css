@@ -1,5 +1,4 @@
 :root {
-    /* Light theme variables */
     --bg: #f4f4f4;
     --panel-bg: #ffffff;
     --text-color: #222222;
@@ -30,9 +29,7 @@
     --switch-knob-bg: #fff;
 }
 
-/* Dark theme overrides */
 .dark-mode {
-    /* Softer, less contrasty dark-theme values */
     --bg: #10232d;
     --panel-bg: #122b33;
     --text-color: #dbeaf2;
@@ -64,39 +61,40 @@
 }
 
 body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
     margin: 0;
     padding: 0;
     font-family: Arial, sans-serif;
     background-color: var(--bg);
     color: var(--text-color);
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden; /* Prevent double scrollbars */
+    overflow: hidden;
 }
 
 #header {
+    flex: 0 0 auto;
     background-color: var(--header-bg);
     color: var(--header-text);
     padding: 10px 20px;
 }
 
-/* Layout: main split between vertical sidebar and content area */
 #main {
+    flex: 1 1 auto;
     display: flex;
-    height: calc(100vh - 60px); /* account for header height (approx) */
     width: 100%;
+    min-height: 0;
 }
 
-/* Content area (right of sidebar) should fill remaining space */
 #content {
-    flex: 1;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    min-width: 0; /* allow flex children to shrink past their min-content width */
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
 }
 
-/* Sidebar: vertical list of logic-group tabs */
 #logic-group-tabs {
     width: 220px;
     min-width: 160px;
@@ -107,7 +105,7 @@ body {
     flex-direction: column;
     gap: 6px;
     padding: 12px;
-    overflow-y: auto; /* allow scrolling when many groups */
+    overflow-y: auto;
 }
 
 .tab-button {
@@ -119,7 +117,6 @@ body {
     border-radius: 4px;
 }
 
-/* Make tab buttons stack vertically and fill width */
 #logic-group-tabs .tab-button {
     display: block;
     width: 100%;
@@ -133,7 +130,6 @@ body {
     border-color: var(--tab-active-bg);
 }
 
-/* Controls bar sits above the tree and contains highlight and export/group controls */
 #controls-bar {
     display: flex;
     align-items: center;
@@ -144,7 +140,6 @@ body {
     background-color: var(--panel-bg);
 }
 
-/* Right side wrap for export controls (injected by JS) */
 #controls-bar .right-controls {
     margin-left: auto;
     display: flex;
@@ -153,25 +148,23 @@ body {
 }
 
 
-/* Make the tree container fill remaining vertical space */
 #tree-container {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
+    min-height: 0;
+    height: 100%;
 }
 
-/* Ensure any SVG fills the container area */
 #tree-container > svg {
     width: 100%;
     height: 100%;
     display: block;
 }
 
-/* D3.js generated SVG styles */
 .node {
     cursor: pointer;
 }
 
-/* Styles for LogicNode rectangles */
 .node.LogicNode .node-rect {
     fill: var(--logicnode-fill);
     stroke: var(--logicnode-stroke);
@@ -219,7 +212,6 @@ body {
     fill-opacity: 0.4;
 }
 
-/* D3.js generated SVG text color should follow theme */
 .node-text {
     fill: var(--node-text);
 }
@@ -231,28 +223,25 @@ body {
 }
 
 .link.virtual_parent {
-    stroke: #ff0000; /* Red for virtual links */
-    stroke-dasharray: 5, 5; /* Dashed line */
+    stroke: #ff0000;
+    stroke-dasharray: 5, 5;
 }
 
-/* Styles for condition labels */
 .link-condition {
     font-size: 10px;
     text-anchor: middle;
-    dominant-baseline: middle; /* Align text vertically in the middle */
-    pointer-events: none; /* Allow clicks to pass through the label */
-    fill: var(--link-text); /* theme-controlled text color */
+    dominant-baseline: middle;
+    pointer-events: none;
+    fill: var(--link-text);
 }
 
-/* Background rectangle for condition labels */
 .link-condition-bg {
     fill: var(--link-bg);
     stroke: var(--link-stroke);
     stroke-width: 0.6;
-    opacity: 1; /* use solidish background for readability */
+    opacity: 1;
 }
 
-/* Specific styles for condition types (colored with opacity for readability) */
 .link-condition-group.true .link-condition-bg {
     fill: rgba(0, 255, 0, 0.5);
 }
@@ -269,7 +258,6 @@ body {
     fill: rgba(255, 255, 0, 0.5);
 }
 
-/* Inactive / dimmed styles for links and labels */
 .link-inactive {
     stroke-opacity: 0.3 !important;
 }
@@ -282,7 +270,6 @@ body {
     fill-opacity: 0.3 !important;
 }
 
-/* Highlight control (moved from inline styles) */
 #highlight-control {
     padding: 8px 20px;
     margin-right: 12px;
@@ -318,7 +305,6 @@ body {
     margin-top: 0;
 }
 
-/* Highlight toggle switch */
 #highlight-toggle {
     opacity: 0;
     position: absolute;
@@ -357,7 +343,6 @@ body {
     transition: transform 0.2s;
 }
 
-/* When checked: blue background, slider moves right */
 #highlight-toggle:checked + .highlight-switch-slider::before {
     background-color: var(--switch-on-bg);
 }
@@ -366,7 +351,6 @@ body {
     transform: translateX(16px);
 }
 
-/* Watch control (mirroring highlight-control styles for consistency) */
 #watch-control {
     padding: 8px 20px;
     margin-right: 12px;
@@ -422,7 +406,6 @@ body {
     transition: transform 0.2s;
 }
 
-/* When checked: blue background, slider moves right */
 #watch-toggle:checked + .watch-switch-slider::before {
     background-color: var(--switch-on-bg);
 }
@@ -431,14 +414,11 @@ body {
     transform: translateX(16px);
 }
 
-/* Smooth theme transitions: animate colors, fills, strokes and opacity when theme changes */
-/* Apply to most containers, controls, and SVG elements used for the tree */
 body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-button, .tab-button.active,
 .node-text, .link-condition, .link-condition-bg, .link {
     transition: background-color 320ms ease, color 320ms ease, fill 320ms ease, stroke 320ms ease, opacity 320ms ease, border-color 320ms ease;
 }
 
-/* Slight spacing tweaks for small screens */
 @media (max-width: 800px) {
     #logic-group-tabs {
         width: 140px;

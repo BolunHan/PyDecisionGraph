@@ -686,6 +686,22 @@ function applyActivationDiff(diff) {
 function updateHighlightClasses() {
     const highlightToggle = document.getElementById('highlight-toggle');
     const shouldDim = highlightToggle ? highlightToggle.checked : false;
+    LAST_ACTIVE_IDS.length = 0;
+    d3.selectAll('g.node').each(function (d) {
+        if (d && d.data) {
+            const rectSel = d3.select(this).select('rect.node-rect');
+            const textSel = d3.select(this).select('text.node-text');
+            if (d.data.activated === false) {
+                rectSel.classed('node-rect-inactive', true);
+                textSel.classed('node-text-inactive', true);
+            } else {
+                rectSel.classed('node-rect-inactive', false);
+                textSel.classed('node-text-inactive', false);
+                LAST_ACTIVE_IDS.push(d.data.id);
+            }
+        }
+    });
+
     d3.selectAll('rect.node-rect')
         .classed('node-rect-inactive', function () {
             const d = d3.select(this.parentNode).datum();
@@ -782,47 +798,14 @@ if (typeof window.with_eval !== 'undefined' && window.with_eval) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    LAST_ACTIVE_IDS = [];
-    d3.selectAll('g.node').each(function (d) {
-        if (d && d.data) {
-            const rectSel = d3.select(this).select('rect.node-rect');
-            const textSel = d3.select(this).select('text.node-text');
-            if (d.data.activated === false) {
-                rectSel.classed('node-rect-inactive', true);
-                textSel.classed('node-text-inactive', true);
-            } else {
-                rectSel.classed('node-rect-inactive', false);
-                textSel.classed('node-text-inactive', false);
-                LAST_ACTIVE_IDS.push(d.data.id);
-            }
-        }
-    });
-
-    d3.selectAll('path.link').each(function (d) {
-        if (!d || !d.source || !d.target) return;
-        const srcNode = d.source.data;
-        const tgtNode = d.target.data;
-        const linkActive = srcNode.activated !== false && tgtNode.activated !== false;
-        d3.select(this).classed('link-inactive', !linkActive);
-        d3.select(this).classed('link-active', linkActive);
-
-        let labelGroup = d3.select(`g.link-condition-group[data-link='${srcNode.id}-${tgtNode.id}']`);
-        let labelBg = labelGroup.select('rect.link-condition-bg');
-        let labelText = labelGroup.select('text.link-condition');
-        if (!labelBg.empty()) {
-            labelBg.classed('link-condition-bg-inactive', !linkActive);
-        }
-        if (!labelText.empty()) {
-            labelText.classed('link-condition-text-inactive', !linkActive);
-        }
-    });
-
-    const toggle = document.getElementById('highlight-toggle');
-    if (toggle) {
-        toggle.addEventListener('change', function () {
+    const highlight_toggle = document.getElementById('highlight-toggle');
+    if (highlight_toggle) {
+        highlight_toggle.addEventListener('change', function () {
             updateHighlightClasses();
         });
     }
+
+    updateHighlightClasses();
 
     initTheme();
 });

@@ -3,7 +3,7 @@ __all__ = [
     'EmptyBlock', 'BreakBlock',
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
     'EdgeValueError',
-    'ResolutionError', 'ExpressFalse', 'ContextsNotFound'
+    'ResolutionError', 'ExpressFalse', 'ExpressEvaluationError', 'ContextsNotFound'
 ]
 
 NO_DEFAULT = object()
@@ -66,6 +66,11 @@ class ResolutionError(NodeError):
 
 class ExpressFalse(Exception):
     """Custom exception raised when a LogicExpression evaluates to False."""
+    pass
+
+
+class ExpressEvaluationError(Exception):
+    """Raised when an error occurs during the evaluation of a LogicExpression."""
     pass
 
 

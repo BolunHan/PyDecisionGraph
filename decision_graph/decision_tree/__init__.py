@@ -53,7 +53,7 @@ __all__ = [
     'EmptyBlock', 'BreakBlock',
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
     'EdgeValueError',
-    'ResolutionError', 'ExpressFalse', 'ContextsNotFound',
+    'ResolutionError', 'ExpressFalse', 'ExpressEvaluationError', 'ContextsNotFound',
 
     # .capi.c_abc or .native.abc
     'LOGGER', 'set_logger',

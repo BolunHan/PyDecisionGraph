@@ -3,23 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Decision Tree Visualization (Offline)</title>
+    <title>Decision Tree Visualizer (Offline)</title>
     <style>
         {{ css_content | safe }}
-        /* Highlight toggle styles */
-        #highlight-toggle { opacity: 0; position: absolute; width: 0; height: 0; }
-        .highlight-switch-slider { position: relative; display: inline-block; width: 36px; height: 20px; }
-        .highlight-switch-slider::before {
-            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #6c757d; border-radius: 10px; transition: background-color 0.2s;
-        }
-        .highlight-switch-slider::after {
-            content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-            background-color: white; border-radius: 50%; transition: transform 0.2s;
-        }
-        #highlight-toggle:checked + .highlight-switch-slider::before { background-color: #007bff; }
-        #highlight-toggle:checked + .highlight-switch-slider::after { transform: translateX(16px); }
     </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
 <div id="header">
@@ -29,14 +17,24 @@
 <!-- Main layout: vertical sidebar (logic groups) + content -->
 <div id="main">
     <!-- Vertical nav sidebar for logic groups -->
-    <aside id="logic-group-tabs" role="navigation" aria-label="Logic groups">
+    <aside id="logic-group-tabs" role="region" aria-label="Logic groups">
         <button class="tab-button active" data-group="*">All</button>
+        <!-- Other tabs inserted by JS -->
     </aside>
 
     <!-- Content area: controls bar + tree -->
     <div id="content">
-        <div id="controls-bar"></div>
-        <div id="tree-container"></div>
+        <!-- Controls bar: left = highlight toggle, right = export/theme buttons -->
+        <div id="controls-bar">
+            <!-- highlight-control will be injected by JS if window.with_eval is true -->
+            <!-- export controls will be injected here by script.js -->
+        </div>
+
+        <!-- Tree Container (no native scrollbars; zoom/pan handles navigation) -->
+        <div id="tree-container"
+             data-initial-tree='{{ initial_tree_data | tojson | e }}'
+             data-tree-id="offline">
+        </div>
     </div>
 </div>
 
@@ -55,12 +53,11 @@
     window.with_eval = {{ 'true' if with_eval else 'false' }};
     window.with_watch = false;
 </script>
-<script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
-    const initialTreeData = {{ initial_tree_data | tojson }};
-    const treeId = "offline";
     {{ js_content | safe }}
-    // Trigger initial render
+    const container = d3.select("#tree-container");
+    const initialTreeData = JSON.parse(container.attr("data-initial-tree"));
+    const treeId = container.attr("data-tree-id");
     visualizeTree(initialTreeData);
 </script>
 </body>

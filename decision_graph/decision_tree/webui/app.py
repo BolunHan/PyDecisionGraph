@@ -291,6 +291,7 @@ class DecisionTreeWebUi(object):
         else:
             def run_flask():
                 self.app.run(host=self.host, port=port_to_use, debug=self.debug, use_reloader=False, threaded=True)
+
             flask_thread = threading.Thread(target=run_flask)
             flask_thread.daemon = True
             flask_thread.start()
@@ -311,28 +312,24 @@ class DecisionTreeWebUi(object):
         if not isinstance(node, LogicNode):
             raise TypeError("The 'node' argument must be an instance of LogicNode or its subclass.")
 
-        # Prepare tree data
-        activated_node_ids = None
         if with_eval:
-            v, p = node.eval_recursively()
-            activated_node_ids = {str(n.uid) for n in p}
+            try:
+                if isinstance(node, RootLogicNode) and node.eval_path:
+                    activated_node_ids = {str(n.uid) for n in node.eval_path}
+                else:
+                    activated_node_ids = {str(n.uid) for n in node.eval_recursively()[1]}
+            except Exception:
+                activated_node_ids = None
+        else:
+            activated_node_ids = None
 
         tree_data = cls._convert_tree_to_d3_format(node, activated_node_ids)
-
-        # Determine if evaluation data is present (for toggle visibility)
-        def has_inactive(node_dict):
-            if node_dict.get("activated") is False:
-                return True
-            return any(has_inactive(child) for child in node_dict.get("_children", []))
-
-        has_eval_data = with_eval and has_inactive(tree_data["root"])
 
         # Locate resource directories
         module_dir = pathlib.Path(__file__).parent
         template_dir = module_dir / "templates"
         static_dir = module_dir / "static"
 
-        # Read assets
         css_path = static_dir / "style.css"
         js_path = static_dir / "script.js"
         template_path = template_dir / "offline.html"
@@ -346,17 +343,15 @@ class DecisionTreeWebUi(object):
         with open(js_path, "r", encoding="utf-8") as f:
             js_content = f.read()
 
-        # Render template
         env = Environment(loader=FileSystemLoader(template_dir))
         template = env.get_template("offline.html")
         html_output = template.render(
             initial_tree_data=tree_data,
-            with_eval=has_eval_data,
+            with_eval=with_eval,
             css_content=css_content,
             js_content=js_content
         )
 
-        # Write file
         with open(file_name, "w", encoding="utf-8") as f:
             f.write(html_output)
 

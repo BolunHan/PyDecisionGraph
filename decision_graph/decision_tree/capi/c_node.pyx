@@ -1,4 +1,5 @@
 import operator
+from typing import Protocol
 
 from cpython.mem cimport PyMem_Free
 
@@ -13,6 +14,7 @@ cdef class RootLogicNode(LogicNode):
         self.dtype = bool if dtype is None else dtype
         self.repr = name if repr is None else repr
         self.inherit_contexts = inherit_contexts
+        self.eval_path = []
 
     cdef bint c_entry_check(self):
         return True
@@ -59,8 +61,22 @@ cdef class RootLogicNode(LogicNode):
 
         LogicNode.c_append(self, child, NO_CONDITION)
 
-    def eval_recursively(self, **kwargs):
-        return self.child.eval_recursively(**kwargs)
+    def __call__(self, object default=None):
+        self.eval_path.clear()
+        cdef object value = self.c_eval_recursively(self.eval_path, default)[0]
+        return value
+
+    def eval_recursively(self, list path=None, object default=NO_DEFAULT):
+        self.eval_path.clear()
+
+        cdef object v
+        cdef list p
+        if path is None:
+            v, p = self.c_eval_recursively(self.eval_path, default)
+        else:
+            v, p = self.c_eval_recursively(path, default)
+            self.eval_path.extend(p)
+        return v, p
 
     cpdef BreakpointNode get_breakpoint(self):
         for leaf in self.leaves:

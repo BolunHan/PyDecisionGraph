@@ -26,8 +26,10 @@ class RootLogicNode(LogicNode):
 
     Attributes:
         inherit_contexts: Whether to inherit outer logic groups when entered.
+        eval_path: List of nodes evaluated during the last evaluation.
     """
     inherit_contexts: bool
+    eval_path: list[LogicNode]
 
     def __init__(self, name: str = 'Entry Point', inherit_contexts: bool = False, **kwargs) -> None:  # pragma: no cover - implemented in C
         """Create a RootLogicNode.

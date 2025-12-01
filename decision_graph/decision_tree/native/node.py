@@ -16,6 +16,7 @@ class RootLogicNode(LogicNode):
     def __init__(self, *, name: str = 'Entry Point', expression=True, dtype=bool, repr: str = None, inherit_contexts: bool = False, **kwargs):
         super().__init__(expression=expression, dtype=dtype, repr=name or repr, **kwargs)
         self.inherit_contexts = inherit_contexts
+        self.eval_path: list = []
 
     def _entry_check(self) -> bool:
         return True
@@ -44,8 +45,23 @@ class RootLogicNode(LogicNode):
             raise EdgeValueError()
         super()._append(child, NO_CONDITION)
 
-    def eval_recursively(self, **kwargs):
-        return self.child.eval_recursively(**kwargs)
+    def __call__(self, default=None):
+        # clear cached eval path and evaluate, returning only the value
+        self.eval_path.clear()
+        value = self._eval_recursively(self.eval_path, default)[0]
+        return value
+
+    def eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT):
+        # keep a cached eval_path similar to the C implementation
+        self.eval_path.clear()
+
+        if path is None:
+            v, p = self._eval_recursively(self.eval_path, default)
+        else:
+            v, p = self._eval_recursively(path, default)
+            # accumulate path into the root's cached eval_path
+            self.eval_path.extend(p)
+        return v, p
 
     def get_breakpoint(self) -> BreakpointNode | None:
         for leaf in self.leaves:

@@ -5,6 +5,7 @@ from .c_abc cimport LogicNode, LogicGroup, BreakpointNode
 
 cdef class RootLogicNode(LogicNode):
     cdef readonly bint inherit_contexts
+    cdef readonly list eval_path
 
     cpdef BreakpointNode get_breakpoint(self)
 

@@ -590,7 +590,7 @@ function isMouseOverNodeInfo() {
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
-function renderFilteredTree() {
+function renderFilteredTree(include_all_children = false) {
     const container = d3.select("#tree-container");
     container.select("svg").remove();
 
@@ -610,7 +610,7 @@ function renderFilteredTree() {
 
         if (node._children && node._children.length > 0) {
             const filteredChildren = node._children
-                .map(child => cloneAndFilter(child, include || shouldInclude(child)))
+                .map(child => include_all_children ? cloneAndFilter(child, include || shouldInclude(child)) : cloneAndFilter(child, false))
                 .filter(Boolean);
 
             if (filteredChildren.length > 0) {

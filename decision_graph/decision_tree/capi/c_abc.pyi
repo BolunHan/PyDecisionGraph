@@ -513,6 +513,17 @@ class BreakpointNode(LogicNode):
             str (str): A string representation of the expression. Auto-generated if None.
         """
 
+    @classmethod
+    def break_(cls, break_from: LogicGroup, **kwargs) -> BreakpointNode:
+        """
+        Create a BreakpointNode that breaks from the given logic group, for full manual control.
+        This method also auto connects the BreakpointNode to the active node in the LGM upon creation.
+
+        Args:
+            break_from (LogicGroup): The logic group from which this breakpoint breaks.
+            kwargs: Additional keyword arguments to pass to the BreakpointNode constructor.
+        """
+
     def connect(self, child: LogicNode) -> None:
         """
         Connect a child node to this BreakpointNode.

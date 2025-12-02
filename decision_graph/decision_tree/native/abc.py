@@ -999,6 +999,14 @@ class BreakpointNode(LogicNode):
             status = "active" if self.await_connection else "idle"
             return f'<{self.__class__.__name__} {status}>(break_from={self.break_from})'
 
+    @classmethod
+    def break_(cls, break_from: LogicGroup, **kwargs):
+        breakpoint_node = BreakpointNode(break_from=break_from, **kwargs)
+        active_node = LGM.active_node
+        placeholder = active_node._get_placeholder()
+        active_node._replace(placeholder, breakpoint_node)
+        return breakpoint_node
+
     def connect(self, child: LogicNode) -> None:
         self._connect(child)
 

@@ -1370,6 +1370,15 @@ cdef class BreakpointNode(LogicNode):
         else:
             return f'<{self.__class__.__name__} {"active" if self.await_connection else "idle"}>(break_from={self.break_from})'
 
+    @classmethod
+    def break_(cls, LogicGroup break_from, **kwargs):
+        cdef BreakpointNode breakpoint_node = BreakpointNode(break_from=break_from, **kwargs)
+        cdef LogicNodeFrame* active_frame = LGM._active_nodes.top
+        cdef LogicNode active_node = <LogicNode> <object> active_frame.logic_node
+        cdef PlaceholderNode placeholder = active_node.c_get_placeholder()
+        active_node.c_replace(placeholder, breakpoint_node)
+        return breakpoint_node
+
     def connect(self, LogicNode child):
         self.c_connect(child)
 

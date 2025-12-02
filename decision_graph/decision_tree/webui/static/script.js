@@ -536,7 +536,7 @@ function showNodeInfo(event, d) {
     d3.select("#info-repr").text(info.repr || "N/A");
     d3.select("#info-type").text(info.type || "N/A");
     d3.select("#info-labels").text(Array.isArray(info.labels) ? info.labels.join(", ") : String(info.labels || "N/A"));
-    d3.select("#info-autogen").text(String(info.autogen || "N/A"));
+    d3.select("#info-autogen").text(info.autogen === undefined ? "N/A" : (info.autogen ? "True" : "False"));
     let expr = "N/A";
     if (info.expression !== undefined) {
         expr = info.expression;

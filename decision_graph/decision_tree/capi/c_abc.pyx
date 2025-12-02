@@ -1114,7 +1114,7 @@ cdef class LogicNode(LogicExpression):
 
     cdef void c_auto_fill(self):
         cdef size_t size = len(self.children)
-        cdef LogicNode no_action = NoAction(auto_connect=False)
+        cdef LogicNode no_action = NoAction(auto_connect=False, autogen=True)
 
         # Case 1: No child node registered
         if size == 0:
@@ -1192,7 +1192,7 @@ cdef class LogicNode(LogicExpression):
         while frame:
             node = <object> frame.logic_node
             if isinstance(node, PlaceholderNode):
-                self.c_replace(node, NoAction(auto_connect=False))
+                self.c_replace(node, NoAction(auto_connect=False, autogen=True))
                 placeholder_count += 1
             frame = frame.prev
         return placeholder_count
@@ -1222,7 +1222,7 @@ cdef class LogicNode(LogicExpression):
 
     def __call__(self, object default=None):
         if default is None:
-            default = NoAction(auto_connect=False)
+            default = NoAction(auto_connect=False, autogen=True)
 
         cdef bint inspection_mode = LGM.inspection_mode
         if inspection_mode:
@@ -1305,7 +1305,7 @@ cdef class LogicNode(LogicExpression):
 cdef class BreakpointNode(LogicNode):
     def __cinit__(self, *, LogicGroup break_from=None, object expression=None, str repr=None, **kwargs):
         self.break_from = break_from
-        self.expression = NoAction(auto_connect=False) if expression is None else expression
+        self.expression = NoAction(auto_connect=False, autogen=True) if expression is None else expression
         self.repr = f'Breakpoint(from={break_from.name})' if repr is None else repr
         self.autogen = True
         self.await_connection = False
@@ -1432,7 +1432,7 @@ cdef class ActionNode(LogicNode):
 cdef class PlaceholderNode(ActionNode):
     def __cinit__(self, *, **kwargs):
         self.autogen = True
-        self.action = NoAction(auto_connect=False)
+        self.action = NoAction(auto_connect=False, autogen=True)
 
     cdef object c_eval(self, bint enforce_dtype):
         if LGM.vigilant_mode:
@@ -1441,9 +1441,10 @@ cdef class PlaceholderNode(ActionNode):
 
 
 cdef class NoAction(ActionNode):
-    def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
+    def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, bint autogen=False, **kwargs):
         self.sig = sig
         self.repr = 'NoAction' if repr is None else repr
+        self.autogen = autogen
 
     cdef object c_eval(self, bint enforce_dtype):
         return self

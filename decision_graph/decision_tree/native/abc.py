@@ -775,7 +775,7 @@ class LogicNode(LogicExpression):
 
     def _auto_fill(self) -> None:
         size = len(self.children)
-        no_action = NoAction(auto_connect=False)
+        no_action = NoAction(auto_connect=False, autogen=True)
 
         # Case 1: No child node registered
         if size == 0:
@@ -839,7 +839,7 @@ class LogicNode(LogicExpression):
         while i < len(self.subordinates):
             node = self.subordinates[i]
             if isinstance(node, PlaceholderNode):
-                self._replace(node, NoAction(auto_connect=False))
+                self._replace(node, NoAction(auto_connect=False, autogen=True))
                 placeholder_count += 1
                 # no increment: replacement maintains list length; continue checking same index
             else:
@@ -871,7 +871,7 @@ class LogicNode(LogicExpression):
 
     def __call__(self, default: Any = None) -> Any:
         if default is None:
-            default = NoAction(auto_connect=False)
+            default = NoAction(auto_connect=False, autogen=True)
         inspection_mode = LGM.inspection_mode
         if inspection_mode:
             LOGGER.info('LGM inspection mode temporarily disabled to evaluate correctly.')
@@ -940,7 +940,7 @@ class LogicNode(LogicExpression):
 class BreakpointNode(LogicNode):
     def __init__(self, *, break_from: LogicGroup = None, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None, uid: uuid.UUID = None):
         super().__init__(
-            expression=NoAction(auto_connect=False) if expression is None else expression,
+            expression=NoAction(auto_connect=False, autogen=True) if expression is None else expression,
             dtype=dtype,
             repr=repr,
             uid=uid
@@ -1069,7 +1069,7 @@ class PlaceholderNode(ActionNode):
         super().__init__(**kwargs)
 
         self.autogen = True
-        self.action = NoAction(auto_connect=False)
+        self.action = NoAction(auto_connect=False, autogen=True)
 
     def _eval(self, enforce_dtype: bool) -> Any:
         if LGM.vigilant_mode:
@@ -1078,9 +1078,10 @@ class PlaceholderNode(ActionNode):
 
 
 class NoAction(ActionNode):
-    def __init__(self, sig: int = 0, repr='NoAction', **kwargs):
+    def __init__(self, sig: int = 0, repr='NoAction', autogen: bool = False, **kwargs):
         super().__init__(repr=repr, **kwargs)
         self.sig = sig
+        self.autogen = autogen
 
     def _eval(self, enforce_dtype: bool) -> Any:
         return self

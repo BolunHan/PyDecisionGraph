@@ -603,6 +603,7 @@ class NoAction(ActionNode):
             dtype: type = None,
             repr: str = None,
             auto_connect: bool = True,
+            autogen: bool = False,
             **kwargs,
     ) -> None:
         """
@@ -615,6 +616,7 @@ class NoAction(ActionNode):
             dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
             repr (str, optional): A string representation of the expression.
             auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            autogen (bool): If True, marks this node as auto-generated.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
 

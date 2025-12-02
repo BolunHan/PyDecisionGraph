@@ -506,8 +506,8 @@ body {
 
 .node-info-header h3 {
     margin: 0;
-    font-size: 1.1em;
-    font-weight: 600;
+    font-size: 1.2em;
+    font-weight: 800;
     color: var(--node-text);
 }
 
@@ -543,6 +543,7 @@ body {
     width: fit-content;
     text-align: left;
     color: var(--node-text);
+    font-weight: 300;
     padding-right: 1em;
 }
 
@@ -550,8 +551,18 @@ body {
     width: max-content;
     text-align: right;
     color: var(--node-text);
+    font-weight: 600;
+    font-size: 1.1em;
     word-break: break-word;
     overflow-wrap: anywhere;
+}
+
+.node-info-value.autogen-true {
+    color: #E74C3C;
+}
+
+.node-info-value.autogen-false {
+    color: #27AE60;
 }
 
 body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-button, .tab-button.active,

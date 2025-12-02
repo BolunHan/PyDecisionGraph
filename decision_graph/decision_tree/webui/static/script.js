@@ -536,7 +536,15 @@ function showNodeInfo(event, d) {
     d3.select("#info-repr").text(info.repr || "N/A");
     d3.select("#info-type").text(info.type || "N/A");
     d3.select("#info-labels").text(Array.isArray(info.labels) ? info.labels.join(", ") : String(info.labels || "N/A"));
-    d3.select("#info-autogen").text(info.autogen === undefined ? "N/A" : (info.autogen ? "True" : "False"));
+    const autogenElem = d3.select("#info-autogen");
+    autogenElem.classed("autogen-true", false).classed("autogen-false", false);
+    if (info.autogen === undefined) {
+        autogenElem.text("N/A");
+    } else if (info.autogen) {
+        autogenElem.text("True").classed("autogen-true", true);
+    } else {
+        autogenElem.text("False").classed("autogen-false", true);
+    }
     let expr = "N/A";
     if (info.expression !== undefined) {
         expr = info.expression;
@@ -549,7 +557,6 @@ function showNodeInfo(event, d) {
     panel.style("display", "block");
     nodeInfoCurrentNodeId = info.id;
 
-    // Only reposition if not pinned or dragging, and not hovering node-info
     if (!nodeInfoPinned && !nodeInfoDragging && !isMouseOverNodeInfo()) {
         const mouseX = event.pageX;
         const mouseY = event.pageY;
@@ -560,9 +567,7 @@ function showNodeInfo(event, d) {
         const containerRect = container.getBoundingClientRect();
         let x = mouseX + 10;
         let y = mouseY + 10;
-        // Check if panel fits in container
         if (x + panelWidth > containerRect.right || y + panelHeight > containerRect.bottom) {
-            // Place at right-top of container
             x = containerRect.right - panelWidth - 10;
             y = containerRect.top + 10;
         }
@@ -791,10 +796,9 @@ function pollActiveNodes() {
         });
 }
 
-// Pin button logic
 const nodeInfoPinBtn = document.getElementById('node-info-pin');
 if (nodeInfoPinBtn) {
-    nodeInfoPinBtn.addEventListener('click', function(e) {
+    nodeInfoPinBtn.addEventListener('click', function (e) {
         nodeInfoPinned = !nodeInfoPinned;
         this.classList.toggle('active', nodeInfoPinned);
         if (nodeInfoPinned) {
@@ -805,10 +809,9 @@ if (nodeInfoPinBtn) {
     });
 }
 
-// Drag logic
 const nodeInfoPanel = document.getElementById('node-info');
 if (nodeInfoPanel) {
-    nodeInfoPanel.addEventListener('mousedown', function(e) {
+    nodeInfoPanel.addEventListener('mousedown', function (e) {
         if (e.target.id === 'node-info-pin') return;
         nodeInfoDragging = true;
         nodeInfoPanel.classList.add('dragging');
@@ -816,7 +819,7 @@ if (nodeInfoPanel) {
         nodeInfoOffset.y = e.clientY - nodeInfoPanel.getBoundingClientRect().top;
         document.body.style.userSelect = 'none';
     });
-    document.addEventListener('mousemove', function(e) {
+    document.addEventListener('mousemove', function (e) {
         if (!nodeInfoDragging) return;
         let x = e.clientX - nodeInfoOffset.x;
         let y = e.clientY - nodeInfoOffset.y;
@@ -824,7 +827,7 @@ if (nodeInfoPanel) {
         nodeInfoPanel.style.top = y + 'px';
         nodeInfoLastPos = {x, y};
     });
-    document.addEventListener('mouseup', function(e) {
+    document.addEventListener('mouseup', function (e) {
         if (nodeInfoDragging) {
             nodeInfoDragging = false;
             nodeInfoPanel.classList.remove('dragging');
@@ -833,20 +836,44 @@ if (nodeInfoPanel) {
     });
 }
 
-// Prevent node-info from hiding when mouse enters/leaves
 if (nodeInfoPanel) {
-    nodeInfoPanel.addEventListener('mouseenter', function(e) {
+    nodeInfoPanel.addEventListener('mouseenter', function (e) {
         if (nodeInfoCurrentNodeId) {
             d3.select('#node-info').style('display', 'block');
         }
     });
-    nodeInfoPanel.addEventListener('mouseleave', function(e) {
+    nodeInfoPanel.addEventListener('mouseleave', function (e) {
         if (!nodeInfoPinned && !nodeInfoDragging) {
             d3.select('#node-info').style('display', 'none');
             nodeInfoCurrentNodeId = null;
         }
     });
 }
+
+document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.key === ' ') {
+        const nodeInfoPanel = document.getElementById('node-info');
+        const pinBtn = document.getElementById('node-info-pin');
+        if (nodeInfoPanel) {
+            if (nodeInfoPinned) {
+                nodeInfoPinned = false;
+                if (pinBtn) {
+                    pinBtn.classList.remove('active');
+                    pinBtn.setAttribute('title', 'Pin');
+                }
+                nodeInfoPanel.style.display = 'none';
+            } else {
+                nodeInfoPanel.style.display = 'block';
+                nodeInfoPinned = true;
+                if (pinBtn) {
+                    pinBtn.classList.add('active');
+                    pinBtn.setAttribute('title', 'Unpin');
+                }
+            }
+        }
+        e.preventDefault();
+    }
+});
 
 if (typeof window.with_watch !== 'undefined' && window.with_watch) {
     document.addEventListener('DOMContentLoaded', function () {

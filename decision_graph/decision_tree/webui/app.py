@@ -15,7 +15,7 @@ class DecisionTreeWebUi(object):
     """Class to manage the Flask web UI for visualizing LogicNode trees."""
     _builtin_node_type = [
         'LogicNode', 'RootLogicNode', 'BreakpointNode',
-        'ActionNode', 'NoAction', 'LongAction', 'ShortAction', 'CancelAction'
+        'ActionNode', 'NoAction', 'LongAction', 'ShortAction', 'CancelAction', 'ClearAction',
     ]
 
     def __init__(self, host: str, port: int, debug: bool):
@@ -331,19 +331,18 @@ class DecisionTreeWebUi(object):
         module_dir = pathlib.Path(__file__).parent
         template_dir = module_dir / "templates"
         static_dir = module_dir / "static"
-
         css_path = static_dir / "style.css"
         js_path = static_dir / "script.js"
-        template_path = template_dir / "offline.html"
-
-        for p in [css_path, js_path, template_path]:
-            if not p.exists():
-                raise FileNotFoundError(f"Required resource not found: {p}")
+        d3_path = static_dir / "d3.v7.min.js"
 
         with open(css_path, "r", encoding="utf-8") as f:
             css_content = f.read()
+
         with open(js_path, "r", encoding="utf-8") as f:
             js_content = f.read()
+
+        with open(d3_path, "r", encoding="utf-8") as f:
+            d3_content = f.read()
 
         env = Environment(loader=FileSystemLoader(template_dir))
         template = env.get_template("offline.html")
@@ -351,7 +350,8 @@ class DecisionTreeWebUi(object):
             initial_tree_data=tree_data,
             with_eval=with_eval,
             css_content=css_content,
-            js_content=js_content
+            js_content=js_content,
+            d3_content=d3_content
         )
 
         with open(file_name, "w", encoding="utf-8") as f:

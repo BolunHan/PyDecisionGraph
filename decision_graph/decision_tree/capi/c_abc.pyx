@@ -1486,3 +1486,15 @@ cdef class CancelAction(ActionNode):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+cdef class ClearAction(ActionNode):
+    def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
+        self.sig = sig
+        self.repr = 'ClearAction' if repr is None else repr
+
+    cdef object c_eval(self, bint enforce_dtype):
+        return self
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}>(sig={self.sig})'

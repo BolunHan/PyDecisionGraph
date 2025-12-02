@@ -715,3 +715,33 @@ class CancelAction(ActionNode):
             auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
+
+
+class ClearAction(ActionNode):
+    """An action node whose evaluation returns itself and performs fully unwind (clear position) action."""
+
+    sig: int
+
+    def __init__(
+            self,
+            *,
+            sig: int = 0,
+            action: Callable[[], Any] = None,
+            expression: object = None,
+            dtype: type = None,
+            repr: str = None,
+            auto_connect: bool = True,
+            **kwargs,
+    ) -> None:
+        """
+        Initialize a ClearAction node.
+
+        Args:
+            sig (int): The signature marker for the clear action. Defaults to ``0``.
+            action (Callable[[], Any] | None): An optional callable to execute when this action is selected (post-eval).
+            expression (Union[Any, Callable[[], Any]]): A callable or static value (on-eval).
+            dtype (type, optional): The expected type of the evaluated value (e.g. float, int, or bool).
+            repr (str, optional): A string representation of the expression.
+            auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
+            kwargs: __cinit__ extra kwargs guardian of for subclassing support.
+        """

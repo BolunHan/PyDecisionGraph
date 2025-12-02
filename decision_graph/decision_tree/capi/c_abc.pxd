@@ -240,3 +240,7 @@ cdef class ShortAction(ActionNode):
 
 cdef class CancelAction(ActionNode):
     cdef readonly ssize_t sig
+
+
+cdef class ClearAction(ActionNode):
+    cdef readonly ssize_t sig

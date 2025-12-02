@@ -938,7 +938,7 @@ class LogicNode(LogicExpression):
 
 
 class BreakpointNode(LogicNode):
-    def __init__(self, *,break_from: LogicGroup = None, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None, uid: uuid.UUID = None):
+    def __init__(self, *, break_from: LogicGroup = None, expression: float | int | bool | Exception | Callable[[], Any] = None, dtype: type = None, repr: str = None, uid: uuid.UUID = None):
         super().__init__(
             expression=NoAction(auto_connect=False) if expression is None else expression,
             dtype=dtype,
@@ -1115,6 +1115,18 @@ class ShortAction(ActionNode):
 
 class CancelAction(ActionNode):
     def __init__(self, sig: int = 0, repr='CancelAction', **kwargs):
+        super().__init__(repr=repr, **kwargs)
+        self.sig = sig
+
+    def _eval(self, enforce_dtype: bool) -> Any:
+        return self
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+
+class ClearAction(ActionNode):
+    def __init__(self, sig: int = 0, repr='ClearAction', **kwargs):
         super().__init__(repr=repr, **kwargs)
         self.sig = sig
 

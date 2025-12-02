@@ -1,63 +1,135 @@
+/* ===== Dracula & Alucard Palettes ===== */
 :root {
-    --bg: #f4f4f4;
-    --panel-bg: #ffffff;
-    --text-color: #222222;
-    --header-bg: #333333;
-    --header-text: #ffffff;
-    --tabs-bg: #eeeeee;
-    --tab-active-bg: #007bff;
-    --tab-active-text: #ffffff;
-    --muted-border: #cccccc;
-    --link-text: #000000;
-    --control-bg: #eeeeee;
-    --link-bg: rgba(255, 255, 255, 0.9);
-    --link-stroke: rgba(0, 0, 0, 0.6);
-    --logicnode-fill: lightsteelblue;
-    --logicnode-stroke: steelblue;
-    --actionnode-fill: lightskyblue;
-    --noaction-fill: lightgray;
-    --longaction-fill: lightgreen;
-    --shortaction-fill: lightcoral;
-    --cancelaction-fill: lightsalmon;
-    --rootlogicnode-fill: lightseagreen;
-    --breakpointnode-fill: red;
-    --defaultnode-fill: lightsteelblue;
-    --node-text: #000000;
-    --link-default: #ccc;
-    --switch-off-bg: #6c757d;
-    --switch-on-bg: #007bff;
-    --switch-knob-bg: #fff;
+    /* Alucard (Light Mode) */
+    --alucard-background:           hsl( 48, 100%,  96%);
+    --alucard-currentline:          hsl( 49,  18%,  36%);
+    --alucard-selection:            hsl(240,  18%,  84%);
+    --alucard-foreground:           hsl(  0,   0%,  12%);
+    --alucard-comment:              hsl( 49,  18%,  36%);
+    --alucard-red:                  hsl(  6,  66%,  48%);
+    --alucard-orange:               hsl( 24,  78%,  36%);
+    --alucard-yellow:               hsl( 48,  73%,  30%);
+    --alucard-green:                hsl(114,  84%,  24%);
+    --alucard-cyan:                 hsl(198,  96%,  30%);
+    --alucard-purple:               hsl(252,  54%,  54%);
+    --alucard-pink:                 hsl(336,  78%,  36%);
+
+    /* Alucard Brights (for accents) */
+    --alucard-bright-background:    hsl(220,  20%,  97%);
+    --alucard-bright-currentline:   hsl( 49,   9%,  62%);
+    --alucard-bright-selection:     hsl(227,  18%,  90%);
+    --alucard-bright-foreground:    hsl(228,  15%,  34%);
+    --alucard-bright-comment:       hsl(224,  12%,  68%);
+    --alucard-bright-red:           hsl(  0,  75%,  65%);
+    --alucard-bright-orange:        hsl( 17, 100%,  74%);
+    --alucard-bright-yellow:        hsl( 46,  83%,  70%);
+    --alucard-bright-green:         hsl(120,  73%,  75%);
+    --alucard-bright-cyan:          hsl(195,  53%,  79%);
+    --alucard-bright-blue:          hsl(214,  41%,  78%);
+    --alucard-bright-purple:        hsl(262,  38%,  66%);
+    --alucard-bright-pink:          hsl(312,  58%,  71%);
+
+    /* Dracula (Dark Mode) */
+    --dracula-background:           hsl(231,  15%,  18%);
+    --dracula-currentline:          hsl(225,  27%,  51%);
+    --dracula-selection:            hsl(232,  14%,  31%);
+    --dracula-foreground:           hsl( 60,  30%,  96%);
+    --dracula-comment:              hsl(225,  27%,  51%);
+    --dracula-red:                  hsl(  0,  78%,  72%);
+    --dracula-orange:               hsl( 31, 100%,  71%);
+    --dracula-yellow:               hsl( 65,  92%,  76%);
+    --dracula-green:                hsl(135,  94%,  65%);
+    --dracula-cyan:                 hsl(191,  97%,  77%);
+    --dracula-purple:               hsl(265,  89%,  78%);
+    --dracula-pink:                 hsl(326, 100%,  74%);
+
+    /* Dracula Dulls (for accents) */
+    --dracula-dull-background:      hsl(231,  15%,  26%);
+    --dracula-dull-currentline:     hsl(225,  26%,  25%);
+    --dracula-dull-selection:       hsl(232,  14%,  23%);
+    --dracula-dull-foreground:      hsl( 60,  30%,  27%);
+    --dracula-dull-comment:         hsl(225,  26%,  25%);
+    --dracula-dull-red:             hsl(  0, 100%,  40%);
+    --dracula-dull-orange:          hsl( 31, 100%,  40%);
+    --dracula-dull-yellow:          hsl( 65,  92%,  42%);
+    --dracula-dull-green:           hsl(135,  94%,  42%);
+    --dracula-dull-cyan:            hsl(191,  96%,  42%);
+    --dracula-dull-blue:            hsl(214,  76%,  57%);
+    --dracula-dull-purple:          hsl(265,  89%,  39%);
+    --dracula-dull-pink:            hsl(326, 100%,  39%);
+
+    /* ===== Default Theme: Alucard (Light) ===== */
+    --bg:                           #FFFFFF;
+    --panel-bg:                     var(--alucard-bright-background);
+    --text-color:                   var(--alucard-foreground);
+    --header-bg:                    var(--dracula-currentline);
+    --header-text:                  #FFFFFF;
+    --tabs-bg:                      var(--alucard-bright-background);
+    --tab-active-bg:                var(--alucard-cyan);
+    --tab-active-text:              #FFFFFF;
+    --muted-border:                 #CCCCCC;
+    --link-text:                    var(--alucard-foreground);
+    --control-bg:                   #EEEEEE;
+    --link-bg:                      rgba(255, 255, 255, 0.9);
+    --link-stroke:                  rgba(0, 0, 0, 0.3);
+
+    /* Node Colors – Alucard */
+    --logicnode-fill:               var(--alucard-bright-cyan);
+    --logicnode-stroke:             var(--alucard-cyan);
+    --actionnode-fill:              var(--alucard-bright-selection);
+    --noaction-fill:                var(--alucard-bright-comment);
+    --longaction-fill:              var(--alucard-bright-green);
+    --shortaction-fill:             var(--alucard-bright-red);
+    --cancelaction-fill:            var(--alucard-bright-orange);
+    --clearaction-fill:             var(--alucard-bright-red);
+    --rootlogicnode-fill:           #63CB91;
+    --breakpointnode-fill:          var(--alucard-bright-red);
+    --defaultnode-fill:             var(--alucard-bright-cyan);
+    --node-text:                    #000000;
+    --link-default:                 var(--alucard-bright-comment);
+
+    /* Switches – Alucard */
+    --switch-off-bg:                var(--alucard-bright-comment);
+    --switch-on-bg:                 hsl(213, 70%, 53%);
+    --switch-knob-bg:               #FFFFFF;
 }
 
+/* ===== Dark Theme: Dracula ===== */
 .dark-mode {
-    --bg: #10232d;
-    --panel-bg: #122b33;
-    --text-color: #dbeaf2;
-    --header-bg: #0d2630;
-    --header-text: #e6eef6;
-    --tabs-bg: #11272f;
-    --tab-active-bg: #2b6fa0;
-    --tab-active-text: #ffffff;
-    --muted-border: #233b46;
-    --link-text: #ffffff;
-    --control-bg: #12272f;
-    --link-bg: rgba(0, 0, 0, 0.45);
-    --link-stroke: rgba(255, 255, 255, 0.12);
-    --logicnode-fill: #2b6fa0;
-    --logicnode-stroke: #dbeaf2;
-    --actionnode-fill: #3a8edb;
-    --noaction-fill: #444;
-    --longaction-fill: #2e7d32;
-    --shortaction-fill: #c62828;
-    --cancelaction-fill: #ff7043;
-    --rootlogicnode-fill: darkslateblue;
-    --breakpointnode-fill: #ff1744;
-    --defaultnode-fill: #2b6fa0;
-    --node-text: #ffffff;
-    --link-default: #888;
-    --switch-off-bg: #444;
-    --switch-on-bg: #2b6fa0;
-    --switch-knob-bg: #fff;
+    /* UI Base */
+    --bg:                           var(--dracula-dull-background);
+    --panel-bg:                     var(--dracula-background);
+    --text-color:                   #FFFFFF;
+    --header-bg:                    var(--dracula-currentline);
+    --header-text:                  #FFFFFF;
+    --tabs-bg:                      var(--dracula-background);
+    --tab-active-bg:                var(--dracula-selection);
+    --tab-active-text:              var(--dracula-foreground);
+    --muted-border:                 var(--dracula-dull-background);
+    --link-text:                    var(--dracula-foreground);
+    --control-bg:                   var(--dracula-dull-selection);
+    --link-bg:                      rgba(40, 42, 54, 0.85);
+    --link-stroke:                  rgba(255, 255, 255, 0.15);
+
+    /* Node Colors – Dracula (base fills + bright strokes) */
+    --logicnode-fill:               var(--dracula-dull-cyan);
+    --logicnode-stroke:             var(--dracula-cyan);
+    --actionnode-fill:              var(--dracula-dull-selection);
+    --noaction-fill:                var(--dracula-dull-comment);
+    --longaction-fill:              var(--dracula-dull-green);
+    --shortaction-fill:             var(--dracula-dull-red);
+    --cancelaction-fill:            var(--dracula-dull-orange);
+    --clearaction-fill:             var(--dracula-dull-red);
+    --rootlogicnode-fill:           var(--dracula-dull-purple);
+    --breakpointnode-fill:          var(--dracula-dull-pink);
+    --defaultnode-fill:             var(--dracula-dull-cyan);
+    --node-text:                    #FFFFFF;
+    --link-default:                 #BBBBBB;
+
+    /* Switches – Dracula */
+    --switch-off-bg:                var(--dracula-comment);
+    --switch-on-bg:                 var(--dracula-green);
+    --switch-knob-bg:               var(--dracula-background);
 }
 
 body {
@@ -189,6 +261,10 @@ body {
 
 .node.CancelAction .node-rect {
     fill: var(--cancelaction-fill);
+}
+
+.node.ClearAction .node-rect {
+    fill: var(--clearaction-fill);
 }
 
 .node.RootLogicNode .node-rect {

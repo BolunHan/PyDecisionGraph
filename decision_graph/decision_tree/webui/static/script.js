@@ -10,6 +10,12 @@ const ROW_VERTICAL_SPACE_FACTOR = 8;
 let GLOBAL_HORIZONTAL_SPACING_BASE = null;
 let GLOBAL_VERTICAL_SPACING = null;
 
+let nodeInfoPinned = false;
+let nodeInfoDragging = false;
+let nodeInfoOffset = {x: 0, y: 0};
+let nodeInfoLastPos = null;
+let nodeInfoCurrentNodeId = null;
+
 function visualizeTree(treeData) {
     GLOBAL_TREE_DATA = treeData;
     GLOBAL_VIRTUAL_LINK_DEFS = treeData.virtual_links || [];
@@ -531,7 +537,6 @@ function showNodeInfo(event, d) {
     d3.select("#info-type").text(info.type || "N/A");
     d3.select("#info-labels").text(Array.isArray(info.labels) ? info.labels.join(", ") : String(info.labels || "N/A"));
     d3.select("#info-autogen").text(String(info.autogen || "N/A"));
-
     let expr = "N/A";
     if (info.expression !== undefined) {
         expr = info.expression;
@@ -542,19 +547,42 @@ function showNodeInfo(event, d) {
 
     const panel = d3.select("#node-info");
     panel.style("display", "block");
-    const mouseX = event.pageX;
-    const mouseY = event.pageY;
-    const panelNode = panel.node();
-    const panelWidth = panelNode.offsetWidth;
-    const panelHeight = panelNode.offsetHeight;
-    const x = Math.min(window.innerWidth - panelWidth - 10, mouseX + 10);
-    const y = Math.min(window.innerHeight - panelHeight - 10, mouseY + 10);
-    panel.style("left", x + "px").style("top", y + "px").style("position", "fixed");
+    nodeInfoCurrentNodeId = info.id;
+
+    // Only reposition if not pinned or dragging, and not hovering node-info
+    if (!nodeInfoPinned && !nodeInfoDragging && !isMouseOverNodeInfo()) {
+        const mouseX = event.pageX;
+        const mouseY = event.pageY;
+        const panelNode = panel.node();
+        const panelWidth = panelNode.offsetWidth;
+        const panelHeight = panelNode.offsetHeight;
+        const container = document.getElementById('tree-container');
+        const containerRect = container.getBoundingClientRect();
+        let x = mouseX + 10;
+        let y = mouseY + 10;
+        // Check if panel fits in container
+        if (x + panelWidth > containerRect.right || y + panelHeight > containerRect.bottom) {
+            // Place at right-top of container
+            x = containerRect.right - panelWidth - 10;
+            y = containerRect.top + 10;
+        }
+        panel.style("left", x + "px").style("top", y + "px").style("position", "fixed");
+        nodeInfoLastPos = {x, y};
+    }
 }
 
 function hideNodeInfo() {
-    d3.select("#node-info")
-        .style("display", "none");
+    if (nodeInfoPinned || isMouseOverNodeInfo() || nodeInfoDragging) return;
+    d3.select("#node-info").style("display", "none");
+    nodeInfoCurrentNodeId = null;
+}
+
+function isMouseOverNodeInfo() {
+    const panel = document.getElementById('node-info');
+    const rect = panel.getBoundingClientRect();
+    const x = window.event ? window.event.clientX : 0;
+    const y = window.event ? window.event.clientY : 0;
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
 function renderFilteredTree() {
@@ -761,6 +789,63 @@ function pollActiveNodes() {
         .catch(err => {
             console.warn('Failed to fetch active nodes:', err);
         });
+}
+
+// Pin button logic
+const nodeInfoPinBtn = document.getElementById('node-info-pin');
+if (nodeInfoPinBtn) {
+    nodeInfoPinBtn.addEventListener('click', function(e) {
+        nodeInfoPinned = !nodeInfoPinned;
+        this.classList.toggle('active', nodeInfoPinned);
+        if (nodeInfoPinned) {
+            this.setAttribute('title', 'Unpin');
+        } else {
+            this.setAttribute('title', 'Pin');
+        }
+    });
+}
+
+// Drag logic
+const nodeInfoPanel = document.getElementById('node-info');
+if (nodeInfoPanel) {
+    nodeInfoPanel.addEventListener('mousedown', function(e) {
+        if (e.target.id === 'node-info-pin') return;
+        nodeInfoDragging = true;
+        nodeInfoPanel.classList.add('dragging');
+        nodeInfoOffset.x = e.clientX - nodeInfoPanel.getBoundingClientRect().left;
+        nodeInfoOffset.y = e.clientY - nodeInfoPanel.getBoundingClientRect().top;
+        document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!nodeInfoDragging) return;
+        let x = e.clientX - nodeInfoOffset.x;
+        let y = e.clientY - nodeInfoOffset.y;
+        nodeInfoPanel.style.left = x + 'px';
+        nodeInfoPanel.style.top = y + 'px';
+        nodeInfoLastPos = {x, y};
+    });
+    document.addEventListener('mouseup', function(e) {
+        if (nodeInfoDragging) {
+            nodeInfoDragging = false;
+            nodeInfoPanel.classList.remove('dragging');
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+// Prevent node-info from hiding when mouse enters/leaves
+if (nodeInfoPanel) {
+    nodeInfoPanel.addEventListener('mouseenter', function(e) {
+        if (nodeInfoCurrentNodeId) {
+            d3.select('#node-info').style('display', 'block');
+        }
+    });
+    nodeInfoPanel.addEventListener('mouseleave', function(e) {
+        if (!nodeInfoPinned && !nodeInfoDragging) {
+            d3.select('#node-info').style('display', 'none');
+            nodeInfoCurrentNodeId = null;
+        }
+    });
 }
 
 if (typeof window.with_watch !== 'undefined' && window.with_watch) {

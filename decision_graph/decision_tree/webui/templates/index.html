@@ -37,18 +37,44 @@
 </div>
 
 <div id="node-info" style="display: none;">
-    <h3>Node Details</h3>
-    <table class="node-info-table">
-        <tbody>
-            <tr><td class="node-info-label">ID</td><td class="node-info-value" id="info-id"></td></tr>
-            <tr><td class="node-info-label">Name</td><td class="node-info-value" id="info-name"></td></tr>
-            <tr><td class="node-info-label">Repr</td><td class="node-info-value" id="info-repr"></td></tr>
-            <tr><td class="node-info-label">Type</td><td class="node-info-value" id="info-type"></td></tr>
-            <tr><td class="node-info-label">Labels</td><td class="node-info-value" id="info-labels"></td></tr>
-            <tr><td class="node-info-label">Autogen</td><td class="node-info-value" id="info-autogen"></td></tr>
-            <tr><td class="node-info-label">Expression</td><td class="node-info-value" id="info-expr"></td></tr>
-        </tbody>
-    </table>
+    <div class="node-info-header">
+        <h3>Node Details</h3>
+        <button id="node-info-pin" title="Pin">&#128204;</button>
+    </div>
+    <div class="node-info-body">
+        <table class="node-info-table">
+            <tbody>
+            <tr>
+                <td class="node-info-label">ID</td>
+                <td class="node-info-value" id="info-id"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Name</td>
+                <td class="node-info-value" id="info-name"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Repr</td>
+                <td class="node-info-value" id="info-repr"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Type</td>
+                <td class="node-info-value" id="info-type"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Labels</td>
+                <td class="node-info-value" id="info-labels"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Autogen</td>
+                <td class="node-info-value" id="info-autogen"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Expression</td>
+                <td class="node-info-value" id="info-expr"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <script>

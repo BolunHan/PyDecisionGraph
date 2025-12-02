@@ -38,13 +38,17 @@
 
 <div id="node-info" style="display: none;">
     <h3>Node Details</h3>
-    <p><strong>ID:</strong> <span id="info-id"></span></p>
-    <p><strong>Name:</strong> <span id="info-name"></span></p>
-    <p><strong>Repr:</strong> <span id="info-repr"></span></p>
-    <p><strong>Type:</strong> <span id="info-type"></span></p>
-    <p><strong>Labels:</strong> <span id="info-labels"></span></p>
-    <p><strong>Autogen:</strong> <span id="info-autogen"></span></p>
-    <p><strong>Expression:</strong> <span id="info-expr"></span></p>
+    <table class="node-info-table">
+        <tbody>
+            <tr><td class="node-info-label">ID</td><td class="node-info-value" id="info-id"></td></tr>
+            <tr><td class="node-info-label">Name</td><td class="node-info-value" id="info-name"></td></tr>
+            <tr><td class="node-info-label">Repr</td><td class="node-info-value" id="info-repr"></td></tr>
+            <tr><td class="node-info-label">Type</td><td class="node-info-value" id="info-type"></td></tr>
+            <tr><td class="node-info-label">Labels</td><td class="node-info-value" id="info-labels"></td></tr>
+            <tr><td class="node-info-label">Autogen</td><td class="node-info-value" id="info-autogen"></td></tr>
+            <tr><td class="node-info-label">Expression</td><td class="node-info-value" id="info-expr"></td></tr>
+        </tbody>
+    </table>
 </div>
 
 <script>

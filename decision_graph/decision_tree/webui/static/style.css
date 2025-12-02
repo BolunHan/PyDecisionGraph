@@ -508,7 +508,7 @@ body {
     margin: 0;
     font-size: 1.1em;
     font-weight: 600;
-    color: var(--alucard-comment);
+    color: var(--node-text);
 }
 
 #node-info-pin {
@@ -542,14 +542,14 @@ body {
 .node-info-label {
     width: fit-content;
     text-align: left;
-    color: var(--alucard-comment);
+    color: var(--node-text);
     padding-right: 1em;
 }
 
 .node-info-value {
     width: max-content;
     text-align: right;
-    color: var(--alucard-foreground);
+    color: var(--node-text);
     word-break: break-word;
     overflow-wrap: anywhere;
 }

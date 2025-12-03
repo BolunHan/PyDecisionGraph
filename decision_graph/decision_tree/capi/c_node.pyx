@@ -1,3 +1,4 @@
+import json
 import operator
 import traceback
 
@@ -8,13 +9,25 @@ from .c_collection cimport LogicMapping, LogicSequence
 from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, ContextsNotFound, ExpressEvaluationError
 
 
+cdef class NodeEvalPath(list):
+    def to_clipboard(self):
+        from pyperclip import copy as clipboard_copy
+        cdef LogicNode node
+        cdef list path = []
+        for node in self:
+            path.append(str(node.uid))
+        cdef str payload = json.dumps(path)
+        clipboard_copy(payload)
+        return payload
+
+
 cdef class RootLogicNode(LogicNode):
     def __cinit__(self, *, str name='Entry Point', object expression=None, type dtype=None, str repr=None, object uid=None, bint inherit_contexts=False, **kwargs):
         self.expression = True if expression is None else expression
         self.dtype = bool if dtype is None else dtype
         self.repr = name if repr is None else repr
         self.inherit_contexts = inherit_contexts
-        self.eval_path = []
+        self._eval_path = []
 
     cdef bint c_entry_check(self):
         return True
@@ -62,20 +75,20 @@ cdef class RootLogicNode(LogicNode):
         LogicNode.c_append(self, child, NO_CONDITION)
 
     def __call__(self, object default=None):
-        self.eval_path.clear()
-        cdef object value = self.c_eval_recursively(self.eval_path, default)[0]
+        self._eval_path.clear()
+        cdef object value = self.c_eval_recursively(self._eval_path, default)[0]
         return value
 
     def eval_recursively(self, list path=None, object default=NO_DEFAULT):
-        self.eval_path.clear()
+        self._eval_path.clear()
 
         cdef object v
         cdef list p
         if path is None:
-            v, p = self.c_eval_recursively(self.eval_path, default)
+            v, p = self.c_eval_recursively(self._eval_path, default)
         else:
             v, p = self.c_eval_recursively(path, default)
-            self.eval_path.extend(p)
+            self._eval_path.extend(p)
         return v, p
 
     def dry_run(self, bint enforce_dtype=False):
@@ -106,12 +119,16 @@ cdef class RootLogicNode(LogicNode):
         from ..webui import watch
         watch(self, **kwargs)
 
-    @property
-    def child(self) -> LogicNode:
-        cdef LogicNodeFrame* frame = self.subordinates.top
-        if frame:
-            return <LogicNode> <object> frame.logic_node
-        raise TooFewChildren()
+    property child:
+        def __get__(self) -> LogicNode:
+            cdef LogicNodeFrame* frame = self.subordinates.top
+            if frame:
+                return <LogicNode> <object> frame.logic_node
+            raise TooFewChildren()
+
+    property eval_path:
+        def __get__(self) -> NodeEvalPath:
+            return NodeEvalPath(self._eval_path)
 
 
 cdef class ContextLogicExpression(LogicNode):

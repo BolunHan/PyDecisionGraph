@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import json
 import operator
 import traceback
 from collections.abc import Callable
@@ -12,6 +13,17 @@ from ..exc import NO_DEFAULT, TooManyChildren, TooFewChildren, EdgeValueError, C
 
 UNARY_OP_FUNC = Callable[[Any], Any]
 BINARY_OP_FUNC = Callable[[Any, Any], Any]
+
+
+class NodeEvalPath(list):
+    def to_clipboard(self):
+        from pyperclip import copy as clipboard_copy
+        path = []
+        for node in self:
+            path.append(str(node.uid))
+        payload = json.dumps(path)
+        clipboard_copy(payload)
+        return payload
 
 
 class RootLogicNode(LogicNode):

@@ -1,12 +1,28 @@
 import enum
 from collections.abc import Callable
-from typing import Any, final
+from typing import Any, final, Generic, TypeVar
 
 from .c_abc import LogicNode, LogicGroup, NodeEdgeCondition, BreakpointNode
 from ..exc import NO_DEFAULT
 
 UNARY_OP_FUNC = Callable[[Any], Any]
 BINARY_OP_FUNC = Callable[[Any, Any], Any]
+T = TypeVar('T')
+
+
+class NodeEvalPath(list[LogicNode], Generic[T]):
+    def to_clipboard(self) -> str:
+        """Copy the evaluation path to the system clipboard as text.
+
+        Generates a json representation of the evaluation path and copies it to the clipboard for easy sharing or logging.
+        ``pyperclip`` module required.
+
+        Returns:
+            The generated text representation of the evaluation path.
+
+        Raises:
+            PyperclipException: If copying to clipboard fails.
+        """
 
 
 class RootLogicNode(LogicNode):
@@ -26,10 +42,10 @@ class RootLogicNode(LogicNode):
 
     Attributes:
         inherit_contexts: Whether to inherit outer logic groups when entered.
-        eval_path: List of nodes evaluated during the last evaluation.
+        eval_path: List of nodes evaluated during the last evaluation. In cython interface this is a reflected copy, In python interface this is the actual list.
     """
     inherit_contexts: bool
-    eval_path: list[LogicNode]
+    eval_path: NodeEvalPath[LogicNode]
 
     def __init__(self, name: str = 'Entry Point', inherit_contexts: bool = False, **kwargs) -> None:  # pragma: no cover - implemented in C
         """Create a RootLogicNode.

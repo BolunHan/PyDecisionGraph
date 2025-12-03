@@ -205,11 +205,15 @@ body {
 #controls-bar {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     justify-content: space-between;
     padding: 8px 12px;
     gap: 12px;
     border-bottom: 1px solid var(--muted-border);
     background-color: var(--panel-bg);
+    align-content: flex-start; /* ensure wrapped lines stack from the top */
+    width: 100%;
+    box-sizing: border-box;
 }
 
 #controls-bar .right-controls {
@@ -219,6 +223,24 @@ body {
     align-items: center;
 }
 
+.control-button {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--muted-border);
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+/* Apply same styles on hover as when the .hover class is present */
+.control-button:hover {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    border-color: var(--tab-active-bg);
+}
 
 #tree-container {
     flex: 1 1 auto;
@@ -347,8 +369,8 @@ body {
 }
 
 #highlight-control {
-    padding: 8px 20px;
-    margin-right: 12px;
+    padding: 0 20px;
+    margin: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -410,8 +432,8 @@ body {
 }
 
 #watch-control {
-    padding: 8px 20px;
-    margin-right: 12px;
+    padding: 0 20px;
+    margin: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -472,6 +494,48 @@ body {
     transform: translateX(16px);
 }
 
+#from-clipboard-control {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--control-bg);
+    color: var(--text-color);
+}
+
+.from-clipboard-input {
+    min-width: 220px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--muted-border);
+    background: var(--panel-bg);
+    color: var(--text-color);
+    outline: none;
+    transition: box-shadow 0.12s ease, border-color 0.12s ease;
+    font-size: 0.95em;
+}
+
+.from-clipboard-input::placeholder {
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.dark-mode .from-clipboard-input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.from-clipboard-input:focus {
+    border-color: var(--tab-active-bg);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+/* ensure controls don't overflow on small screens */
+@media (max-width: 700px) {
+    .from-clipboard-input {
+        min-width: 120px;
+    }
+}
+
 #node-info {
     position: fixed;
     top: 10px;
@@ -499,7 +563,7 @@ body {
     align-items: center;
     justify-content: space-between;
     padding: 10px 20px 8px 20px;
-    background-color: rgba(0,0,0,0.07);
+    background-color: rgba(0, 0, 0, 0.07);
     border-top-left-radius: 10px;
     border-top-right-radius: 10px;
 }
@@ -521,6 +585,7 @@ body {
     color: #888;
     filter: grayscale(60%);
 }
+
 #node-info-pin.active {
     color: #e67e22;
     filter: none;
@@ -565,7 +630,7 @@ body {
     color: #27AE60;
 }
 
-body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-button, .tab-button.active,
+body, #header, #logic-group-tabs, #tree-container, #from-clipboard-control, #highlight-control, #watch-control, .tab-button, .tab-button.active,
 .node-text, .link-condition, .link-condition-bg, .link {
     transition: background-color 320ms ease, color 320ms ease, fill 320ms ease, stroke 320ms ease, opacity 320ms ease, border-color 320ms ease;
 }
@@ -578,4 +643,14 @@ body, #header, #logic-group-tabs, #tree-container, #highlight-control, .tab-butt
     #controls-bar {
         padding: 6px;
     }
+}
+
+#from-clipboard-control, #highlight-control, #watch-control, .control-button {
+    height: 40px;
+    border-radius: 8px;
+}
+
+.from-clipboard-btn {
+    height: 32px;
+    padding: 6px 10px;
 }

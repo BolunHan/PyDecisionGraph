@@ -10,6 +10,8 @@ const ROW_VERTICAL_SPACE_FACTOR = 8;
 let GLOBAL_HORIZONTAL_SPACING_BASE = null;
 let GLOBAL_VERTICAL_SPACING = null;
 
+const nodeInfoPinBtn = document.getElementById('node-info-pin');
+const nodeInfoPanel = document.getElementById('node-info');
 let nodeInfoPinned = false;
 let nodeInfoDragging = false;
 let nodeInfoOffset = {x: 0, y: 0};
@@ -204,17 +206,13 @@ function addExportButtons() {
     const controlsBar = d3.select('#controls-bar');
     if (!controlsBar.empty() && controlsBar.select('.right-controls').empty()) {
         const wrap = controlsBar.append('div').attr('class', 'right-controls');
-        wrap.append('button').attr('id', 'export-png-btn').attr('class', 'tab-button').text('Export PNG').on('click', exportPNG);
-        wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'tab-button').text('Export SVG').on('click', exportSVG);
-        wrap.append('button')
-            .attr('id', 'theme-toggle-btn')
-            .attr('class', 'tab-button')
-            .text(getCurrentTheme() === 'dark' ? 'Light' : 'Dark')
-            .on('click', () => {
-                toggleTheme();
-                const btn = document.getElementById('theme-toggle-btn');
-                if (btn) btn.textContent = getCurrentTheme() === 'dark' ? 'Light' : 'Dark';
-            });
+        wrap.append('button').attr('id', 'export-png-btn').attr('class', 'control-button').text('Export PNG').on('click', exportPNG);
+        wrap.append('button').attr('id', 'export-svg-btn').attr('class', 'control-button').text('Export SVG').on('click', exportSVG);
+        wrap.append('button').attr('id', 'theme-toggle-btn').attr('class', 'control-button').text(getCurrentTheme() === 'dark' ? 'Light' : 'Dark').on('click', () => {
+            toggleTheme();
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) btn.textContent = getCurrentTheme() === 'dark' ? 'Light' : 'Dark';
+        });
     }
 }
 
@@ -796,59 +794,162 @@ function pollActiveNodes() {
         });
 }
 
-const nodeInfoPinBtn = document.getElementById('node-info-pin');
-if (nodeInfoPinBtn) {
-    nodeInfoPinBtn.addEventListener('click', function (e) {
-        nodeInfoPinned = !nodeInfoPinned;
-        this.classList.toggle('active', nodeInfoPinned);
-        if (nodeInfoPinned) {
-            this.setAttribute('title', 'Unpin');
+function setActiveIds(ids) {
+    if (!Array.isArray(ids)) return;
+    const idSet = new Set(ids.map(String));
+
+    // Update the underlying GLOBAL_TREE_DATA structure (if present)
+    function recurseUpdate(node) {
+        if (!node || !node.id) return;
+        if (idSet.has(String(node.id))) {
+            // mark as active: remove explicit false flag
+            if (node.hasOwnProperty('activated')) delete node.activated;
         } else {
-            this.setAttribute('title', 'Pin');
+            node.activated = false;
+        }
+        if (node._children && Array.isArray(node._children)) node._children.forEach(recurseUpdate);
+        if (node.children && Array.isArray(node.children)) node.children.forEach(recurseUpdate);
+    }
+
+    if (GLOBAL_TREE_DATA && GLOBAL_TREE_DATA.root) {
+        recurseUpdate(GLOBAL_TREE_DATA.root);
+    }
+
+    // Update currently rendered nodes' bound data (d.data) so UI reflects change
+    try {
+        d3.selectAll('g.node').each(function (d) {
+            if (!d || !d.data || !d.data.id) return;
+            if (idSet.has(String(d.data.id))) {
+                if (d.data.hasOwnProperty('activated')) delete d.data.activated;
+            } else {
+                d.data.activated = false;
+            }
+        });
+    } catch (e) {
+        console.warn('Failed to update rendered node data:', e);
+    }
+
+    // Refresh highlight classes
+    try {
+        updateHighlightClasses();
+    } catch (e) {
+        console.warn('Failed to update highlight classes:', e);
+    }
+}
+
+async function from_clipboard() {
+    const inputEl = document.getElementById('from-clipboard-input');
+    let raw = inputEl && inputEl.value ? inputEl.value.trim() : '';
+
+    if (!raw) {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            alert('Clipboard API not available and input is empty');
+            return;
+        }
+        try {
+            raw = await navigator.clipboard.readText();
+        } catch (e) {
+            alert('Failed to read clipboard: ' + (e && e.message ? e.message : e));
+            return;
+        }
+    }
+
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (e) {
+        alert('Failed to parse JSON from input/clipboard: ' + (e && e.message ? e.message : e));
+        return;
+    }
+
+    if (!Array.isArray(parsed)) {
+        alert('Parsed content is not a JSON array of UIDs');
+        return;
+    }
+
+    // Apply the active ids
+    try {
+        setActiveIds(parsed);
+    } catch (e) {
+        console.error('Error applying active ids:', e);
+    }
+}
+
+if (typeof window.with_eval !== 'undefined' && window.with_eval) {
+    document.addEventListener('DOMContentLoaded', function () {
+        var controlsBar = document.getElementById('controls-bar');
+
+        if (controlsBar && !document.getElementById('from-clipboard-control')) {
+            var fc = document.createElement('div');
+            fc.id = 'from-clipboard-control';
+            fc.innerHTML = `
+                <button id="from-clipboard-btn" class="control-button from-clipboard-btn">Load Active</button>
+                <input id="from-clipboard-input" class="from-clipboard-input" type="text" placeholder='["uid1","uid2",...]'>
+            `;
+            controlsBar.prepend(fc);
+
+            // Wire up events after element creation
+            var inputEl = document.getElementById('from-clipboard-input');
+            var btn = document.getElementById('from-clipboard-btn');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    // call the async function; ignore returned promise
+                    from_clipboard();
+                });
+            }
+            if (inputEl) {
+                inputEl.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        from_clipboard();
+                    }
+                });
+            }
+        }
+
+        if (controlsBar && !document.getElementById('highlight-control')) {
+            var div = document.createElement('div');
+            div.id = 'highlight-control';
+            div.innerHTML = `<label>
+                <span>Highlight Active Path</span>
+                <input type="checkbox" id="highlight-toggle" checked>
+                <span class="highlight-switch-slider"></span>
+            </label>`;
+            controlsBar.prepend(div);
         }
     });
 }
 
-const nodeInfoPanel = document.getElementById('node-info');
-if (nodeInfoPanel) {
-    nodeInfoPanel.addEventListener('mousedown', function (e) {
-        if (e.target.id === 'node-info-pin') return;
-        nodeInfoDragging = true;
-        nodeInfoPanel.classList.add('dragging');
-        nodeInfoOffset.x = e.clientX - nodeInfoPanel.getBoundingClientRect().left;
-        nodeInfoOffset.y = e.clientY - nodeInfoPanel.getBoundingClientRect().top;
-        document.body.style.userSelect = 'none';
-    });
-    document.addEventListener('mousemove', function (e) {
-        if (!nodeInfoDragging) return;
-        let x = e.clientX - nodeInfoOffset.x;
-        let y = e.clientY - nodeInfoOffset.y;
-        nodeInfoPanel.style.left = x + 'px';
-        nodeInfoPanel.style.top = y + 'px';
-        nodeInfoLastPos = {x, y};
-    });
-    document.addEventListener('mouseup', function (e) {
-        if (nodeInfoDragging) {
-            nodeInfoDragging = false;
-            nodeInfoPanel.classList.remove('dragging');
-            document.body.style.userSelect = '';
+if (typeof window.with_watch !== 'undefined' && window.with_watch) {
+    document.addEventListener('DOMContentLoaded', function () {
+        var controlsBar = document.getElementById('controls-bar');
+        if (controlsBar && !document.getElementById('watch-control')) {
+            var div = document.createElement('div');
+            div.id = 'watch-control';
+            div.innerHTML = `<label>
+                <span>Watch Active Path</span>
+                <input type="checkbox" id="watch-toggle" checked>
+                <span class="watch-switch-slider"></span>
+            </label>`;
+            controlsBar.prepend(div);
         }
     });
+
+    setInterval(pollActiveNodes, 500);
 }
 
-if (nodeInfoPanel) {
-    nodeInfoPanel.addEventListener('mouseenter', function (e) {
-        if (nodeInfoCurrentNodeId) {
-            d3.select('#node-info').style('display', 'block');
-        }
-    });
-    nodeInfoPanel.addEventListener('mouseleave', function (e) {
-        if (!nodeInfoPinned && !nodeInfoDragging) {
-            d3.select('#node-info').style('display', 'none');
-            nodeInfoCurrentNodeId = null;
-        }
-    });
-}
+document.addEventListener('DOMContentLoaded', function () {
+    const highlight_toggle = document.getElementById('highlight-toggle');
+    if (highlight_toggle) {
+        highlight_toggle.addEventListener('change', function () {
+            updateHighlightClasses();
+        });
+    }
+
+    updateHighlightClasses();
+
+    initTheme();
+});
 
 document.addEventListener('keydown', function (e) {
     if (e.code === 'Space' || e.key === ' ') {
@@ -875,49 +976,51 @@ document.addEventListener('keydown', function (e) {
     }
 });
 
-if (typeof window.with_watch !== 'undefined' && window.with_watch) {
-    document.addEventListener('DOMContentLoaded', function () {
-        var controlsBar = document.getElementById('controls-bar');
-        if (controlsBar && !document.getElementById('watch-control')) {
-            var div = document.createElement('div');
-            div.id = 'watch-control';
-            div.innerHTML = `<label>
-                <span>Watch Active Path</span>
-                <input type="checkbox" id="watch-toggle" checked>
-                <span class="watch-switch-slider"></span>
-            </label>`;
-            controlsBar.prepend(div);
-        }
-    });
-
-    setInterval(pollActiveNodes, 500);
-}
-
-if (typeof window.with_eval !== 'undefined' && window.with_eval) {
-    document.addEventListener('DOMContentLoaded', function () {
-        var controlsBar = document.getElementById('controls-bar');
-        if (controlsBar && !document.getElementById('highlight-control')) {
-            var div = document.createElement('div');
-            div.id = 'highlight-control';
-            div.innerHTML = `<label>
-                <span>Highlight Active Path</span>
-                <input type="checkbox" id="highlight-toggle" checked>
-                <span class="highlight-switch-slider"></span>
-            </label>`;
-            controlsBar.prepend(div);
+if (nodeInfoPinBtn) {
+    nodeInfoPinBtn.addEventListener('click', function (e) {
+        nodeInfoPinned = !nodeInfoPinned;
+        this.classList.toggle('active', nodeInfoPinned);
+        if (nodeInfoPinned) {
+            this.setAttribute('title', 'Unpin');
+        } else {
+            this.setAttribute('title', 'Pin');
         }
     });
 }
 
-document.addEventListener('DOMContentLoaded', function () {
-    const highlight_toggle = document.getElementById('highlight-toggle');
-    if (highlight_toggle) {
-        highlight_toggle.addEventListener('change', function () {
-            updateHighlightClasses();
-        });
-    }
-
-    updateHighlightClasses();
-
-    initTheme();
-});
+if (nodeInfoPanel) {
+    nodeInfoPanel.addEventListener('mousedown', function (e) {
+        if (e.target.id === 'node-info-pin') return;
+        nodeInfoDragging = true;
+        nodeInfoPanel.classList.add('dragging');
+        nodeInfoOffset.x = e.clientX - nodeInfoPanel.getBoundingClientRect().left;
+        nodeInfoOffset.y = e.clientY - nodeInfoPanel.getBoundingClientRect().top;
+        document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', function (e) {
+        if (!nodeInfoDragging) return;
+        let x = e.clientX - nodeInfoOffset.x;
+        let y = e.clientY - nodeInfoOffset.y;
+        nodeInfoPanel.style.left = x + 'px';
+        nodeInfoPanel.style.top = y + 'px';
+        nodeInfoLastPos = {x, y};
+    });
+    document.addEventListener('mouseup', function (e) {
+        if (nodeInfoDragging) {
+            nodeInfoDragging = false;
+            nodeInfoPanel.classList.remove('dragging');
+            document.body.style.userSelect = '';
+        }
+    });
+    nodeInfoPanel.addEventListener('mouseenter', function (e) {
+        if (nodeInfoCurrentNodeId) {
+            d3.select('#node-info').style('display', 'block');
+        }
+    });
+    nodeInfoPanel.addEventListener('mouseleave', function (e) {
+        if (!nodeInfoPinned && !nodeInfoDragging) {
+            d3.select('#node-info').style('display', 'none');
+            nodeInfoCurrentNodeId = null;
+        }
+    });
+}

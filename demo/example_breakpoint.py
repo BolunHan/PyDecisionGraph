@@ -42,6 +42,7 @@ with RootLogicNode() as root:
                     bp = BreakpointNode.break_(lg_long)
                     LongAction()
         # BreakpointNode is special, that entering it does not automatically link to the current active node.
+        # But it does make itself active one.
         # So we are not expecting to see a `TooManyChildrenError` here, which will raise if any other LogicNode entered here (RootLogicNode only allows 1 child).
         # This is totally valid and recommended to build a complex tree, part by part.
         with bp:

@@ -1,5 +1,7 @@
 import time
 
+from sympy import rotations
+
 from decision_graph.decision_tree import RootLogicNode, LogicMapping, NoAction, LongAction, ShortAction, LGM
 
 
@@ -95,6 +97,7 @@ def main():
     # root = build_dummy()
     root.to_html()
     # root.show()
+    root.eval_path.to_clipboard()
     root.watch(block=False)
 
     def worker():

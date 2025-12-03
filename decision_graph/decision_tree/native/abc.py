@@ -994,10 +994,13 @@ class BreakpointNode(LogicNode):
 
     def __repr__(self) -> str:
         if self.subordinates:
-            return f'<{self.__class__.__name__} connected>(break_from={self.break_from}, link_to={self.linked_to})'
+            return f'<{self.__class__.__name__} connected>(break_from={self.break_from})'
+        elif self.await_connection:
+            return f'<{self.__class__.__name__} active>(break_from={self.break_from})'
+        elif self.parent:
+            return f'<{self.__class__.__name__} idle>(break_from={self.break_from})'
         else:
-            status = "active" if self.await_connection else "idle"
-            return f'<{self.__class__.__name__} {status}>(break_from={self.break_from})'
+            return f'<{self.__class__.__name__} dangling>(break_from={self.break_from})'
 
     @classmethod
     def break_(cls, break_from: LogicGroup, **kwargs):

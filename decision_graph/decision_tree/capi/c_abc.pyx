@@ -1465,6 +1465,9 @@ cdef class NoAction(ActionNode):
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 cdef class LongAction(ActionNode):
     def __cinit__(self, *, ssize_t sig=1, str repr=None, bint auto_connect=True, **kwargs):
@@ -1476,6 +1479,9 @@ cdef class LongAction(ActionNode):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+    def __int__(self):
+        return self.sig
 
 
 cdef class ShortAction(ActionNode):
@@ -1489,6 +1495,9 @@ cdef class ShortAction(ActionNode):
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 cdef class CancelAction(ActionNode):
     def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
@@ -1501,6 +1510,9 @@ cdef class CancelAction(ActionNode):
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 cdef class ClearAction(ActionNode):
     def __cinit__(self, *, ssize_t sig=0, str repr=None, bint auto_connect=True, **kwargs):
@@ -1512,3 +1524,6 @@ cdef class ClearAction(ActionNode):
 
     def __repr__(self):
         return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+    def __int__(self):
+        return self.sig

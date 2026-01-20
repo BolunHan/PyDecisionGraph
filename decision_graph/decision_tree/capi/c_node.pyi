@@ -47,7 +47,7 @@ class RootLogicNode(LogicNode):
     inherit_contexts: bool
     eval_path: NodeEvalPath[LogicNode]
 
-    def __init__(self, name: str = 'Entry Point', inherit_contexts: bool = False, **kwargs) -> None:  # pragma: no cover - implemented in C
+    def __init__(self, name: str = 'Entry Point', inherit_contexts: bool = False, **kwargs) -> None:
         """Create a RootLogicNode.
 
         The constructor automatically passes the kwargs to underlying base classes. If any kwargs are provided, it can mess up the normal initializing process. It is recommended to not provide any kwargs and leave as is.
@@ -168,7 +168,7 @@ class ContextLogicExpression(LogicNode):
     logic_group: LogicGroup
     repr: str
 
-    def __init__(self, *, logic_group: LogicGroup = None, **kwargs) -> None:  # pragma: no cover - C
+    def __init__(self, *, logic_group: LogicGroup = None, **kwargs) -> None:
         """Create a context-aware expression.
 
         If ``logic_group`` is omitted the current active logic group is used.
@@ -244,7 +244,7 @@ class AttrExpression(ContextLogicExpression):
 
     attr: str
 
-    def __init__(self, *, attr: str, repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+    def __init__(self, *, attr: str, repr: str = None, **kwargs) -> None:
         """Create an attribute expression.
 
         The constructor automatically passes the kwargs to underlying base classes, if any.
@@ -269,7 +269,7 @@ class AttrNestedExpression(ContextLogicExpression):
 
     attrs: list[str]
 
-    def __init__(self, *, attrs: list[str], repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+    def __init__(self, *, attrs: list[str], repr: str = None, **kwargs) -> None:
         """Create a nested attribute expression.
 
         The constructor automatically passes the kwargs to underlying base classes, if any.
@@ -293,7 +293,7 @@ class GetterExpression(ContextLogicExpression):
 
     key: Any
 
-    def __init__(self, *, key: Any, repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+    def __init__(self, *, key: Any, repr: str = None, **kwargs) -> None:
         """Create a getter expression.
 
         The constructor automatically passes the kwargs to underlying base classes, if any.
@@ -316,7 +316,7 @@ class GetterNestedExpression(ContextLogicExpression):
 
     keys: list[Any]
 
-    def __init__(self, *, keys: list[Any], repr: str = None, **kwargs) -> None:  # pragma: no cover - C
+    def __init__(self, *, keys: list[Any], repr: str = None, **kwargs) -> None:
         """Create a nested getter expression.
 
         The constructor automatically passes the kwargs to underlying base classes, if any.

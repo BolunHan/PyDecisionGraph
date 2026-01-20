@@ -1100,6 +1100,9 @@ class NoAction(ActionNode):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 class LongAction(ActionNode):
     def __init__(self, *, sig: int = 1, repr='LongAction', **kwargs):
@@ -1111,6 +1114,9 @@ class LongAction(ActionNode):
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+    def __int__(self):
+        return self.sig
 
 
 class ShortAction(ActionNode):
@@ -1124,6 +1130,9 @@ class ShortAction(ActionNode):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 class CancelAction(ActionNode):
     def __init__(self, sig: int = 0, repr='CancelAction', **kwargs):
@@ -1136,6 +1145,9 @@ class CancelAction(ActionNode):
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>(sig={self.sig})'
 
+    def __int__(self):
+        return self.sig
+
 
 class ClearAction(ActionNode):
     def __init__(self, sig: int = 0, repr='ClearAction', **kwargs):
@@ -1147,3 +1159,6 @@ class ClearAction(ActionNode):
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}>(sig={self.sig})'
+
+    def __int__(self):
+        return self.sig

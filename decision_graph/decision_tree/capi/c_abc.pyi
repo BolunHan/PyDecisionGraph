@@ -631,6 +631,8 @@ class NoAction(ActionNode):
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
 
+    def __int__(self): ...
+
 
 class LongAction(ActionNode):
     """An action node variant carrying a positive ``sig`` marker.
@@ -664,6 +666,8 @@ class LongAction(ActionNode):
             auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
+
+    def __int__(self): ...
 
 
 class ShortAction(ActionNode):
@@ -699,6 +703,8 @@ class ShortAction(ActionNode):
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
 
+    def __int__(self): ...
+
 
 class CancelAction(ActionNode):
     """An action node whose evaluation returns itself and performs cancel action."""
@@ -729,6 +735,8 @@ class CancelAction(ActionNode):
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
 
+    def __int__(self): ...
+
 
 class ClearAction(ActionNode):
     """An action node whose evaluation returns itself and performs fully unwind (clear position) action."""
@@ -758,3 +766,5 @@ class ClearAction(ActionNode):
             auto_connect (bool): If True, automatically connect this action node to the active node in the LGM upon creation.
             kwargs: __cinit__ extra kwargs guardian of for subclassing support.
         """
+
+    def __int__(self): ...

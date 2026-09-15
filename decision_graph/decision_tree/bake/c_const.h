@@ -18,6 +18,16 @@
  * flavours copy their text into a block nested under the node.
  */
 
+// ========== Constants ==========
+
+#ifndef DCG_DEF_REPR_TRUE
+#define DCG_DEF_REPR_TRUE "True"
+#endif
+
+#ifndef DCG_DEF_REPR_FALSE
+#define DCG_DEF_REPR_FALSE "False"
+#endif
+
 // ========== Structs ==========
 
 // clang-format off

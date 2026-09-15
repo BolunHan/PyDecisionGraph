@@ -392,7 +392,7 @@ static inline void c_dcg_condition_dealloc(dcg_node_edge_condition* cond) {
 static inline void c_dcg_condition_free(dcg_node_edge_condition* cond) {
     if (!cond) return;
     c_dcg_condition_dealloc(cond);
-    c_ap_free(cond);
+    c_ap_free_owned(cond);  // a condition may carry nested blocks of its own
 }
 
 /**

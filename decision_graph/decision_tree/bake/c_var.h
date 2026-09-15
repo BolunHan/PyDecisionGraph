@@ -214,6 +214,7 @@ static inline int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n
 static inline int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, bool row_major, bool copy, allocator_protocol* allocator);
 
 // Introspection
+static inline const char* c_dcg_ret_code_name(dcg_ret_code code);
 static inline const char* c_dcg_var_type_name(dcg_var_type dtype);
 static inline bool        c_dcg_var_is_numeric(const dcg_var_t* var);
 static inline bool        c_dcg_var_is_container(const dcg_var_t* var);
@@ -266,7 +267,7 @@ static inline dcg_d_vector_t* c_dcg_d_vector_new_child(size_t n, allocator_proto
 
     vector->data = (double*) c_ap_alloc_child(n * sizeof(double), NULL, vector);
     if (!vector->data) {
-        c_ap_free(vector);
+        c_ap_free_owned(vector);
         return NULL;
     }
     vector->n = n;
@@ -361,7 +362,7 @@ static inline dcg_d_matrix_t* c_dcg_d_matrix_new_child(size_t n_rows, size_t n_c
 
     matrix->data = (double*) c_ap_alloc_child(n_rows * n_cols * sizeof(double), NULL, matrix);
     if (!matrix->data) {
-        c_ap_free(matrix);
+        c_ap_free_owned(matrix);
         return NULL;
     }
     matrix->n_rows    = n_rows;
@@ -532,7 +533,7 @@ static inline dcg_var_t* c_dcg_var_new_string(const char* value, allocator_proto
         size_t len = strlen(value);
         char*  buf = (char*) c_ap_alloc_child(len + 1, NULL, var);
         if (!buf) {
-            c_ap_free(var);
+            c_ap_free_owned(var);
             return NULL;
         }
         memcpy(buf, value, len + 1);
@@ -573,7 +574,7 @@ static inline dcg_var_t* c_dcg_var_new_dvector(size_t n, allocator_protocol* all
 
     dcg_d_vector_t* vector = c_dcg_d_vector_new_child(n, NULL, var);
     if (!vector) {
-        c_ap_free(var);
+        c_ap_free_owned(var);
         return NULL;
     }
 
@@ -597,7 +598,7 @@ static inline dcg_var_t* c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, boo
 
     dcg_d_matrix_t* matrix = c_dcg_d_matrix_new_child(n_rows, n_cols, row_major, NULL, var);
     if (!matrix) {
-        c_ap_free(var);
+        c_ap_free_owned(var);
         return NULL;
     }
 
@@ -631,8 +632,8 @@ static inline void c_dcg_var_free(dcg_var_t* var) {
  */
 static inline int c_dcg_var_init(dcg_var_t* var) {
     if (!var) return DCG_ERR_INVALID_ARG;
-    memset(var, 0, sizeof(*var));
-    var->dtype = VAR_TYPE_RAW_PTR;
+    memset(var, 0, sizeof(dcg_var_t));
+    // var->dtype = VAR_TYPE_RAW_PTR;
     return DCG_OK;
 }
 
@@ -751,9 +752,12 @@ static inline int c_dcg_var_init_ptr(dcg_var_t* var, void* value) {
  * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_INVALID_BUF or DCG_ERR_OOM.
  */
 static inline int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, bool copy, allocator_protocol* allocator) {
+    if (!var) return DCG_ERR_INVALID_ARG;
+    // Checked before the buf is touched: a refused init leaves it untouched.
+    if (!c_ap_is_allocator_buf(var)) return DCG_ERR_INVALID_BUF;
+
     int ret = c_dcg_var_init(var);
     if (ret != DCG_OK) return ret;
-    if (!c_ap_is_allocator_buf(var)) return DCG_ERR_INVALID_BUF;
 
     dcg_d_vector_t* vector = (dcg_d_vector_t*) c_ap_alloc_child(sizeof(dcg_d_vector_t), allocator, var);
     if (!vector) return DCG_ERR_OOM;
@@ -764,7 +768,7 @@ static inline int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n
     if (copy && value && n > 0) {
         double* snapshot = (double*) c_ap_alloc_child(n * sizeof(double), NULL, vector);
         if (!snapshot) {
-            c_ap_free(vector);  // unlinks from the var; the value stays empty
+            c_ap_free_owned(vector);  // unlinks from the var; the value stays empty
             return DCG_ERR_OOM;
         }
         memcpy(snapshot, value, n * sizeof(double));
@@ -795,9 +799,12 @@ static inline int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n
  * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_INVALID_BUF or DCG_ERR_OOM.
  */
 static inline int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, bool row_major, bool copy, allocator_protocol* allocator) {
+    if (!var) return DCG_ERR_INVALID_ARG;
+    // Checked before the buf is touched: a refused init leaves it untouched.
+    if (!c_ap_is_allocator_buf(var)) return DCG_ERR_INVALID_BUF;
+
     int ret = c_dcg_var_init(var);
     if (ret != DCG_OK) return ret;
-    if (!c_ap_is_allocator_buf(var)) return DCG_ERR_INVALID_BUF;
 
     dcg_d_matrix_t* matrix = (dcg_d_matrix_t*) c_ap_alloc_child(sizeof(dcg_d_matrix_t), allocator, var);
     if (!matrix) return DCG_ERR_OOM;
@@ -811,7 +818,7 @@ static inline int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n
     if (copy && value && total > 0) {
         double* snapshot = (double*) c_ap_alloc_child(total * sizeof(double), NULL, matrix);
         if (!snapshot) {
-            c_ap_free(matrix);  // unlinks from the var; the value stays empty
+            c_ap_free_owned(matrix);  // unlinks from the var; the value stays empty
             return DCG_ERR_OOM;
         }
         memcpy(snapshot, value, total * sizeof(double));
@@ -824,6 +831,49 @@ static inline int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n
 }
 
 // ========== Introspection ==========
+
+/**
+ * @brief Stable display name of a return code.
+ *
+ * @param code  Return code.
+ * @return Static string; "UNKNOWN" for a code outside the enum.
+ */
+static inline const char* c_dcg_ret_code_name(dcg_ret_code code) {
+    switch (code) {
+        case DCG_OK:
+            return "OK";
+        case DCG_ERR_INVALID_ARG:
+            return "INVALID_ARG";
+        case DCG_ERR_INVALID_BUF:
+            return "INVALID_BUF";
+        case DCG_ERR_OOM:
+            return "OOM";
+        case DCG_ERR_NOT_FOUND:
+            return "NOT_FOUND";
+        case DCG_ERR_FULL:
+            return "FULL";
+        case DCG_ERR_BAD_CAST:
+            return "BAD_CAST";
+        case DCG_ERR_FORMAT:
+            return "FORMAT";
+        case DCG_ERR_TYPE:
+            return "TYPE";
+        case DCG_ERR_CYCLE:
+            return "CYCLE";
+        case DCG_ERR_BUSY:
+            return "BUSY";
+        case DCG_ERR_DUPLICATE:
+            return "DUPLICATE";
+        case DCG_ERR_EDGE:
+            return "EDGE";
+        case DCG_ERR_UNRESOLVED:
+            return "UNRESOLVED";
+        case DCG_ERR_RANGE:
+            return "RANGE";
+        default:
+            return "UNKNOWN";
+    }
+}
 
 /**
  * @brief Stable display name of a value tag.

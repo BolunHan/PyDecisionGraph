@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 
@@ -36,6 +37,20 @@
 #define DCG_VAR_STRING_MAXLEN 128
 #endif
 
+/**
+ * @brief Vigilant mode: refuse a read the value's tag cannot answer.
+ *
+ * Two reads have no correct value to return: one asked for a type the value does
+ * not carry, and one through a reference that points at nothing. A 0.0 or a NULL
+ * would read as a real payload and let the mistake travel to wherever it
+ * surfaces next. In vigilant mode (the default) both print the reader and the
+ * tag to stderr and abort, so the mistake lands where it was made. Define this
+ * to 0 to have the readers hand back their empty value instead.
+ */
+#ifndef DCG_VIGILANT
+#define DCG_VIGILANT 1
+#endif
+
 // ========== Structs ==========
 
 // clang-format off
@@ -48,41 +63,92 @@
  * counts return size_t) - this enum is only for the error-prone ones.
  */
 typedef enum dcg_ret_code {
-    DCG_OK               =  0,  // Success.
-    DCG_ERR_INVALID_ARG  = -1,  // NULL / out-of-range argument.
-    DCG_ERR_INVALID_BUF  = -2,  // Buf is not a block start / not zeroed.
-    DCG_ERR_OOM          = -3,  // Allocation failed.
-    DCG_ERR_NOT_FOUND    = -4,  // Lookup miss.
-    DCG_ERR_FULL         = -5,  // Caller-provided buffer is too small.
-    DCG_ERR_BAD_CAST     = -6,  // Value tags are not convertible.
-    DCG_ERR_FORMAT       = -7,  // Formatting failed.
-    DCG_ERR_TYPE         = -8,  // Node/condition kind does not allow the operation.
-    DCG_ERR_CYCLE        = -9,  // Operation would create a parent/child cycle.
-    DCG_ERR_BUSY         = -10, // Object is in a state that forbids the operation.
-    DCG_ERR_DUPLICATE    = -11, // The edge condition is already registered on the parent.
-    DCG_ERR_EDGE         = -12, // The edge condition is not acceptable for this parent.
-    DCG_ERR_UNRESOLVED   = -13, // No condition could be inferred for the edge.
-    DCG_ERR_RANGE        = -14  // Index outside the container.
+    DCG_OK              = 0,    // Success.
+    DCG_ERR_INVALID_ARG = -1,   // NULL / out-of-range argument.
+    DCG_ERR_INVALID_BUF = -2,   // Buf is not a block start / not zeroed.
+    DCG_ERR_OOM         = -3,   // Allocation failed.
+    DCG_ERR_NOT_FOUND   = -4,   // Lookup miss.
+    DCG_ERR_FULL        = -5,   // Caller-provided buffer is too small.
+    DCG_ERR_BAD_CAST    = -6,   // Value tags are not convertible.
+    DCG_ERR_FORMAT      = -7,   // Formatting failed.
+    DCG_ERR_TYPE        = -8,   // Node/condition kind does not allow the operation.
+    DCG_ERR_CYCLE       = -9,   // Operation would create a parent/child cycle.
+    DCG_ERR_BUSY        = -10,  // Object is in a state that forbids the operation.
+    DCG_ERR_DUPLICATE   = -11,  // The edge condition is already registered on the parent.
+    DCG_ERR_EDGE        = -12,  // The edge condition is not acceptable for this parent.
+    DCG_ERR_UNRESOLVED  = -13,  // No condition could be inferred for the edge.
+    DCG_ERR_RANGE       = -14   // Index outside the container.
 } dcg_ret_code;
+
+/**
+ * @brief Field layout of a value tag (see dcg_var_type).
+ */
+typedef enum dcg_var_type_mask {
+    VAR_TYPE_BASE_MASK  = 0x00FF,  // Extracts the referred-to tag of a value tag.
+    VAR_TYPE_REF_MASK   = 0x0F00,  // Extracts the reference level of a value tag.
+    VAR_TYPE_REF_SHIFT  = 8,       // Bits to shift a masked level down to a count.
+    VAR_TYPE_REF_LEVEL1 = 0x0100,  // Level of a _REF tag: one hop to the value.
+    VAR_TYPE_REF_LEVEL2 = 0x0200   // Level of a _REF_REF tag: two hops to it.
+} dcg_var_type_mask;
 
 /**
  * @brief Value tag of a dcg_var_t.
  *
  * The tag is what the evaluator dispatches on; the payload is read through
  * the matching dcg_var_variant member.
+ *
+ * A tag with no reference bits names a plain value; a tag that has them names a
+ * REFERENCE to another value. `as_ref` is the address of the referred-to value at
+ * level 1, the address of that address at level 2 - one more star per rung - and
+ * the level in VAR_TYPE_REF_MASK is how many there are. The level is a mask and a
+ * shift rather than a pair of special cases, so references nest as deep as they
+ * are made to: a reference to a double is a _REF holding a double*, a reference
+ * to that reference is a _REF_REF holding a double**, and the one after it is
+ * level 3. At every level `dtype & VAR_TYPE_BASE_MASK` still names what sits at
+ * the end of the walk, which is the value the readers hand back.
+ *
+ * A reference owns nothing: the value it refers to belongs to whoever set it up,
+ * must outlive the reference, must keep the shape the level assumes, and must
+ * not be cleared to NULL while a reference to it is read.
  */
 typedef enum dcg_var_type {
-    VAR_TYPE_RAW_PTR  =  0,  // Opaque pointer payload (as_ptr).
-    VAR_TYPE_STRING   =  1,  // NUL-terminated string payload (as_string).
-    VAR_TYPE_BOOL     =  2,  // Boolean payload (as_bool).
-    VAR_TYPE_DOUBLE   =  3,  // Double payload (as_double).
-    VAR_TYPE_INT      =  4,  // Signed integer payload (as_int).
-    VAR_TYPE_OFFSET   =  5,  // Signed offset payload (as_offset).
-    VAR_TYPE_TIME     =  6,  // Session time payload (as_ptr, or as_time).
-    VAR_TYPE_DATE     =  7,  // Session date payload (as_ptr, or as_date).
-    VAR_TYPE_DATETIME =  8,  // Session datetime payload (as_ptr, or as_datetime).
-    VAR_TYPE_D_VECTOR =  9,  // Contiguous double vector (as_dvector).
-    VAR_TYPE_D_MATRIX = 10   // Contiguous double matrix (as_dmatrix).
+    VAR_TYPE_RAW_PTR  = 0,   // Opaque pointer payload (as_ptr).
+    VAR_TYPE_STRING   = 1,   // NUL-terminated string payload (as_string).
+    VAR_TYPE_BOOL     = 2,   // Boolean payload (as_bool).
+    VAR_TYPE_DOUBLE   = 3,   // Double payload (as_double).
+    VAR_TYPE_INT      = 4,   // Signed integer payload (as_int).
+    VAR_TYPE_OFFSET   = 5,   // Signed offset payload (as_offset).
+    VAR_TYPE_TIME     = 6,   // Session time payload (as_ptr, or as_time).
+    VAR_TYPE_DATE     = 7,   // Session date payload (as_ptr, or as_date).
+    VAR_TYPE_DATETIME = 8,   // Session datetime payload (as_ptr, or as_datetime).
+    VAR_TYPE_D_VECTOR = 9,   // Contiguous double vector (as_dvector).
+    VAR_TYPE_D_MATRIX = 10,  // Contiguous double matrix (as_dmatrix).
+
+    // One hop: as_ref is the address of the slot holding the value.
+    VAR_TYPE_RAW_PTR_REF  = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_RAW_PTR,
+    VAR_TYPE_STRING_REF   = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_STRING,
+    VAR_TYPE_BOOL_REF     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_BOOL,
+    VAR_TYPE_DOUBLE_REF   = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_DOUBLE,
+    VAR_TYPE_INT_REF      = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_INT,
+    VAR_TYPE_OFFSET_REF   = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_OFFSET,
+    VAR_TYPE_TIME_REF     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_TIME,
+    VAR_TYPE_DATE_REF     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_DATE,
+    VAR_TYPE_DATETIME_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_DATETIME,
+    VAR_TYPE_D_VECTOR_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_VECTOR,
+    VAR_TYPE_D_MATRIX_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_MATRIX,
+
+    // Two hops: as_ref is the address of the slot holding the one-hop reference.
+    VAR_TYPE_RAW_PTR_REF_REF  = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_RAW_PTR,
+    VAR_TYPE_STRING_REF_REF   = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_STRING,
+    VAR_TYPE_BOOL_REF_REF     = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_BOOL,
+    VAR_TYPE_DOUBLE_REF_REF   = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_DOUBLE,
+    VAR_TYPE_INT_REF_REF      = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_INT,
+    VAR_TYPE_OFFSET_REF_REF   = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_OFFSET,
+    VAR_TYPE_TIME_REF_REF     = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_TIME,
+    VAR_TYPE_DATE_REF_REF     = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_DATE,
+    VAR_TYPE_DATETIME_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_DATETIME,
+    VAR_TYPE_D_VECTOR_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_D_VECTOR,
+    VAR_TYPE_D_MATRIX_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_D_MATRIX
 } dcg_var_type;
 
 /**
@@ -126,17 +192,25 @@ typedef struct dcg_d_matrix_t {
  * its shape-carrying struct, which the var OWNS: it is allocated as a child
  * block of the var, so freeing the var frees the container, its data block
  * and the var in one c_ap_free_owned() walk.
+ *
+ * A reference tag carries a POINTER to the referred-to slot in `as_ref`, and the
+ * level says how many stars it has: the slot holds the value at level 1, the
+ * pointer to it at level 2, a pointer to that pointer at level 3. The tag is
+ * therefore all a reader needs - the level is the number of hops, the base is
+ * what sits at the end of them - and nothing in the payload is ever read as a
+ * value header to find the way.
  */
 typedef union dcg_var_variant {
-    void*           as_ptr;       // VAR_TYPE_RAW_PTR, TIME, DATE, DATETIME.
-    const char*     as_string;    // VAR_TYPE_STRING. NOT owned by the var - see c_dcg_var_new_string.
-    bool            as_bool;      // VAR_TYPE_BOOL.
-    double          as_double;    // VAR_TYPE_DOUBLE.
-    ssize_t         as_int;       // VAR_TYPE_INT.
-    ssize_t         as_offset;    // VAR_TYPE_OFFSET.
-    uint64_t        as_bits;      // Raw 64-bit view of any scalar payload.
-    dcg_d_vector_t* as_dvector;   // VAR_TYPE_D_VECTOR. OWNED - child block of the var.
-    dcg_d_matrix_t* as_dmatrix;   // VAR_TYPE_D_MATRIX. OWNED - child block of the var.
+    void*           as_ptr;      // VAR_TYPE_RAW_PTR, TIME, DATE, DATETIME.
+    const char*     as_string;   // VAR_TYPE_STRING. NOT owned by the var - see c_dcg_var_new_string.
+    bool            as_bool;     // VAR_TYPE_BOOL.
+    double          as_double;   // VAR_TYPE_DOUBLE.
+    ssize_t         as_int;      // VAR_TYPE_INT.
+    ssize_t         as_offset;   // VAR_TYPE_OFFSET.
+    uint64_t        as_bits;     // Raw 64-bit view of any scalar payload.
+    dcg_d_vector_t* as_dvector;  // VAR_TYPE_D_VECTOR. OWNED - child block of the var.
+    dcg_d_matrix_t* as_dmatrix;  // VAR_TYPE_D_MATRIX. OWNED - child block of the var.
+    const void*     as_ref;      // Any _REF tag: the referred-to slot - T* at level 1, T** at level 2, a star per rung.
 #if DCG_VAR_HAS_SESSION_TIME
     session_time_t*     as_time;      // VAR_TYPE_TIME.
     session_date_t*     as_date;      // VAR_TYPE_DATE.
@@ -154,14 +228,15 @@ typedef union dcg_var_variant {
  *     var - c_dcg_var_free() then releases the whole thing in one call and
  *     nothing can leak.
  *   - c_dcg_var_init_*() populates a buffer the caller owns, most often a
- *     node's `out` field. It never allocates, so a string payload stays
- *     borrowed (a node that must own its string sets
- *     DCG_NODE_FLAG_OWN_STRINGS) and a container wraps a buffer the caller
- *     keeps.
+ *     node's `out` field. Only the container initializers allocate, and only
+ *     the shape struct: a string payload stays borrowed, and a container
+ *     either wraps the caller's buffer or snapshots it.
  *
  * A container tag points at a dcg_d_vector_t / dcg_d_matrix_t that the var
  * owns as a child block, so the shape travels with the value and one free
  * releases the var, the container and (when the var allocated it) its data.
+ * A reference tag owns nothing at all: it is an address of a slot that belongs
+ * to whoever set it up, and it reads that slot every time it is read.
  */
 typedef struct dcg_var_t {
     dcg_var_type    dtype;  // Active tag; selects the variant member.
@@ -191,51 +266,62 @@ static inline double          c_dcg_d_matrix_at(const dcg_d_matrix_t* matrix, si
 static inline int             c_dcg_d_matrix_set(dcg_d_matrix_t* matrix, size_t row, size_t col, double value);
 
 // Lifecycle (allocating - the var owns its payload)
-static inline dcg_var_t* c_dcg_var_new(allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_bool(bool value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_double(double value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_int(ssize_t value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_offset(ssize_t value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_string(const char* value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_ptr(void* value, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_dvector(size_t n, allocator_protocol* allocator);
-static inline dcg_var_t* c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, bool row_major, allocator_protocol* allocator);
-static inline void       c_dcg_var_free(dcg_var_t* var);
+static inline dcg_var_t*      c_dcg_var_new(allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_bool(bool value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_double(double value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_int(ssize_t value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_offset(ssize_t value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_string(const char* value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_ptr(void* value, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_dvector(size_t n, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, bool row_major, allocator_protocol* allocator);
+static inline dcg_var_t*      c_dcg_var_new_ref(const dcg_var_t* src, allocator_protocol* allocator);
+static inline void            c_dcg_var_free(dcg_var_t* var);
 
 // Population (caller-owned buffer - never allocates)
-static inline int c_dcg_var_init(dcg_var_t* var);
-static inline int c_dcg_var_init_bool(dcg_var_t* var, bool value);
-static inline int c_dcg_var_init_double(dcg_var_t* var, double value);
-static inline int c_dcg_var_init_int(dcg_var_t* var, ssize_t value);
-static inline int c_dcg_var_init_offset(dcg_var_t* var, ssize_t value);
-static inline int c_dcg_var_init_string(dcg_var_t* var, const char* value);
-static inline int c_dcg_var_init_ptr(dcg_var_t* var, void* value);
-static inline int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, bool copy, allocator_protocol* allocator);
-static inline int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, bool row_major, bool copy, allocator_protocol* allocator);
+static inline int             c_dcg_var_init(dcg_var_t* var);
+static inline int             c_dcg_var_init_bool(dcg_var_t* var, bool value);
+static inline int             c_dcg_var_init_double(dcg_var_t* var, double value);
+static inline int             c_dcg_var_init_int(dcg_var_t* var, ssize_t value);
+static inline int             c_dcg_var_init_offset(dcg_var_t* var, ssize_t value);
+static inline int             c_dcg_var_init_string(dcg_var_t* var, const char* value);
+static inline int             c_dcg_var_init_ref_raw(dcg_var_t* var, dcg_var_type dtype, const void* ref);
+static inline int             c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src);
+static inline int             c_dcg_var_init_ptr(dcg_var_t* var, void* value);
+static inline int             c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, bool copy, allocator_protocol* allocator);
+static inline int             c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, bool row_major, bool copy, allocator_protocol* allocator);
+
+// References
+static inline int             c_dcg_var_ref_level(dcg_var_type dtype);
+static inline bool            c_dcg_var_is_ref(dcg_var_type dtype);
+static inline dcg_var_type    c_dcg_var_ref_base(dcg_var_type dtype);
 
 // Introspection
-static inline const char* c_dcg_ret_code_name(dcg_ret_code code);
-static inline const char* c_dcg_var_type_name(dcg_var_type dtype);
-static inline bool        c_dcg_var_is_numeric(const dcg_var_t* var);
-static inline bool        c_dcg_var_is_container(const dcg_var_t* var);
-static inline bool        c_dcg_var_is_null(const dcg_var_t* var);
-static inline bool        c_dcg_var_is_truthy(const dcg_var_t* var);
-static inline bool        c_dcg_var_equals(const dcg_var_t* lhs, const dcg_var_t* rhs);
+static inline const char*     c_dcg_ret_code_name(dcg_ret_code code);
+static inline const char*     c_dcg_var_type_name(dcg_var_type dtype);
+static inline bool            c_dcg_var_is_numeric(const dcg_var_t* var);
+static inline bool            c_dcg_var_is_container(const dcg_var_t* var);
+static inline bool            c_dcg_var_is_null(const dcg_var_t* var);
+static inline bool            c_dcg_var_is_truthy(const dcg_var_t* var);
+static inline bool            c_dcg_var_equals(const dcg_var_t* lhs, const dcg_var_t* rhs);
 
 // Reading (numeric readers coerce; the rest read their tag only)
+static inline void            c_dcg_var_vigilant_abort(const char* getter, dcg_var_type dtype, const char* what);
+static inline const void*     c_dcg_var_ref_slot(const dcg_var_t* var, const char* getter);
 static inline bool            c_dcg_var_as_bool(const dcg_var_t* var);
 static inline double          c_dcg_var_as_double(const dcg_var_t* var);
 static inline ssize_t         c_dcg_var_as_int(const dcg_var_t* var);
 static inline ssize_t         c_dcg_var_as_offset(const dcg_var_t* var);
 static inline const char*     c_dcg_var_as_string(const dcg_var_t* var);
+static inline const void*     c_dcg_var_as_ref(const dcg_var_t* var);
 static inline void*           c_dcg_var_as_ptr(const dcg_var_t* var);
 static inline dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var);
 static inline dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var);
 static inline int             c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype);
 
 // Output
-static inline int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap);
-static inline int c_dcg_var_print(const dcg_var_t* var, FILE* stream);
+static inline int             c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap);
+static inline int             c_dcg_var_print(const dcg_var_t* var, FILE* stream);
 
 // ========== Containers ==========
 
@@ -608,6 +694,25 @@ static inline dcg_var_t* c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, boo
 }
 
 /**
+ * @brief Allocate a value that references the CONTENT of another value.
+ *
+ * The new value owns nothing: the block is its own, the reference inside it is
+ * the caller's to keep alive, and c_dcg_var_free() leaves the referenced value
+ * untouched.
+ *
+ * @param src        Value whose content is referred to (must outlive the new value).
+ * @param allocator  Allocator for the block (may be NULL).
+ * @return The value, or NULL on OOM / a NULL source.
+ */
+static inline dcg_var_t* c_dcg_var_new_ref(const dcg_var_t* src, allocator_protocol* allocator) {
+    if (!src) return NULL;
+
+    dcg_var_t* var = c_dcg_var_new(allocator);
+    if (var) (void) c_dcg_var_init_ref(var, src);
+    return var;
+}
+
+/**
  * @brief Release a value together with everything it owns.
  *
  * Frees the whole ownership chain - a string copy, a vector or a matrix and
@@ -700,8 +805,8 @@ static inline int c_dcg_var_init_offset(dcg_var_t* var, ssize_t value) {
 /**
  * @brief Populate a caller-owned value with a BORROWED string.
  *
- * Nothing is copied: the caller (or the owning node's
- * DCG_NODE_FLAG_OWN_STRINGS) keeps the text alive. Use c_dcg_var_new_string()
+ * Nothing is copied: the caller keeps the text alive, or hands the value to a
+ * node, which copies it into a block of its own. Use c_dcg_var_new_string()
  * when the value itself should own the text.
  *
  * @param var    Value to populate.
@@ -714,6 +819,77 @@ static inline int c_dcg_var_init_string(dcg_var_t* var, const char* value) {
     var->dtype           = VAR_TYPE_STRING;
     var->value.as_string = value;
     return DCG_OK;
+}
+
+/**
+ * @brief Populate a caller-owned value with a BORROWED reference to another
+ * value, at an explicit level - the primitive behind every reference.
+ *
+ * `ref` is the pointer the level calls for, and `dtype` is that level: a double*
+ * for a _REF to a double, a double** for a _REF_REF to one, one more star per
+ * rung after that. c_dcg_var_init_ref() derives both from a value; reach for this
+ * when the storage is not a dcg_var_t at all - a caller's buffer, a field of a
+ * foreign struct, an element of an array - or when the level is the caller's
+ * decision rather than the source's.
+ *
+ * A reference owns nothing. The storage it points at must outlive it and keep the
+ * shape the level assumes.
+ *
+ * @param var    Value to populate.
+ * @param dtype  A reference tag (VAR_TYPE_*_REF / _REF_REF, or any level above).
+ * @param ref    Pointer to the referred-to slot of that shape. It may be NULL,
+ *               but that is a reference to nothing rather than a value: every
+ *               read through it refuses (see c_dcg_var_ref_slot).
+ * @return DCG_OK, DCG_ERR_INVALID_ARG or DCG_ERR_TYPE (dtype is not a reference).
+ */
+static inline int c_dcg_var_init_ref_raw(dcg_var_t* var, dcg_var_type dtype, const void* ref) {
+    if (!var) return DCG_ERR_INVALID_ARG;
+    if (!c_dcg_var_is_ref(dtype)) return DCG_ERR_TYPE;
+
+    int ret = c_dcg_var_init(var);
+    if (ret != DCG_OK) return ret;
+    var->dtype        = dtype;
+    var->value.as_ref = ref;
+    return DCG_OK;
+}
+
+/**
+ * @brief Populate a caller-owned value with a BORROWED reference to another
+ * value - always one level deeper than what it is given, and one more level of
+ * POINTER in the payload.
+ *
+ * The reference is the address of the source's own payload slot, so what lands
+ * in `as_ref` is exactly what the level calls for:
+ *
+ *   - a plain double holds a double, so the address of that slot is a double*,
+ *     and the reference is a _REF;
+ *   - a double_ref holds a double*, so the address of that slot is a double**,
+ *     and the reference is a _REF_REF;
+ *   - and one more rung adds one more star, as far as the level field holds.
+ *
+ * That is what makes this form and c_dcg_var_init_ref_raw() interchangeable:
+ * c_dcg_var_init_ref(var, src) builds precisely the var_t that
+ * c_dcg_var_init_ref_raw(var, level + 1 | base, &src->value) builds, so there is
+ * one representation of a reference and one way to read it.
+ *
+ * Nothing is copied and nothing is owned: the reference is an address inside the
+ * source, which must outlive it - and must keep the shape the level assumes, so
+ * a middle rung stays a reference for as long as a rung above it exists.
+ *
+ * @param var  Value to populate.
+ * @param src  Value whose content is referred to (must outlive the reference).
+ * @return DCG_OK, or DCG_ERR_INVALID_ARG.
+ */
+static inline int c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src) {
+    if (!var || !src) return DCG_ERR_INVALID_ARG;
+
+    /* One rung above the source, and one more pointer: the address of the slot
+     * the source holds its content (or its own reference) in. A level that
+     * outgrows VAR_TYPE_REF_MASK is not a reference at all, and init_ref_raw
+     * refuses it rather than storing a tag that would read as a plain value. */
+    int level = c_dcg_var_ref_level(src->dtype) + 1;
+
+    return c_dcg_var_init_ref_raw(var, (dcg_var_type) ((level << VAR_TYPE_REF_SHIFT) | c_dcg_var_ref_base(src->dtype)), (const void*) &src->value);
 }
 
 /**
@@ -876,84 +1052,147 @@ static inline const char* c_dcg_ret_code_name(dcg_ret_code code) {
 }
 
 /**
- * @brief Stable display name of a value tag.
+ * @brief How many hops a tag refers through.
+ *
+ * The level is read straight out of the tag - a mask and a shift - so it is
+ * whatever the tag was built with rather than a pair of known cases: 1 for a
+ * _REF, 2 for a _REF_REF, 3 for a reference to one of those, and so on.
  *
  * @param dtype  Value tag.
- * @return Static string; "invalid" for an out-of-range tag.
+ * @return The number of hops, or 0 for a plain tag.
+ */
+static inline int c_dcg_var_ref_level(dcg_var_type dtype) {
+    return (int) (((int) dtype & VAR_TYPE_REF_MASK) >> VAR_TYPE_REF_SHIFT);
+}
+
+/**
+ * @brief Predicate: does the tag name a reference rather than a value?
+ *
+ * @param dtype  Value tag.
+ * @return true for the _REF and _REF_REF tags.
+ */
+static inline bool c_dcg_var_is_ref(dcg_var_type dtype) {
+    return c_dcg_var_ref_level(dtype) != 0;
+}
+
+/**
+ * @brief The tag a value tag refers to.
+ *
+ * A plain tag refers to itself, since its reference bits are already clear, so
+ * this is also the honest way to ask "what is this really?" of any tag.
+ *
+ * @param dtype  Value tag.
+ * @return The referred-to tag (dtype & VAR_TYPE_BASE_MASK).
+ */
+static inline dcg_var_type c_dcg_var_ref_base(dcg_var_type dtype) {
+    return (dcg_var_type) ((int) dtype & VAR_TYPE_BASE_MASK);
+}
+
+/** Display names of the plain tags, indexed by the tag itself. */
+static const char* const  DCG_VAR_TYPE_NAMES[] = {"raw_ptr", "string", "bool", "double", "int", "offset", "time", "date", "datetime", "d_vector", "d_matrix"};
+
+/** Display names of the one-hop references, indexed by the tag referred to. */
+static const char* const  DCG_VAR_TYPE_REF_NAMES[] = {"raw_ptr_ref", "string_ref", "bool_ref", "double_ref", "int_ref", "offset_ref", "time_ref", "date_ref", "datetime_ref", "d_vector_ref", "d_matrix_ref"};
+
+/** Display names of the two-hop references, indexed by the tag referred to. */
+static const char* const  DCG_VAR_TYPE_REF_REF_NAMES[] = {"raw_ptr_ref_ref", "string_ref_ref", "bool_ref_ref", "double_ref_ref", "int_ref_ref", "offset_ref_ref", "time_ref_ref", "date_ref_ref", "datetime_ref_ref", "d_vector_ref_ref", "d_matrix_ref_ref"};
+
+/**
+ * @brief Stable display name of a value tag.
+ *
+ * The tag's level picks the table and its base picks the entry, so a reference
+ * is named after what it refers to plus its own suffix - no parsing, no switch
+ * over tags that grows with every new type.
+ *
+ * The tables stop at the two levels that are commonly used: a reference nested
+ * deeper keeps the _REF_REF name rather than pretending to count the rungs, and
+ * c_dcg_var_ref_level() is where an exact count is read.
+ *
+ * @param dtype  Value tag.
+ * @return Static string; "invalid" for a tag outside the tables.
  */
 static inline const char* c_dcg_var_type_name(dcg_var_type dtype) {
-    switch (dtype) {
-        case VAR_TYPE_RAW_PTR:
-            return "raw_ptr";
-        case VAR_TYPE_STRING:
-            return "string";
-        case VAR_TYPE_BOOL:
-            return "bool";
-        case VAR_TYPE_DOUBLE:
-            return "double";
-        case VAR_TYPE_INT:
-            return "int";
-        case VAR_TYPE_OFFSET:
-            return "offset";
-        case VAR_TYPE_TIME:
-            return "time";
-        case VAR_TYPE_DATE:
-            return "date";
-        case VAR_TYPE_DATETIME:
-            return "datetime";
-        case VAR_TYPE_D_VECTOR:
-            return "d_vector";
-        case VAR_TYPE_D_MATRIX:
-            return "d_matrix";
+    const char* const* names = DCG_VAR_TYPE_NAMES;
+    size_t             count = sizeof(DCG_VAR_TYPE_NAMES) / sizeof(char*);
+
+    switch (c_dcg_var_ref_level(dtype)) {
+        case 0:
+            break;
+        case 1:
+            names = DCG_VAR_TYPE_REF_NAMES;
+            count = sizeof(DCG_VAR_TYPE_REF_NAMES) / sizeof(char*);
+            break;
         default:
-            return "invalid";
+            names = DCG_VAR_TYPE_REF_REF_NAMES;
+            count = sizeof(DCG_VAR_TYPE_REF_REF_NAMES) / sizeof(char*);
+            break;
     }
+
+    size_t base = (size_t) ((int) dtype & VAR_TYPE_BASE_MASK);
+    return base < count ? names[base] : "invalid";
 }
 
 /**
  * @brief Predicate: is the payload a scalar number (int / offset / double)?
+ *
+ * A reference answers for what it points at, so an evaluator can ask before it
+ * follows.
  *
  * @param var  Value to inspect (NULL-safe).
  * @return true when the payload can take part in scalar arithmetic.
  */
 static inline bool c_dcg_var_is_numeric(const dcg_var_t* var) {
     if (!var) return false;
-    return var->dtype == VAR_TYPE_INT || var->dtype == VAR_TYPE_DOUBLE || var->dtype == VAR_TYPE_OFFSET;
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);  // a reference is as numeric as its target
+    return base == VAR_TYPE_INT || base == VAR_TYPE_DOUBLE || base == VAR_TYPE_OFFSET;
 }
 
 /**
  * @brief Predicate: is the payload a container (double vector / matrix)?
  *
  * @param var  Value to inspect (NULL-safe).
- * @return true for the container tags.
+ * @return true for the container tags and the references to them.
  */
 static inline bool c_dcg_var_is_container(const dcg_var_t* var) {
     if (!var) return false;
-    return var->dtype == VAR_TYPE_D_VECTOR || var->dtype == VAR_TYPE_D_MATRIX;
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);
+    return base == VAR_TYPE_D_VECTOR || base == VAR_TYPE_D_MATRIX;
 }
 
 /**
  * @brief Predicate: is the value absent (no payload of any kind)?
+ *
+ * Absent is about the VALUE: a live reference whose slot holds NULL is absent,
+ * like a NULL string or a vector with no buffer. A reference that points at
+ * nothing is not absent, it is broken - the read refuses, and this predicate
+ * refuses with it.
  *
  * @param var  Value to inspect (NULL-safe).
  * @return true for a NULL value or a NULL payload.
  */
 static inline bool c_dcg_var_is_null(const dcg_var_t* var) {
     if (!var) return true;
-    switch (var->dtype) {
+
+    /* The tag behind any reference, or the tag itself: the readers follow the
+     * reference, so asking them answers for the value at the end of it. */
+    switch (c_dcg_var_ref_base(var->dtype)) {
         case VAR_TYPE_RAW_PTR:
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:
         case VAR_TYPE_DATETIME:
-            return var->value.as_ptr == NULL;
+            return c_dcg_var_as_ptr(var) == NULL;
         case VAR_TYPE_STRING:
-            return var->value.as_string == NULL;
-        case VAR_TYPE_D_VECTOR:
-            return var->value.as_dvector == NULL || var->value.as_dvector->data == NULL;
-        case VAR_TYPE_D_MATRIX:
-            return var->value.as_dmatrix == NULL || var->value.as_dmatrix->data == NULL;
+            return c_dcg_var_as_string(var) == NULL;
+        case VAR_TYPE_D_VECTOR: {
+            const dcg_d_vector_t* vector = c_dcg_var_as_dvector(var);
+            return vector == NULL || vector->data == NULL;
+        }
+        case VAR_TYPE_D_MATRIX: {
+            const dcg_d_matrix_t* matrix = c_dcg_var_as_dmatrix(var);
+            return matrix == NULL || matrix->data == NULL;
+        }
         default:
-            return false;
+            return false;  // a scalar is never absent, however empty it reads
     }
 }
 
@@ -961,33 +1200,40 @@ static inline bool c_dcg_var_is_null(const dcg_var_t* var) {
  * @brief Truthiness of a value, following Python's truth rules.
  *
  * Containers follow the sequence rule too: present and non-empty is truthy,
- * absent or empty is falsy.
+ * absent or empty is falsy. A reference is judged by what it points at, read at
+ * the moment of the call - which is what makes a reference usable directly as a
+ * branch condition.
  *
  * @param var  Value to inspect (NULL-safe; NULL is falsy).
  * @return true when the value counts as true in a branch condition.
  */
 static inline bool c_dcg_var_is_truthy(const dcg_var_t* var) {
     if (!var) return false;
-    switch (var->dtype) {
-        case VAR_TYPE_BOOL:
-            return var->value.as_bool;
+
+    switch (c_dcg_var_ref_base(var->dtype)) {
+        case VAR_TYPE_BOOL:  // reads as 1 / 0 through the int reader
         case VAR_TYPE_INT:
-            return var->value.as_int != 0;
         case VAR_TYPE_OFFSET:
-            return var->value.as_offset != 0;
+            return c_dcg_var_as_int(var) != 0;
         case VAR_TYPE_DOUBLE:
-            return var->value.as_double != 0.0;
-        case VAR_TYPE_STRING:
-            return var->value.as_string != NULL && var->value.as_string[0] != '\0';
-        case VAR_TYPE_D_VECTOR:
-            return var->value.as_dvector != NULL && var->value.as_dvector->n > 0;
-        case VAR_TYPE_D_MATRIX:
-            return var->value.as_dmatrix != NULL && var->value.as_dmatrix->n_rows > 0 && var->value.as_dmatrix->n_cols > 0;
+            return c_dcg_var_as_double(var) != 0.0;
+        case VAR_TYPE_STRING: {
+            const char* text = c_dcg_var_as_string(var);
+            return text != NULL && text[0] != '\0';
+        }
+        case VAR_TYPE_D_VECTOR: {
+            const dcg_d_vector_t* vector = c_dcg_var_as_dvector(var);
+            return vector != NULL && vector->n > 0;
+        }
+        case VAR_TYPE_D_MATRIX: {
+            const dcg_d_matrix_t* matrix = c_dcg_var_as_dmatrix(var);
+            return matrix != NULL && matrix->n_rows > 0 && matrix->n_cols > 0;
+        }
         case VAR_TYPE_RAW_PTR:
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:
         case VAR_TYPE_DATETIME:
-            return var->value.as_ptr != NULL;
+            return c_dcg_var_as_ptr(var) != NULL;
         default:
             return false;
     }
@@ -999,7 +1245,8 @@ static inline bool c_dcg_var_is_truthy(const dcg_var_t* var) {
  * Two values of different tags are never equal. Strings compare by content,
  * pointers by address, and the containers element-wise (which is what makes
  * a container usable as a branch condition - and what makes the comparison
- * proportional to the payload).
+ * proportional to the payload). A reference compares as the value it points at,
+ * read at the moment of the call.
  *
  * @param lhs  Left value (NULL-safe).
  * @param rhs  Right value (NULL-safe).
@@ -1008,48 +1255,102 @@ static inline bool c_dcg_var_is_truthy(const dcg_var_t* var) {
 static inline bool c_dcg_var_equals(const dcg_var_t* lhs, const dcg_var_t* rhs) {
     if (lhs == rhs) return true;
     if (!lhs || !rhs) return false;
-    if (lhs->dtype != rhs->dtype) return false;
 
-    switch (lhs->dtype) {
+    /* The tags are compared behind any reference, because that is what the
+     * values really are: a reference to a string and a plain string holding the
+     * same text are the same condition, which is what an edge has to match. The
+     * readers below follow the reference, so nothing has to be copied to find
+     * out. */
+    dcg_var_type left  = c_dcg_var_ref_base(lhs->dtype);
+    dcg_var_type right = c_dcg_var_ref_base(rhs->dtype);
+    if (left != right) return false;
+
+    switch (left) {
         case VAR_TYPE_STRING: {
-            const char* a = lhs->value.as_string;
-            const char* b = rhs->value.as_string;
+            const char* a = c_dcg_var_as_string(lhs);
+            const char* b = c_dcg_var_as_string(rhs);
             if (a == b) return true;
             if (!a || !b) return false;
             return strcmp(a, b) == 0;
         }
         case VAR_TYPE_BOOL:
-            return lhs->value.as_bool == rhs->value.as_bool;
+            return c_dcg_var_as_bool(lhs) == c_dcg_var_as_bool(rhs);
         case VAR_TYPE_DOUBLE:
-            return lhs->value.as_double == rhs->value.as_double;
+            return c_dcg_var_as_double(lhs) == c_dcg_var_as_double(rhs);
         case VAR_TYPE_INT:
-            return lhs->value.as_int == rhs->value.as_int;
         case VAR_TYPE_OFFSET:
-            return lhs->value.as_offset == rhs->value.as_offset;
+            return c_dcg_var_as_int(lhs) == c_dcg_var_as_int(rhs);
         case VAR_TYPE_D_VECTOR: {
-            const dcg_d_vector_t* a = lhs->value.as_dvector;
-            const dcg_d_vector_t* b = rhs->value.as_dvector;
+            const dcg_d_vector_t* a = c_dcg_var_as_dvector(lhs);
+            const dcg_d_vector_t* b = c_dcg_var_as_dvector(rhs);
             if (a == b) return true;
             if (!a || !b || a->n != b->n) return false;
             return a->n == 0 || memcmp(a->data, b->data, a->n * sizeof(double)) == 0;
         }
         case VAR_TYPE_D_MATRIX: {
-            const dcg_d_matrix_t* a = lhs->value.as_dmatrix;
-            const dcg_d_matrix_t* b = rhs->value.as_dmatrix;
+            const dcg_d_matrix_t* a = c_dcg_var_as_dmatrix(lhs);
+            const dcg_d_matrix_t* b = c_dcg_var_as_dmatrix(rhs);
             if (a == b) return true;
             if (!a || !b || a->n_rows != b->n_rows || a->n_cols != b->n_cols || a->row_major != b->row_major) return false;
             size_t total = a->n_rows * a->n_cols;
             return total == 0 || memcmp(a->data, b->data, total * sizeof(double)) == 0;
         }
         default:
-            return lhs->value.as_ptr == rhs->value.as_ptr;
+            return c_dcg_var_as_ptr(lhs) == c_dcg_var_as_ptr(rhs);
     }
 }
 
 // ========== Reading ==========
 
 /**
+ * @brief Refuse a read the value's tag cannot answer - loudly, in vigilant mode.
+ *
+ * Called by a reader that has already found the tag is not one it can read and
+ * not a reference to one. In vigilant mode (DCG_VIGILANT, on by default) this
+ * names the reader and the tag on stderr and aborts; with DCG_VIGILANT = 0 the
+ * message is compiled out and the reader returns its empty value.
+ *
+ * @param getter  Name of the reader that was asked.
+ * @param dtype   Tag of the value it was asked about.
+ * @param what    What is wrong with the read, for the message.
+ */
+static inline void c_dcg_var_vigilant_abort(const char* getter, dcg_var_type dtype, const char* what) {
+#if DCG_VIGILANT
+    (void) fprintf(stderr, "[DCG] %s: %s (tag %s) - invalid access\n", getter, what, c_dcg_var_type_name(dtype));
+    (void) fflush(stderr);
+    abort();
+#else
+    (void) getter;
+    (void) dtype;
+    (void) what;
+#endif
+}
+
+/**
+ * @brief The slot a live reference holds - refusing one that points at nothing.
+ *
+ * A reference with a NULL slot is not a value that reads as absent, it is a
+ * reference that was never pointed at anything (or was pointed at a slot that
+ * has since been cleared): reading through it is a defect, so in vigilant mode
+ * this names the reader and refuses before the dereference happens. With
+ * DCG_VIGILANT = 0 it answers NULL and the caller reads the empty value.
+ *
+ * @param var     Reference to read the slot of.
+ * @param getter  Name of the reader that is asking, for the message.
+ * @return The slot, or NULL when the reference points at nothing.
+ */
+static inline const void* c_dcg_var_ref_slot(const dcg_var_t* var, const char* getter) {
+    if (var->value.as_ref) return var->value.as_ref;
+
+    c_dcg_var_vigilant_abort(getter, var->dtype, "the reference points at nothing");
+    return NULL; /* with the vigil off */
+}
+
+/**
  * @brief Boolean view of a value.
+ *
+ * Never refuses: every tag has a truth value, so this is the one reader that can
+ * always answer.
  *
  * @param var  Value to read (NULL-safe).
  * @return c_dcg_var_is_truthy() of the value.
@@ -1060,6 +1361,11 @@ static inline bool c_dcg_var_as_bool(const dcg_var_t* var) {
 
 /**
  * @brief Numeric view of a value (coercing).
+ *
+ * A reference is followed to the number behind it, so an operand that is a
+ * reference into the caller's environment evaluates like a plain operand. The
+ * number is read out of the slot, never copied out and kept: there is nothing
+ * to own, and the next call sees whatever the slot holds then.
  *
  * @param var  Value to read (NULL-safe).
  * @return The payload as double; 0.0 for a non-numeric or NULL value.
@@ -1075,9 +1381,53 @@ static inline double c_dcg_var_as_double(const dcg_var_t* var) {
             return (double) var->value.as_offset;
         case VAR_TYPE_BOOL:
             return var->value.as_bool ? 1.0 : 0.0;
+
+        /* Level 1 is the common case - an operand reaching into the caller's
+         * values outnumbers one holding its own - so it reads the slot right
+         * here, and only deeper ladders pay for the walk below. */
+        case VAR_TYPE_DOUBLE_REF: {
+            const double* at = (const double*) c_dcg_var_ref_slot(var, "c_dcg_var_as_double");
+            return at ? *at : 0.0;  // NULL only with the vigil off
+        }
+        case VAR_TYPE_INT_REF:
+        case VAR_TYPE_OFFSET_REF: {
+            const ssize_t* at = (const ssize_t*) c_dcg_var_ref_slot(var, "c_dcg_var_as_double");
+            return at ? (double) *at : 0.0;
+        }
+        case VAR_TYPE_BOOL_REF: {
+            const bool* at = (const bool*) c_dcg_var_ref_slot(var, "c_dcg_var_as_double");
+            return at ? (*at ? 1.0 : 0.0) : 0.0;
+        }
         default:
-            return 0.0;
+            break;
     }
+    /* Not a number by tag: only a reference to one - or to a bool, which counts
+     * as one - has an answer to give. */
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);
+    if (base != VAR_TYPE_DOUBLE && base != VAR_TYPE_INT && base != VAR_TYPE_OFFSET && base != VAR_TYPE_BOOL) c_dcg_var_vigilant_abort("c_dcg_var_as_double", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        /* Level 2 and deeper: the slot holds the pointer to the number, one star
+         * per rung after that, so hop and then read what the tag names. */
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_double", var->dtype, "the reference points at nothing");
+            return 0.0;  // with the vigil off
+        }
+        switch (base) {
+            case VAR_TYPE_DOUBLE:
+                return *(const double*) slot;
+            case VAR_TYPE_INT:
+            case VAR_TYPE_OFFSET:
+                return (double) *(const ssize_t*) slot;
+            case VAR_TYPE_BOOL:
+                return *(const bool*) slot ? 1.0 : 0.0;
+            default:
+                return 0.0;  // unreachable in vigilant mode
+        }
+    }
+    return 0.0;
 }
 
 /**
@@ -1097,9 +1447,47 @@ static inline ssize_t c_dcg_var_as_int(const dcg_var_t* var) {
             return (ssize_t) var->value.as_double;
         case VAR_TYPE_BOOL:
             return var->value.as_bool ? 1 : 0;
+
+        /* Level 1 reads the slot right here; only deeper ladders walk below. */
+        case VAR_TYPE_INT_REF:
+        case VAR_TYPE_OFFSET_REF: {
+            const ssize_t* at = (const ssize_t*) c_dcg_var_ref_slot(var, "c_dcg_var_as_int");
+            return at ? *at : 0;  // NULL only with the vigil off
+        }
+        case VAR_TYPE_DOUBLE_REF: {
+            const double* at = (const double*) c_dcg_var_ref_slot(var, "c_dcg_var_as_int");
+            return at ? (ssize_t) *at : 0;
+        }
+        case VAR_TYPE_BOOL_REF: {
+            const bool* at = (const bool*) c_dcg_var_ref_slot(var, "c_dcg_var_as_int");
+            return at ? (*at ? 1 : 0) : 0;
+        }
         default:
-            return 0;
+            break;
     }
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);
+    if (base != VAR_TYPE_INT && base != VAR_TYPE_OFFSET && base != VAR_TYPE_DOUBLE && base != VAR_TYPE_BOOL) c_dcg_var_vigilant_abort("c_dcg_var_as_int", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_int", var->dtype, "the reference points at nothing");
+            return 0;  // with the vigil off
+        }
+        switch (base) {
+            case VAR_TYPE_INT:
+            case VAR_TYPE_OFFSET:
+                return *(const ssize_t*) slot;
+            case VAR_TYPE_DOUBLE:
+                return (ssize_t) * (const double*) slot;
+            case VAR_TYPE_BOOL:
+                return *(const bool*) slot ? 1 : 0;
+            default:
+                return 0;  // unreachable in vigilant mode
+        }
+    }
+    return 0;
 }
 
 /**
@@ -1115,12 +1503,52 @@ static inline ssize_t c_dcg_var_as_offset(const dcg_var_t* var) {
 /**
  * @brief String view of a value (tag-faithful, no coercion).
  *
+ * A reference tag is followed to the string it points at - one hop for a _REF,
+ * two for a _REF_REF - so the text read is whatever the slot holds at the
+ * moment of the call. Every hop is NULL-checked, so a dangling slot reads as
+ * NULL rather than crashing.
+ *
  * @param var  Value to read (NULL-safe).
- * @return The string payload, or NULL when the tag is not a string.
+ * @return The string, or NULL when the tag is not string-shaped.
  */
 static inline const char* c_dcg_var_as_string(const dcg_var_t* var) {
-    if (!var || var->dtype != VAR_TYPE_STRING) return NULL;
-    return var->value.as_string;
+    if (!var) return NULL;
+    if (var->dtype == VAR_TYPE_STRING) return var->value.as_string;
+    if (var->dtype == VAR_TYPE_STRING_REF) {  // level 1: the slot holds the text
+        const char* const* at = (const char* const*) c_dcg_var_ref_slot(var, "c_dcg_var_as_string");
+        return at ? *at : NULL;
+    }
+
+    /* Not a string by tag: only a reference to one has an answer to give. */
+    if (c_dcg_var_ref_base(var->dtype) != VAR_TYPE_STRING) c_dcg_var_vigilant_abort("c_dcg_var_as_string", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_string", var->dtype, "the reference points at nothing");
+            return NULL;  // with the vigil off
+        }
+        return *(const char* const*) slot;
+    }
+    return NULL;
+}
+
+/**
+ * @brief The pointer a reference tag holds, exactly as stored (no hop).
+ *
+ * A T* at level 1, a T** at level 2, one more star per rung - which is what
+ * identity checks want: two references are the same reference when they are the
+ * same address, whatever it points at. The value at the end of it is what the
+ * readers return.
+ *
+ * @param var  Value to read (NULL-safe).
+ * @return The stored pointer, or NULL when the tag is not a reference.
+ */
+static inline const void* c_dcg_var_as_ref(const dcg_var_t* var) {
+    if (!var) return NULL;
+    if (!c_dcg_var_is_ref(var->dtype)) c_dcg_var_vigilant_abort("c_dcg_var_as_ref", var->dtype, "cannot read this type");
+    return var->value.as_ref;
 }
 
 /**
@@ -1137,31 +1565,91 @@ static inline void* c_dcg_var_as_ptr(const dcg_var_t* var) {
         case VAR_TYPE_DATE:
         case VAR_TYPE_DATETIME:
             return var->value.as_ptr;
+
+        /* Level 1 of the pointer-shaped tags: the slot holds the pointer. */
+        case VAR_TYPE_RAW_PTR_REF:
+        case VAR_TYPE_TIME_REF:
+        case VAR_TYPE_DATE_REF:
+        case VAR_TYPE_DATETIME_REF: {
+            void* const* at = (void* const*) c_dcg_var_ref_slot(var, "c_dcg_var_as_ptr");
+            return at ? *at : NULL;
+        }
         default:
-            return NULL;
+            break;
     }
+    /* Not pointer-shaped by tag: only a reference to something that is has an
+     * answer to give. */
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);
+    if (base != VAR_TYPE_RAW_PTR && base != VAR_TYPE_TIME && base != VAR_TYPE_DATE && base != VAR_TYPE_DATETIME) c_dcg_var_vigilant_abort("c_dcg_var_as_ptr", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_ptr", var->dtype, "the reference points at nothing");
+            return NULL;  // with the vigil off
+        }
+        return *(void* const*) slot;
+    }
+    return NULL;
 }
 
 /**
  * @brief Vector view of a value (tag-faithful).
  *
  * @param var  Value to read (NULL-safe).
- * @return The vector, or NULL when the tag is not a vector.
+ * @return The vector, or NULL when the tag is not a vector or a reference to one.
  */
 static inline dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var) {
-    if (!var || var->dtype != VAR_TYPE_D_VECTOR) return NULL;
-    return var->value.as_dvector;
+    if (!var) return NULL;
+    if (var->dtype == VAR_TYPE_D_VECTOR) return var->value.as_dvector;
+    if (var->dtype == VAR_TYPE_D_VECTOR_REF) {  // level 1: the slot holds the container
+        dcg_d_vector_t* const* at = (dcg_d_vector_t* const*) c_dcg_var_ref_slot(var, "c_dcg_var_as_dvector");
+        return at ? *at : NULL;
+    }
+
+    /* Not a vector by tag: only a reference to one has an answer to give. */
+    if (c_dcg_var_ref_base(var->dtype) != VAR_TYPE_D_VECTOR) c_dcg_var_vigilant_abort("c_dcg_var_as_dvector", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_dvector", var->dtype, "the reference points at nothing");
+            return NULL;  // with the vigil off
+        }
+        return *(dcg_d_vector_t* const*) slot;
+    }
+    return NULL;
 }
 
 /**
  * @brief Matrix view of a value (tag-faithful).
  *
  * @param var  Value to read (NULL-safe).
- * @return The matrix, or NULL when the tag is not a matrix.
+ * @return The matrix, or NULL when the tag is not a matrix or a reference to one.
  */
 static inline dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var) {
-    if (!var || var->dtype != VAR_TYPE_D_MATRIX) return NULL;
-    return var->value.as_dmatrix;
+    if (!var) return NULL;
+    if (var->dtype == VAR_TYPE_D_MATRIX) return var->value.as_dmatrix;
+    if (var->dtype == VAR_TYPE_D_MATRIX_REF) {  // level 1: the slot holds the container
+        dcg_d_matrix_t* const* at = (dcg_d_matrix_t* const*) c_dcg_var_ref_slot(var, "c_dcg_var_as_dmatrix");
+        return at ? *at : NULL;
+    }
+
+    /* Not a matrix by tag: only a reference to one has an answer to give. */
+    if (c_dcg_var_ref_base(var->dtype) != VAR_TYPE_D_MATRIX) c_dcg_var_vigilant_abort("c_dcg_var_as_dmatrix", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_dmatrix", var->dtype, "the reference points at nothing");
+            return NULL;  // with the vigil off
+        }
+        return *(dcg_d_matrix_t* const*) slot;
+    }
+    return NULL;
 }
 
 /**
@@ -1171,6 +1659,10 @@ static inline dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var) {
  * double) and from any pointer-shaped tag to RAW_PTR. Strings and containers
  * are never silently reinterpreted: a baked graph keeps its dtypes honest, so
  * a mismatch surfaces at bake time rather than producing 0.0 at eval time.
+ *
+ * A reference is followed on the way in, so casting a reference to a number
+ * gives the number the slot holds. The way back does not exist: a reference tag
+ * is a borrowed slot, and only c_dcg_var_init_ref() hands one over.
  *
  * @param out    Receives the converted value (NULL-safe: skipped when NULL).
  * @param var    Value to convert.
@@ -1184,30 +1676,38 @@ static inline int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_t
     (void) c_dcg_var_init(&converted);
     converted.dtype = dtype;
 
+    /* What the source really is: its own tag, or the tag behind its reference.
+     * Every branch below reads through the readers, which follow the reference
+     * themselves - so nothing is ever resolved into a value of its own. */
+    dcg_var_type base = c_dcg_var_ref_base(var->dtype);
+
     if (var->dtype == dtype) {
-        converted = *var;
+        converted = *var;  // Same tag: a copy of the value, a reference included.
+    }
+    else if (c_dcg_var_is_ref(dtype)) {
+        return DCG_ERR_BAD_CAST;  // never synthesized - only init_ref / init_ref_raw hand one over
+    }
+    else if (dtype == VAR_TYPE_D_VECTOR || dtype == VAR_TYPE_D_MATRIX) {
+        if (base != dtype) return DCG_ERR_BAD_CAST;  // a vector is not a matrix
+        if (dtype == VAR_TYPE_D_VECTOR) converted.value.as_dvector = c_dcg_var_as_dvector(var);
+        else converted.value.as_dmatrix = c_dcg_var_as_dmatrix(var);
     }
     else if (dtype == VAR_TYPE_BOOL) {
         converted.value.as_bool = c_dcg_var_is_truthy(var);
     }
-    else if (dtype == VAR_TYPE_INT) {
-        if (var->dtype == VAR_TYPE_STRING || c_dcg_var_is_container(var)) return DCG_ERR_BAD_CAST;
-        converted.value.as_int = c_dcg_var_as_int(var);
-    }
-    else if (dtype == VAR_TYPE_OFFSET) {
-        if (var->dtype == VAR_TYPE_STRING || c_dcg_var_is_container(var)) return DCG_ERR_BAD_CAST;
-        converted.value.as_offset = c_dcg_var_as_int(var);
-    }
-    else if (dtype == VAR_TYPE_DOUBLE) {
-        if (var->dtype == VAR_TYPE_STRING || c_dcg_var_is_container(var)) return DCG_ERR_BAD_CAST;
-        converted.value.as_double = c_dcg_var_as_double(var);
+    else if (dtype == VAR_TYPE_INT || dtype == VAR_TYPE_OFFSET || dtype == VAR_TYPE_DOUBLE) {
+        if (base == VAR_TYPE_STRING || c_dcg_var_is_container(var)) return DCG_ERR_BAD_CAST;
+        if (dtype == VAR_TYPE_INT) converted.value.as_int = c_dcg_var_as_int(var);
+        else if (dtype == VAR_TYPE_OFFSET) converted.value.as_offset = c_dcg_var_as_int(var);
+        else converted.value.as_double = c_dcg_var_as_double(var);
     }
     else if (dtype == VAR_TYPE_RAW_PTR) {
-        converted.value.as_ptr = var->value.as_ptr;
+        if (base == VAR_TYPE_STRING) converted.value.as_ptr = (void*) c_dcg_var_as_string(var);
+        else if (base == VAR_TYPE_RAW_PTR || base == VAR_TYPE_TIME || base == VAR_TYPE_DATE || base == VAR_TYPE_DATETIME) converted.value.as_ptr = c_dcg_var_as_ptr(var);
+        else return DCG_ERR_BAD_CAST;
     }
     else if (dtype == VAR_TYPE_STRING) {
-        if (var->dtype != VAR_TYPE_STRING) return DCG_ERR_BAD_CAST;
-        converted.value.as_string = var->value.as_string;
+        converted.value.as_string = c_dcg_var_as_string(var);
     }
     else {
         return DCG_ERR_BAD_CAST;
@@ -1223,7 +1723,9 @@ static inline int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_t
  * @brief Format a value into a caller-provided buffer (renderer support).
  *
  * Strings render quoted, doubles with %g, pointers as 0x addresses, bools as
- * true/false, and containers as their shape with their first elements.
+ * true/false, and containers as their shape with their first elements. A
+ * reference renders as the value it points at - c_dcg_var_type_name() is where
+ * the storage shows, so a renderer can tell a read-through from a plain value.
  *
  * @param var  Value to format (NULL-safe: renders "(null)").
  * @param out  Destination buffer.
@@ -1238,30 +1740,32 @@ static inline int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) 
         return n < 0 ? DCG_ERR_FORMAT : n;
     }
 
+    /* The tag behind any reference, or the tag itself: the readers follow the
+     * reference, so the value at the end of it is what gets rendered. */
     int n = 0;
-    switch (var->dtype) {
+    switch (c_dcg_var_ref_base(var->dtype)) {
         case VAR_TYPE_BOOL:
-            n = snprintf(out, cap, "%s", var->value.as_bool ? "true" : "false");
+            n = snprintf(out, cap, "%s", c_dcg_var_as_bool(var) ? "true" : "false");
             break;
         case VAR_TYPE_INT:
-            n = snprintf(out, cap, "%zd", var->value.as_int);
-            break;
         case VAR_TYPE_OFFSET:
-            n = snprintf(out, cap, "%zd", var->value.as_offset);
+            n = snprintf(out, cap, "%zd", c_dcg_var_as_int(var));
             break;
         case VAR_TYPE_DOUBLE:
-            n = snprintf(out, cap, "%g", var->value.as_double);
+            n = snprintf(out, cap, "%g", c_dcg_var_as_double(var));
             break;
-        case VAR_TYPE_STRING:
-            n = var->value.as_string ? snprintf(out, cap, "\"%s\"", var->value.as_string) : snprintf(out, cap, "NULL");
+        case VAR_TYPE_STRING: {
+            const char* text = c_dcg_var_as_string(var);
+            n                = text ? snprintf(out, cap, "\"%s\"", text) : snprintf(out, cap, "NULL");
             break;
+        }
         case VAR_TYPE_D_VECTOR: {
-            const dcg_d_vector_t* vector = var->value.as_dvector;
+            const dcg_d_vector_t* vector = c_dcg_var_as_dvector(var);
             n                            = vector ? snprintf(out, cap, "d_vector(n=%zu)", vector->n) : snprintf(out, cap, "d_vector(NULL)");
             break;
         }
         case VAR_TYPE_D_MATRIX: {
-            const dcg_d_matrix_t* matrix = var->value.as_dmatrix;
+            const dcg_d_matrix_t* matrix = c_dcg_var_as_dmatrix(var);
             n                            = matrix ? snprintf(out, cap, "d_matrix(%zux%zu)", matrix->n_rows, matrix->n_cols) : snprintf(out, cap, "d_matrix(NULL)");
             break;
         }
@@ -1269,7 +1773,7 @@ static inline int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) 
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:
         case VAR_TYPE_DATETIME:
-            n = snprintf(out, cap, "0x%zx", (size_t) (uintptr_t) var->value.as_ptr);
+            n = snprintf(out, cap, "0x%zx", (size_t) (uintptr_t) c_dcg_var_as_ptr(var));
             break;
         default:
             n = snprintf(out, cap, "<invalid:%d>", (int) var->dtype);

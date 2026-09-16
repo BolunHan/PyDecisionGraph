@@ -184,4 +184,46 @@ static inline dcg_action_node* c_dcg_node_new_action_placeholder(bool auto_conne
     return node;
 }
 
+/**
+ * @brief The placeholder slot under a node: the one already reserved, or a new one.
+ *
+ * The opening half of the placeholder discipline - the closing half is
+ * c_dcg_node_consolidate_placeholder(). A branch that is about to be built
+ * reserves its slot first, and whatever fills the slot replaces the
+ * placeholder; a slot nothing ever fills becomes a no-action when the graph
+ * closes.
+ *
+ * The rules are the capi's, in its order:
+ *
+ *   - an existing placeholder is reused, so a build that descends into a node
+ *     fills the slot that is already reserved rather than reserving a second;
+ *   - otherwise a placeholder is appended on the INFERRED edge, which is what
+ *     makes this fail exactly when the node has no room left for a branch -
+ *     a node with one non-binary child and no free edge, say. A root is no
+ *     exception: the inference hands back the unconditioned edge it requires.
+ *
+ * The placeholder is allocated from the same allocator the node came from, so
+ * the two are one allocation family; it is NOT nested under the node, because
+ * a node does not own its children (see c_dcg_node_free).
+ *
+ * @param node  Node to reserve a slot under (NULL-safe).
+ * @return The placeholder, or NULL on OOM / when no edge can be inferred.
+ */
+static inline dcg_node* c_dcg_node_get_placeholder(dcg_node* node) {
+    if (!node) return NULL;
+
+    for (dcg_node* child = node->children; child; child = child->next_sibling) {
+        if (child->ntype == DCG_NODE_PLACEHOLDER) return child;
+    }
+
+    dcg_action_node* placeholder = c_dcg_node_new_action_placeholder(false, c_ap_protocol_from_ptr(node));
+    if (!placeholder) return NULL;
+
+    if (c_dcg_node_append_auto(node, &placeholder->base) != DCG_OK) {
+        c_dcg_node_free_action(placeholder);
+        return NULL;
+    }
+    return &placeholder->base;
+}
+
 #endif  // C_DCG_BAKE_ACTION_H

@@ -472,11 +472,12 @@ static inline bool c_dcg_node_type_is_op(dcg_node_type ntype) {
 /**
  * @brief Predicate: does the kind live in the base header alone?
  *
- * A constant, a list, an action and a special ARE the whole struct - their
- * variant adds no field of its own - so a dcg_node block holds them. An
- * expression carries its operand array after the header, a mapping its index
- * and its slots, a variable its owner: those need their family's constructor,
- * because only the family knows how big the block has to be.
+ * A constant and a list ARE the whole struct - their variant adds no field of
+ * its own - so a dcg_node block holds them. An expression carries its operand
+ * array after the header, a mapping its index and its slots, a variable its
+ * owner, an action its placement fields, a root or a breakpoint its walk state:
+ * those need their family's constructor, because only the family knows how big
+ * the block has to be.
  *
  * @param ntype  Node kind.
  * @return true when a plain dcg_node block is enough for the kind.
@@ -484,13 +485,11 @@ static inline bool c_dcg_node_type_is_op(dcg_node_type ntype) {
 static inline bool c_dcg_node_type_is_flat(dcg_node_type ntype) {
     switch ((int) ntype & DCG_NODE_FAMILY_MASK) {
         case DCG_NODE_CONST:
-        case DCG_NODE_ACTION:
-        case DCG_NODE_SPECIAL:
             return true;
         case DCG_NODE_COLLECTION:
             return ntype == DCG_NODE_LIST;
         default:
-            return false;  // the operator family always carries its operands
+            return false;  // an operator carries operands, the rest carry their own state
     }
 }
 

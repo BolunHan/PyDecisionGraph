@@ -34,8 +34,6 @@
 
 // ========== Structs ==========
 
-// clang-format off
-
 /**
  * @brief A mapping node: the base node plus a key index over its value slots.
  *
@@ -81,8 +79,6 @@ typedef struct dcg_variable_node {
     dcg_node* parent;  // NOT owned - the node that holds the reflected value, or NULL.
 } dcg_variable_node;
 
-// clang-format on
-
 // ========== Forward Declarations ==========
 
 // Lifecycle
@@ -106,17 +102,12 @@ static inline dcg_variable_node* c_dcg_node_get_mapping_node(const dcg_mapping_n
 static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, dcg_var_t* value, allocator_protocol* allocator);
 static inline void               c_dcg_node_free_var(dcg_variable_node* node);
 
-// Entries
-static inline size_t             c_dcg_node_mapping_len(const dcg_mapping_node* node);
-static inline int                c_dcg_node_mapping_remove(dcg_mapping_node* node, const char* key, size_t key_len);
-
 // Payload teardown, registered with the base by the mapping constructor
 static inline void               c_dcg_node_mapping_variant_dealloc(dcg_node* node);
 
 // Internal helpers (exposed for reuse and testing - not part of the stable surface)
-static inline dcg_var_t*         c_dcg_node_mapping_slot(const dcg_mapping_node* node, const char* key, size_t key_len);
-static inline dcg_var_t*         c_dcg_node_mapping_slot_create(dcg_mapping_node* node, const char* key, size_t key_len);
-static inline int                c_dcg_node_mapping_store(dcg_mapping_node* node, dcg_var_t* slot, dcg_var_t value);
+static inline dcg_var_t*         c_dcg_node_mapping_get_slot(const dcg_mapping_node* node, const char* key, size_t key_len);
+static inline dcg_var_t*         c_dcg_node_mapping_get_create_slot(dcg_mapping_node* node, const char* key, size_t key_len);
 
 // ========== Lifecycle Methods ==========
 
@@ -197,14 +188,14 @@ static inline void c_dcg_node_free_mapping(dcg_mapping_node* node) {
 // ========== Internal Helpers ==========
 
 /**
- * @brief The slot an entry occupies, or NULL when the key is not held.
+ * @brief Get a slot: the one an entry occupies, or NULL when the key is not held.
  *
  * @param node     Node to read (NULL-safe).
  * @param key      Entry name.
  * @param key_len  Length of key.
  * @return The live slot, or NULL.
  */
-static inline dcg_var_t* c_dcg_node_mapping_slot(const dcg_mapping_node* node, const char* key, size_t key_len) {
+static inline dcg_var_t* c_dcg_node_mapping_get_slot(const dcg_mapping_node* node, const char* key, size_t key_len) {
     if (!node || !key) return NULL;
 
     void* stored = NULL;
@@ -216,75 +207,57 @@ static inline dcg_var_t* c_dcg_node_mapping_slot(const dcg_mapping_node* node, c
 }
 
 /**
- * @brief The slot an entry occupies, taking one when the key is new.
+ * @brief Get or create a slot: the one an entry occupies, taking one when the
+ * key is new.
  *
- * The slot block grows by doubling; the bytemap holds the slot INDEX, so a
- * move does not invalidate the index - which is why the index rather than a
- * pointer is what the map stores.
+ * One hash and one probe walk, whether the key is known or new: the index the
+ * mapping would hand out next is offered to the map as the default, and
+ * c_bytemap_ex_set_default either finds the key and hands back its own index or
+ * writes that default. A get followed by a set would hash the key twice and walk
+ * the table twice for the same answer.
+ *
+ * The slot block grows by doubling, and only when the key really was new; the
+ * bytemap holds the slot INDEX, so a move does not invalidate the index - which
+ * is why the index, rather than a pointer into the block, is what the map holds.
  *
  * @param node     Node to modify.
  * @param key      Entry name.
  * @param key_len  Length of key.
  * @return The slot, or NULL on OOM / invalid argument.
  */
-static inline dcg_var_t* c_dcg_node_mapping_slot_create(dcg_mapping_node* node, const char* key, size_t key_len) {
+static inline dcg_var_t* c_dcg_node_mapping_get_create_slot(dcg_mapping_node* node, const char* key, size_t key_len) {
     if (!node || !key) return NULL;
 
-    void*  stored = NULL;
-    size_t index  = 0;
+    uintptr_t index      = (uintptr_t) node->n_slots;
+    char*     stored     = NULL;
+    size_t    stored_len = 0;
 
-    if (c_bytemap_get(&node->idx_mapping, key, key_len, &stored) == BYTEMAP_OK) {
-        index = (size_t) (uintptr_t) stored;
-        if (index < node->n_slots) return &node->slots[index];
-        return NULL;
+    if (c_bytemap_ex_set_default(&node->idx_mapping, key, key_len, (const char*) &index, sizeof(index), 0, &stored, &stored_len) != BYTEMAP_OK) return NULL;
+    if (!stored || stored_len != sizeof(uintptr_t)) return NULL;
+
+    uintptr_t slot_index = 0;
+    memcpy(&slot_index, stored, sizeof(slot_index));
+
+    /* The key was new exactly when the map handed back the default, which is the
+     * index of a slot this block does not have yet. */
+    if (slot_index == node->n_slots) {
+        if (node->n_slots == node->capacity) {
+            size_t new_capacity = node->capacity ? node->capacity * 2 : DCG_MAPPING_DEFAULT_CAPACITY;
+            void*  grown        = c_ap_realloc(node->slots, new_capacity * sizeof(dcg_var_t), NULL);
+            if (!grown) {
+                c_bytemap_pop(&node->idx_mapping, key, key_len, NULL); /* take the index back */
+                return NULL;
+            }
+
+            node->slots = (dcg_var_t*) grown;
+            for (size_t i = node->capacity; i < new_capacity; i++) (void) c_dcg_var_init(&node->slots[i]);
+            node->capacity = new_capacity;
+        }
+        node->n_slots++;
     }
 
-    if (node->n_slots == node->capacity) {
-        size_t new_capacity = node->capacity * 2;
-        void*  grown        = c_ap_realloc(node->slots, new_capacity * sizeof(dcg_var_t), NULL);
-        if (!grown) return NULL;
-
-        node->slots = (dcg_var_t*) grown;
-        for (size_t i = node->capacity; i < new_capacity; i++) (void) c_dcg_var_init(&node->slots[i]);
-        node->capacity = new_capacity;
-    }
-
-    index = node->n_slots++;
-    if (c_bytemap_set(&node->idx_mapping, key, key_len, (void*) (uintptr_t) index, NULL) != BYTEMAP_OK) {
-        node->n_slots--;
-        return NULL;
-    }
-    return &node->slots[index];
-}
-
-/**
- * @brief Store a value into a slot, releasing what the slot held.
- *
- * A string is copied into a block nested under the node, so the caller's text
- * can go away at once; anything else is stored as it is.
- *
- * @param node   Node the slot belongs to (the copy nests under it).
- * @param slot   Slot to write.
- * @param value  Value to store.
- * @return DCG_OK, or a DCG_ERR_* code.
- */
-static inline int c_dcg_node_mapping_store(dcg_mapping_node* node, dcg_var_t* slot, dcg_var_t value) {
-    if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) {
-        c_ap_free_owned((void*) slot->value.as_string);
-        (void) c_dcg_var_init(slot);
-    }
-
-    if (value.dtype != VAR_TYPE_STRING) {
-        *slot = value;
-        return DCG_OK;
-    }
-    if (!value.value.as_string) return c_dcg_var_init_string(slot, NULL);
-
-    size_t len  = strlen(value.value.as_string);
-    char*  copy = (char*) c_ap_alloc_child(len + 1, NULL, node);
-    if (!copy) return DCG_ERR_OOM;
-    memcpy(copy, value.value.as_string, len + 1);
-    return c_dcg_var_init_string(slot, copy);
+    if (slot_index >= node->n_slots) return NULL; /* not an index this mapping handed out */
+    return &node->slots[slot_index];
 }
 
 // ========== Public APIs - Setters ==========
@@ -306,10 +279,29 @@ static inline int c_dcg_node_mapping_store(dcg_mapping_node* node, dcg_var_t* sl
 static inline int c_dcg_node_set_mapping(dcg_mapping_node* node, const char* key, size_t key_len, dcg_var_t* value) {
     if (!node || !key || !value) return DCG_ERR_INVALID_ARG;
 
-    dcg_var_t* slot = c_dcg_node_mapping_slot_create(node, key, key_len);
+    dcg_var_t* slot = c_dcg_node_mapping_get_create_slot(node, key, key_len);
     if (!slot) return DCG_ERR_OOM;
 
-    return c_dcg_node_mapping_store(node, slot, *value);
+    /* What the slot held goes first: a string value is a nested block of this
+     * node, and it is about to be replaced. */
+    if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) {
+        c_ap_free_owned((void*) slot->value.as_string);
+        (void) c_dcg_var_init(slot);
+    }
+
+    if (value->dtype != VAR_TYPE_STRING) {
+        *slot = *value;
+        return DCG_OK;
+    }
+    if (!value->value.as_string) return c_dcg_var_init_string(slot, NULL);
+
+    /* The text is copied into a block nested under this node, so the caller's
+     * string can go away at once. */
+    size_t len  = strlen(value->value.as_string);
+    char*  copy = (char*) c_ap_alloc_child(len + 1, NULL, node);
+    if (!copy) return DCG_ERR_OOM;
+    memcpy(copy, value->value.as_string, len + 1);
+    return c_dcg_var_init_string(slot, copy);
 }
 
 /**
@@ -328,7 +320,7 @@ static inline int c_dcg_node_set_mapping(dcg_mapping_node* node, const char* key
 static inline int c_dcg_node_set_mapping_ref(dcg_mapping_node* node, const char* key, size_t key_len, dcg_var_t* value) {
     if (!node || !key || !value) return DCG_ERR_INVALID_ARG;
 
-    dcg_var_t* slot = c_dcg_node_mapping_slot_create(node, key, key_len);
+    dcg_var_t* slot = c_dcg_node_mapping_get_create_slot(node, key, key_len);
     if (!slot) return DCG_ERR_OOM;
 
     if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) c_ap_free_owned((void*) slot->value.as_string);
@@ -426,7 +418,7 @@ static inline int c_dcg_node_set_mapping_bool(dcg_mapping_node* node, const char
  * @return The slot, or NULL.
  */
 static inline dcg_var_t* c_dcg_node_get_mapping_var(const dcg_mapping_node* node, const char* key, size_t key_len) {
-    return c_dcg_node_mapping_slot(node, key, key_len);
+    return c_dcg_node_mapping_get_slot(node, key, key_len);
 }
 
 /**
@@ -443,7 +435,7 @@ static inline dcg_var_t* c_dcg_node_get_mapping_var(const dcg_mapping_node* node
  * @return The variable node, or NULL when the key is missing / on OOM.
  */
 static inline dcg_variable_node* c_dcg_node_get_mapping_node(const dcg_mapping_node* node, const char* key, size_t key_len) {
-    dcg_var_t* slot = c_dcg_node_mapping_slot(node, key, key_len);
+    dcg_var_t* slot = c_dcg_node_mapping_get_slot(node, key, key_len);
     if (!slot) return NULL;
 
     dcg_variable_node* var = c_dcg_node_new_var(key, slot, node ? c_ap_protocol_from_ptr((void*) node) : NULL);
@@ -491,47 +483,6 @@ static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, dcg_var_t*
 static inline void c_dcg_node_free_var(dcg_variable_node* node) {
     if (!node) return;
     c_dcg_node_free(&node->base);
-}
-
-// ========== Public APIs - Entries ==========
-
-/**
- * @brief Number of live entries.
- *
- * @param node  Node to read (NULL-safe).
- * @return The entry count.
- */
-static inline size_t c_dcg_node_mapping_len(const dcg_mapping_node* node) {
-    if (!node) return 0;
-    return node->n_slots;
-}
-
-/**
- * @brief Drop a key and release what its slot held.
- *
- * The slot itself is not recycled: the index is retired, so other keys keep
- * pointing where they did. That is the right trade for a baked mapping, which
- * is built once and then read.
- *
- * @param node     Node to modify.
- * @param key      Entry name.
- * @param key_len  Length of key.
- * @return DCG_OK, DCG_ERR_INVALID_ARG or DCG_ERR_NOT_FOUND.
- */
-static inline int c_dcg_node_mapping_remove(dcg_mapping_node* node, const char* key, size_t key_len) {
-    if (!node || !key) return DCG_ERR_INVALID_ARG;
-
-    void* stored = NULL;
-    if (c_bytemap_pop(&node->idx_mapping, key, key_len, &stored) != BYTEMAP_OK) return DCG_ERR_NOT_FOUND;
-
-    size_t index = (size_t) (uintptr_t) stored;
-    if (index < node->n_slots) {
-        if (node->slots[index].dtype == VAR_TYPE_STRING && node->slots[index].value.as_string) {
-            c_ap_free_owned((void*) node->slots[index].value.as_string);
-        }
-        (void) c_dcg_var_init(&node->slots[index]);
-    }
-    return DCG_OK;
 }
 
 #endif  // C_DCG_BAKE_COLLECTION_H

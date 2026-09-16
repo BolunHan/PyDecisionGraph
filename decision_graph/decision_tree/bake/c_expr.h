@@ -83,8 +83,6 @@ typedef enum dcg_op_mask {
 
 // ========== Structs ==========
 
-// clang-format off
-
 /**
  * @brief An expression node: the base node plus its operator and its operands.
  *
@@ -99,6 +97,12 @@ typedef enum dcg_op_mask {
  * input's out slot, or the folded value of a constant input. A string value
  * folded in is a copy nested under the node; a reference owns nothing.
  *
+ * The repr is composed when the node is built, from the operator and the texts of
+ * the nodes it was given: "-12" for a negation of 12, "12 - 3" for a difference,
+ * "my_call(a, b)" for a call. Both renderings stay available afterwards -
+ * c_dcg_node_expr_op_style() and c_dcg_node_expr_func_style() - which is what the
+ * capi calls its op-style and func-style repr.
+ *
  * The base node must stay the FIRST member: a dcg_expression_node* is therefore
  * a valid dcg_node*.
  */
@@ -108,8 +112,6 @@ typedef struct dcg_expression_node {
     size_t      n_args;  // Number of operands in `args`.
     dcg_var_t   args[];  // Operand slots, n_args of them.
 } dcg_expression_node;
-
-// clang-format on
 
 // ========== Forward Declarations ==========
 
@@ -125,6 +127,11 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
 
 // Operands
 static inline int                  c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, dcg_node* input);
+
+// Composing the repr
+static inline int                  c_dcg_node_expr_alias(const dcg_node* input, char* out, size_t cap);
+static inline int                  c_dcg_node_expr_op_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, char* out, size_t cap);
+static inline int                  c_dcg_node_expr_func_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, const char* name, char* out, size_t cap);
 
 // Payload teardown, registered with the base by every constructor above
 static inline void                 c_dcg_node_expr_variant_dealloc(dcg_node* node);
@@ -150,13 +157,21 @@ static const char* const           DCG_OP_LOGIC_SYMBOLS[]   = {"&", "|", "~"};
 static const char* const           DCG_OP_ACCESS_SYMBOLS[]  = {".", "[]"};
 
 /**
- * @brief The symbol of an operator ("+", "==", ...), for building a repr.
+ * @brief The symbol of an operator ("+", "==", ...) as an arity writes it.
  *
- * @param op  Operator code.
- * @return Static string; "" for DCG_OP_NONE or an unknown operator.
+ * One operand writes it in front (-12), two write it between (12 - 3), and three
+ * are the if-form, which writes no symbol at all. Which of the two a caller gets
+ * is the operand count's business, not the operator's: the same "-" is a
+ * negation for one operand and a subtraction for two.
+ *
+ * @param op      Operator code.
+ * @param n_args  Operands the operator applies to.
+ * @return Static string; "" for DCG_OP_NONE, an unknown operator, or an arity
+ *         that writes nothing.
  */
-static inline const char*          c_dcg_op_code_symbol(dcg_op_code op) {
+static inline const char*          c_dcg_op_code_symbol(dcg_op_code op, size_t n_args) {
     if (op == DCG_OP_NONE) return "";
+    if (n_args < 1 || n_args > 2) return ""; /* the if-form and the calls write none */
 
     size_t variant = (size_t) ((int) op & DCG_OP_VARIANT_MASK);
     if (variant == 0) return "";
@@ -234,6 +249,107 @@ static inline dcg_node_type c_dcg_op_code_node_type(dcg_op_code op) {
         default:
             return DCG_NODE_OP;
     }
+}
+
+// ========== Composing the Repr ==========
+
+/**
+ * @brief The text an input node is written as: its repr, or its value's format.
+ *
+ * A node carries its repr from the moment it is built, so the fallback is only
+ * for a node somebody assembled by hand without one. An expression is written in
+ * parentheses: the composed text then reads the way it evaluates.
+ *
+ * @param input  Input node to write (NULL-safe).
+ * @param out    Destination buffer.
+ * @param cap    Capacity of out.
+ * @return Number of characters written (excluding NUL), or a DCG_ERR_* code.
+ */
+static inline int c_dcg_node_expr_alias(const dcg_node* input, char* out, size_t cap) {
+    if (!input || !out || cap == 0) return DCG_ERR_INVALID_ARG;
+    if (!input->repr) return c_dcg_var_format(&input->out, out, cap);
+
+    /* An input that is an expression is written in parentheses, so the composed
+     * text reads the way it evaluates: a + (b * c), not a + b * c. */
+    int n = c_dcg_node_type_is_op(input->ntype) ? snprintf(out, cap, "(%s)", input->repr) : snprintf(out, cap, "%s", input->repr);
+    return n < 0 ? DCG_ERR_FORMAT : n;
+}
+
+/**
+ * @brief Render an expression the way its operator writes it - the op style.
+ *
+ * One operand is written after the symbol (-12), two around it (12 - 3), three
+ * as the if-form (cond ? then : else), and any other count comma-separated. This
+ * is the repr an operator node is given when it is built; a call, which writes a
+ * name rather than a symbol, takes c_dcg_node_expr_func_style() instead.
+ *
+ * @param inputs    Input nodes, in operand order.
+ * @param n_inputs  Number of inputs.
+ * @param op        Operator code.
+ * @param out       Destination buffer.
+ * @param cap       Capacity of out.
+ * @return Number of characters written (excluding NUL), or a DCG_ERR_* code -
+ *         a positive answer, so a caller checks for a negative one.
+ */
+static inline int c_dcg_node_expr_op_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, char* out, size_t cap) {
+    if (!inputs || !out || cap == 0 || n_inputs == 0) return DCG_ERR_INVALID_ARG;
+
+    const char* token = c_dcg_op_code_symbol(op, n_inputs);
+    char        alias[DCG_NODE_STRING_MAXLEN];
+    dcg_strbuf  buf;
+
+    c_dcg_sb_init(&buf, out, cap);
+
+    for (size_t i = 0; i < n_inputs; i++) {
+        if (i == 0) {
+            if (n_inputs == 1) c_dcg_sb_puts(&buf, token); /* -12: the token in front */
+        }
+        else if (n_inputs == 2) c_dcg_sb_printf(&buf, " %s ", token); /* 12 - 3: between */
+        else if (n_inputs == 3 && i == 1) c_dcg_sb_puts(&buf, " ? ");
+        else if (n_inputs == 3 && i == 2) c_dcg_sb_puts(&buf, " : ");
+        else c_dcg_sb_puts(&buf, ", ");
+
+        if (c_dcg_node_expr_alias(inputs[i], alias, sizeof(alias)) < 0) return DCG_ERR_FORMAT;
+        c_dcg_sb_puts(&buf, alias);
+    }
+
+    return buf.used < buf.cap ? (int) buf.used : DCG_ERR_FULL;
+}
+
+/**
+ * @brief Render an expression the way a function writes it - the func style.
+ *
+ * NAME(a, b): the name is the caller's - a call is written as the callee it calls
+ * - and falls back to the operator's own name. This is the repr a call node is
+ * given when it is built, and the one to ask for when a name reads better than a
+ * symbol.
+ *
+ * @param inputs    Input nodes, in operand order.
+ * @param n_inputs  Number of inputs.
+ * @param op        Operator code (named when `name` is NULL).
+ * @param name      The function name to write (may be NULL).
+ * @param out       Destination buffer.
+ * @param cap       Capacity of out.
+ * @return Number of characters written (excluding NUL), or a DCG_ERR_* code -
+ *         a positive answer, so a caller checks for a negative one.
+ */
+static inline int c_dcg_node_expr_func_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, const char* name, char* out, size_t cap) {
+    if (!inputs || !out || cap == 0 || n_inputs == 0) return DCG_ERR_INVALID_ARG;
+
+    char       alias[DCG_NODE_STRING_MAXLEN];
+    dcg_strbuf buf;
+
+    c_dcg_sb_init(&buf, out, cap);
+    c_dcg_sb_printf(&buf, "%s(", name ? name : c_dcg_op_code_name(op));
+
+    for (size_t i = 0; i < n_inputs; i++) {
+        if (c_dcg_node_expr_alias(inputs[i], alias, sizeof(alias)) < 0) return DCG_ERR_FORMAT;
+        if (i > 0) c_dcg_sb_puts(&buf, ", ");
+        c_dcg_sb_puts(&buf, alias);
+    }
+    c_dcg_sb_puts(&buf, ")");
+
+    return buf.used < buf.cap ? (int) buf.used : DCG_ERR_FULL;
 }
 
 // ========== Lifecycle Methods ==========
@@ -320,7 +436,15 @@ static inline dcg_expression_node* c_dcg_node_new_expr_unary(dcg_op_code op, dcg
     if (!node) return NULL;
 
     node->op = op;
-    if (c_dcg_node_expr_bind(node, 0, src) != DCG_OK || c_dcg_node_set_repr(&node->base, c_dcg_op_code_symbol(op)) != DCG_OK) {
+    if (c_dcg_node_expr_bind(node, 0, src) != DCG_OK) {
+        c_ap_free_owned(node);
+        return NULL;
+    }
+
+    dcg_node* inputs[1] = {src};
+    char      repr[DCG_NODE_STRING_MAXLEN];
+
+    if (c_dcg_node_expr_op_style(inputs, 1, op, repr, sizeof(repr)) < 0 || c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
@@ -347,7 +471,11 @@ static inline dcg_expression_node* c_dcg_node_new_expr_binary(dcg_op_code op, dc
         c_ap_free_owned(node);
         return NULL;
     }
-    if (c_dcg_node_set_repr(&node->base, c_dcg_op_code_symbol(op)) != DCG_OK) {
+
+    dcg_node* inputs[2] = {var_0, var_1};
+    char      repr[DCG_NODE_STRING_MAXLEN];
+
+    if (c_dcg_node_expr_op_style(inputs, 2, op, repr, sizeof(repr)) < 0 || c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
@@ -378,7 +506,11 @@ static inline dcg_expression_node* c_dcg_node_new_expr_ternary(dcg_op_code op, d
             return NULL;
         }
     }
-    if (c_dcg_node_set_repr(&node->base, c_dcg_op_code_symbol(op)) != DCG_OK) {
+
+    dcg_node* inputs[3] = {var_0, var_1, var_2};
+    char      repr[DCG_NODE_STRING_MAXLEN];
+
+    if (c_dcg_node_expr_op_style(inputs, 3, op, repr, sizeof(repr)) < 0 || c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
@@ -393,7 +525,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr_ternary(dcg_op_code op, d
  * @param op         Operator code.
  * @param vars       Input nodes, in order (at least one).
  * @param n_vars     Number of input nodes.
- * @param repr       Display text to copy (may be NULL).
+ * @param repr       The callee's name; the repr is composed from it (may be NULL).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
  * @return The node, or NULL on OOM / invalid kind / a missing input.
  */
@@ -410,7 +542,11 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
             return NULL;
         }
     }
-    if (c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
+    /* A call is written as the function it calls: the repr the caller gives is
+     * the callee's name, and the operands are written as its arguments. */
+    char composed[DCG_NODE_STRING_MAXLEN];
+
+    if (c_dcg_node_expr_func_style(vars, n_vars, op, repr, composed, sizeof(composed)) < 0 || c_dcg_node_set_repr(&node->base, composed) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
@@ -424,6 +560,8 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
  *
  * What lands in the slot depends on what the input is:
  *
+ *   - a variable node already refers to the value it reflects, so its out is
+ *     taken as it is: the operand is that same reference, one hop from the value;
  *   - a constant is known when the graph is baked, so its VALUE is folded in -
  *     a string is copied into a block nested under the expression, and a scalar,
  *     pointer or container is stored as it is;
@@ -443,6 +581,15 @@ static inline int c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, 
     if (index >= node->n_args) return DCG_ERR_RANGE;
 
     dcg_var_t* slot = &node->args[index];
+
+    /* A variable node holds no value of its own: its out is already a reference
+     * to the value it reflects. Taking it as it is keeps the operand one hop
+     * from the value - wrapping it would make a reference to a reference and
+     * charge every read an indirection that reads nothing. */
+    if (input->ntype == DCG_NODE_VARIABLE) {
+        *slot = input->out;
+        return DCG_OK;
+    }
 
     if (c_dcg_node_type_is_const(input->ntype)) {
         if (input->out.dtype != VAR_TYPE_STRING || !input->out.value.as_string) {

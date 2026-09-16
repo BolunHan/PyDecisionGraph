@@ -36,6 +36,8 @@
 #define DCG_DEF_REPR_PLACEHOLDER "Placeholder"
 #endif
 
+/* DCG_DEF_REPR_NOACTION is defined in c_node.h - see the note there. */
+
 // ========== Structs ==========
 
 /**
@@ -71,6 +73,10 @@ static inline void             c_dcg_node_free_action(dcg_action_node* node);
 static inline dcg_action_node* c_dcg_node_new_action_trade(dcg_node_type action_type, bool auto_connect, allocator_protocol* allocator);
 static inline dcg_action_node* c_dcg_node_new_action_clear(bool auto_connect, allocator_protocol* allocator);
 static inline dcg_action_node* c_dcg_node_new_action_placeholder(bool auto_connect, allocator_protocol* allocator);
+
+// Closing a branch
+static inline dcg_node*        c_dcg_node_get_placeholder(dcg_node* node);
+static inline int              c_dcg_node_auto_fill(dcg_node* node);
 
 // ========== Lifecycle Methods ==========
 
@@ -195,8 +201,13 @@ static inline dcg_action_node* c_dcg_node_new_action_placeholder(bool auto_conne
  *
  * The rules are the capi's, in its order:
  *
- *   - an existing placeholder is reused, so a build that descends into a node
- *     fills the slot that is already reserved rather than reserving a second;
+ *   - the NEWEST existing placeholder is reused, so a build that descends into
+ *     a node fills the slot that was reserved last rather than reserving a
+ *     second. Newest and not first, because a node entered by a `with` block
+ *     reserves its two arms in the order FALSE then TRUE, and the capi - whose
+ *     stack puts the newest at index 0 - fills the TRUE arm first. Taking the
+ *     first placeholder here would fill the arms in the opposite order and
+ *     build a different graph;
  *   - otherwise a placeholder is appended on the INFERRED edge, which is what
  *     makes this fail exactly when the node has no room left for a branch -
  *     a node with one non-binary child and no free edge, say. A root is no
@@ -212,9 +223,11 @@ static inline dcg_action_node* c_dcg_node_new_action_placeholder(bool auto_conne
 static inline dcg_node* c_dcg_node_get_placeholder(dcg_node* node) {
     if (!node) return NULL;
 
+    dcg_node* newest = NULL;
     for (dcg_node* child = node->children; child; child = child->next_sibling) {
-        if (child->ntype == DCG_NODE_PLACEHOLDER) return child;
+        if (child->ntype == DCG_NODE_PLACEHOLDER) newest = child;
     }
+    if (newest) return newest;
 
     dcg_action_node* placeholder = c_dcg_node_new_action_placeholder(false, c_ap_protocol_from_ptr(node));
     if (!placeholder) return NULL;
@@ -224,6 +237,114 @@ static inline dcg_node* c_dcg_node_get_placeholder(dcg_node* node) {
         return NULL;
     }
     return &placeholder->base;
+}
+
+// ========== Public APIs - Closing a Branch ==========
+
+/**
+ * @brief Close a node's branches: fill the arm it never got, add the fallback.
+ *
+ * The step a build closes a node with, and the second half of the placeholder
+ * discipline - a node is entered with its arms reserved (c_dcg_node_get_placeholder),
+ * a build fills the arms it means to, and this supplies the ones it did not.
+ * It runs on exit, before the placeholders are consolidated.
+ *
+ * Every arm it fills is filled with an auto-generated no-action, so a later
+ * consolidation can tell it from an action the caller wrote. The rules read the
+ * node's EXISTING branches, in the capi's order:
+ *
+ *   - no branch at all  -> an auto no-action on the unconditioned edge;
+ *   - one branch        -> its opposite when it is a binary, nothing when it is
+ *                          unconditioned, and the TRUE arm an ELSE-only node
+ *                          was waiting for (inserted in front, so the fallback
+ *                          stays last) - a value-keyed arm stands alone;
+ *   - two branches      -> two binaries stand, an ELSE stands as the fallback,
+ *                          two value-keyed arms gain a protective ELSE, and any
+ *                          other pairing is contradictory (DCG_ERR_EDGE);
+ *   - three or more     -> binaries and unconditioned edges are illegal among
+ *                          them (DCG_ERR_TYPE or DCG_ERR_EDGE), and a set with
+ *                          no fallback gains a trailing ELSE.
+ *
+ * Nothing is added when the node already says all it can: the call is
+ * idempotent, and a failure changes nothing - the auto no-action is released
+ * rather than left half-linked.
+ *
+ * @param node  Node to close (NULL-safe).
+ * @return DCG_OK, or a DCG_ERR_* code: DCG_ERR_INVALID_ARG (NULL), DCG_ERR_EDGE
+ *         (contradictory branches), DCG_ERR_TYPE (too many, or a binary among
+ *         three) and DCG_ERR_OOM.
+ */
+static inline int c_dcg_node_auto_fill(dcg_node* node) {
+    if (!node) return DCG_ERR_INVALID_ARG;
+
+    size_t           count = c_dcg_node_child_count(node);
+    dcg_node*        last  = c_dcg_node_last_child(node);
+
+    /* The arm every branch below is filled with, built on demand and released
+     * again if the link it was built for is refused. */
+    dcg_action_node* no_action = NULL;
+    int              ret       = DCG_OK;
+
+    if (count == 0) {
+        no_action = c_dcg_node_new_action(DCG_NODE_NOACTION, DCG_DEF_REPR_NOACTION, false, 0, NULL, c_ap_protocol_from_ptr(node));
+        if (!no_action) return DCG_ERR_OOM;
+        no_action->base.autogen = true;
+
+        ret = c_dcg_node_append(node, &no_action->base, DCG_NO_CONDITION);
+        if (ret != DCG_OK) c_dcg_node_free_action(no_action);
+        return ret;
+    }
+
+    const dcg_node_edge_condition* condition = last->condition_to_parent;
+
+    if (count == 1) {
+        const dcg_node_edge_condition* fill = NULL;
+        bool                           head = false; /* an ELSE waits for its TRUE arm, which goes in front */
+
+        if (c_dcg_condition_is_none(condition)) return DCG_OK;
+        else if (c_dcg_condition_is_binary(condition)) fill = c_dcg_condition_is_true(condition) ? DCG_FALSE_CONDITION : DCG_TRUE_CONDITION;
+        else if (c_dcg_condition_is_else(condition)) {
+            fill = DCG_TRUE_CONDITION;
+            head = true;
+        }
+        else return DCG_OK; /* a value-keyed arm stands alone */
+
+        no_action = c_dcg_node_new_action(DCG_NODE_NOACTION, DCG_DEF_REPR_NOACTION, false, 0, NULL, c_ap_protocol_from_ptr(node));
+        if (!no_action) return DCG_ERR_OOM;
+        no_action->base.autogen = true;
+
+        ret = head ? c_dcg_node_append_at(node, &no_action->base, fill, 0) : c_dcg_node_append(node, &no_action->base, fill);
+        if (ret != DCG_OK) c_dcg_node_free_action(no_action);
+        return ret;
+    }
+
+    if (count == 2) {
+        const dcg_node_edge_condition* second_condition = last->prev_sibling->condition_to_parent;
+
+        if (c_dcg_condition_is_none(condition) || c_dcg_condition_is_none(second_condition)) return DCG_ERR_EDGE; /* an unconditioned arm cannot share a node */
+        if (c_dcg_condition_is_else(condition) || c_dcg_condition_is_else(second_condition)) return DCG_OK;
+        if (c_dcg_condition_is_binary(condition) && c_dcg_condition_is_binary(second_condition)) return DCG_OK;
+        if (c_dcg_condition_is_binary(condition) || c_dcg_condition_is_binary(second_condition)) return DCG_ERR_EDGE; /* a binary beside a value-keyed arm */
+        /* Two value-keyed arms: the fallback is what makes the node total. */
+    }
+    else {
+        /* Three or more: only value-keyed arms may share a node. */
+        for (dcg_node* child = node->children; child; child = child->next_sibling) {
+            const dcg_node_edge_condition* child_condition = child->condition_to_parent;
+
+            if (c_dcg_condition_is_none(child_condition)) return DCG_ERR_EDGE;
+            if (c_dcg_condition_is_binary(child_condition)) return DCG_ERR_TYPE;
+            if (c_dcg_condition_is_else(child_condition)) return DCG_OK; /* the fallback is there already, and it is last */
+        }
+    }
+
+    no_action = c_dcg_node_new_action(DCG_NODE_NOACTION, DCG_DEF_REPR_NOACTION, false, 0, NULL, c_ap_protocol_from_ptr(node));
+    if (!no_action) return DCG_ERR_OOM;
+    no_action->base.autogen = true;
+
+    ret = c_dcg_node_append(node, &no_action->base, DCG_ELSE_CONDITION);
+    if (ret != DCG_OK) c_dcg_node_free_action(no_action);
+    return ret;
 }
 
 #endif  // C_DCG_BAKE_ACTION_H

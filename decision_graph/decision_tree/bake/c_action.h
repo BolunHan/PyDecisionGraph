@@ -17,10 +17,13 @@
  *
  * Every one of them is the same struct - the base node and the two fields the
  * builder needs to place it: whether it should be connected to the active node
- * as it is built, and whatever data the caller hangs off it. None of them needs
- * a _free of its own, because c_dcg_node_free() releases the block, the repr and
- * the value whatever the kind is. The graph's own kinds - the root and the
- * breakpoint - live in c_hierarchy.h.
+ * as it is built, and whatever data the caller hangs off it. The family's _free
+ * is the base free today, because nothing it carries goes beyond the block; it
+ * stays a function of its own - and the dispatcher in c_hierarchy.h routes the
+ * whole family through it - because the action kinds are the ones the capi keeps
+ * growing (a trade's signal, the payload a caller hangs off it), and their
+ * teardown is where that growth will land. The graph's own kinds - the root and
+ * the breakpoint - live in c_hierarchy.h too.
  */
 
 // ========== Constants ==========
@@ -63,6 +66,7 @@ typedef struct dcg_action_node {
 
 // Lifecycle - the action family (a kind, its repr, and its two fields)
 static inline dcg_action_node* c_dcg_node_new_action(dcg_node_type action_type, const char* repr, bool auto_connect, ssize_t sig, void* action_data, allocator_protocol* allocator);
+static inline void             c_dcg_node_free_action(dcg_action_node* node);
 
 static inline dcg_action_node* c_dcg_node_new_action_trade(dcg_node_type action_type, bool auto_connect, allocator_protocol* allocator);
 static inline dcg_action_node* c_dcg_node_new_action_clear(bool auto_connect, allocator_protocol* allocator);
@@ -97,6 +101,23 @@ static inline dcg_action_node* c_dcg_node_new_action(dcg_node_type action_type, 
     node->sig          = sig;
     node->action_data  = action_data;
     return node;
+}
+
+/**
+ * @brief Tear down an action and free its buf.
+ *
+ * The base free is the whole of it: `auto_connect` and `sig` are plain fields
+ * inside the block, and `action_data` is the caller's own pointer, not owned.
+ * It is a function of its own anyway - and the dispatcher in c_hierarchy.h
+ * routes the whole family through it - because the action kinds are the ones
+ * the capi keeps growing, and this is where the release of whatever they grow
+ * will live.
+ *
+ * @param node  Node to free (NULL-safe).
+ */
+static inline void c_dcg_node_free_action(dcg_action_node* node) {
+    if (!node) return;
+    c_dcg_node_free(&node->base);
 }
 
 // ========== Public APIs - Variant Constructors ==========

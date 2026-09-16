@@ -133,9 +133,6 @@ static inline int                  c_dcg_node_expr_alias(const dcg_node* input, 
 static inline int                  c_dcg_node_expr_op_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, char* out, size_t cap);
 static inline int                  c_dcg_node_expr_func_style(dcg_node* const* inputs, size_t n_inputs, dcg_op_code op, const char* name, char* out, size_t cap);
 
-// Payload teardown, registered with the base by every constructor above
-static inline void                 c_dcg_node_expr_variant_dealloc(dcg_node* node);
-
 // ========== Operator Utilities ==========
 
 /*
@@ -383,40 +380,22 @@ static inline dcg_expression_node* c_dcg_node_new_expr(size_t n_args, dcg_node_t
     node->n_args = n_args;
     for (size_t i = 0; i < n_args; i++) (void) c_dcg_var_init(&node->args[i]);
 
-    /* The base cannot see the operand array; this is how it releases it. */
-    node->base.fn_variant_dealloc = c_dcg_node_expr_variant_dealloc;
     return node;
 }
 
 /**
  * @brief Tear down an expression node and free its buf.
  *
- * The operand copies go first - the base teardown runs the variant hook before
- * it zeroes the header - and a reference operand owns nothing to release.
+ * The operand array sits INSIDE the block, so it goes with it. The one thing
+ * an operand may own is a folded string copy, and that copy is a block nested
+ * under the expression: the base free releases it. A reference operand owns
+ * nothing to release.
  *
  * @param node  Node to free (NULL-safe).
  */
 static inline void c_dcg_node_free_expr(dcg_expression_node* node) {
     if (!node) return;
     c_dcg_node_free(&node->base);
-}
-
-/**
- * @brief Release the operand array of an expression - the base variant hook.
- *
- * @param node  The node being torn down (a dcg_node* that is really the variant).
- */
-static inline void c_dcg_node_expr_variant_dealloc(dcg_node* node) {
-    dcg_expression_node* expr = (dcg_expression_node*) node;
-
-    for (size_t i = 0; i < expr->n_args; i++) {
-        if (expr->args[i].dtype == VAR_TYPE_STRING && expr->args[i].value.as_string) {
-            c_ap_free_owned((void*) expr->args[i].value.as_string); /* a folded string copy */
-        }
-        (void) c_dcg_var_init(&expr->args[i]);
-    }
-    expr->op     = DCG_OP_NONE;
-    expr->n_args = 0;
 }
 
 // ========== Public APIs - Typed Constructors ==========

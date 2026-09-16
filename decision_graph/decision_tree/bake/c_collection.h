@@ -45,8 +45,11 @@
  *     doubling. Values are contiguous, so a baked lookup is a hash plus an
  *     array index - no pointer chasing.
  *
- * Both are owned by the node: the bytemap and the slot block are nested under
- * it, so freeing the node releases the whole mapping.
+ * Both are owned by the node, in the two ways there are: the slot block is a
+ * nested block of the node, so the node's own free releases it, while the
+ * bytemap keeps its table in a block of its own (see c_bytemap_ex_init), which
+ * is why this family has a _free of its own - it hands the table back before
+ * the node block goes.
  *
  * The base node must stay the FIRST member: a dcg_mapping_node* is therefore a
  * valid dcg_node*.
@@ -102,9 +105,6 @@ static inline dcg_variable_node* c_dcg_node_get_mapping_node(const dcg_mapping_n
 static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, dcg_var_t* value, allocator_protocol* allocator);
 static inline void               c_dcg_node_free_var(dcg_variable_node* node);
 
-// Payload teardown, registered with the base by the mapping constructor
-static inline void               c_dcg_node_mapping_variant_dealloc(dcg_node* node);
-
 // Internal helpers (exposed for reuse and testing - not part of the stable surface)
 static inline dcg_var_t*         c_dcg_node_mapping_get_slot(const dcg_mapping_node* node, const char* key, size_t key_len);
 static inline dcg_var_t*         c_dcg_node_mapping_get_create_slot(dcg_mapping_node* node, const char* key, size_t key_len);
@@ -145,44 +145,23 @@ static inline dcg_mapping_node*  c_dcg_node_new_mapping(size_t capacity, allocat
     for (size_t i = 0; i < capacity; i++) (void) c_dcg_var_init(&node->slots[i]);
     node->n_slots  = 0;
     node->capacity = capacity;
-
-    /* The base cannot see the index or the slots; this is how it releases them. */
-    node->base.fn_variant_dealloc = c_dcg_node_mapping_variant_dealloc;
     return node;
-}
-
-/**
- * @brief Release the mapping payload - the base variant hook.
- *
- * The entries come out first (a string value is a nested block, and the bytemap
- * holds a table of its own), then the base teardown frees the node.
- *
- * @param node  The node being torn down (a dcg_node* that is really the variant).
- */
-static inline void c_dcg_node_mapping_variant_dealloc(dcg_node* node) {
-    dcg_mapping_node* mapping = (dcg_mapping_node*) node;
-
-    for (size_t i = 0; i < mapping->n_slots; i++) {
-        if (mapping->slots && mapping->slots[i].dtype == VAR_TYPE_STRING && mapping->slots[i].value.as_string) {
-            c_ap_free_owned((void*) mapping->slots[i].value.as_string);
-        }
-    }
-    c_bytemap_ex_dealloc(&mapping->idx_mapping);
-    if (mapping->slots) c_ap_free_owned(mapping->slots);
-
-    mapping->slots    = NULL;
-    mapping->n_slots  = 0;
-    mapping->capacity = 0;
 }
 
 /**
  * @brief Tear down a mapping node and free its buf.
  *
+ * Two things go, in this order: the index, whose table is a block of its own
+ * and is handed back first (while the fields that name it are still intact),
+ * and then the node - the slots and the string copies of the entries are
+ * nested blocks of it, so the base free releases them.
+ *
  * @param node  Node to free (NULL-safe).
  */
 static inline void c_dcg_node_free_mapping(dcg_mapping_node* node) {
     if (!node) return;
-    c_dcg_node_free(&node->base); /* runs the variant hook, then the base teardown */
+    c_bytemap_ex_dealloc(&node->idx_mapping); /* a table block of its own, not a child */
+    c_dcg_node_free(&node->base);
 }
 
 // ========== Internal Helpers ==========

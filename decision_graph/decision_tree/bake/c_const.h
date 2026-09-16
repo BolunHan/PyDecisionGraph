@@ -12,10 +12,20 @@
 #include <decision_graph/decision_tree/bake/c_node.h>
 
 /*
- * The constant family: a node that stands for a value rather than computing
- * one. The value is base.out - the family adds no field of its own - so every
- * constructor here is a base init plus the value it was given, and the string
- * flavours copy their text into a block nested under the node.
+ * The input family: what a graph is fed rather than what it computes. Two
+ * shapes of it:
+ *
+ *   - a literal, which stands for a value: the family adds no field of its own,
+ *     so base.out IS the value, every constructor here is a base init plus the
+ *     value it was given, and the string flavours copy their text into a block
+ *     nested under the node;
+ *   - a variable, which stands for a value someone else holds: it names the
+ *     logic group it reads and the key it reads there, and base.out refers to
+ *     that entry's slot rather than holding a value of its own.
+ *
+ * Both are inputs because both are known to the graph from the outside - one
+ * because it was written into it, the other because it is read out of a store
+ * that outlives it.
  */
 
 // ========== Constants ==========
@@ -33,13 +43,13 @@
 // clang-format off
 
 /**
- * @brief A constant node: the base node, holding its value in base.out.
+ * @brief A literal input: the base node, holding its value in base.out.
  *
- * The constant family carries nothing beyond the base node - the value it
- * stands for is base.out, which is why this struct has no field of its own.
- * It exists so the family has a name to construct, cast and dispatch on, and
- * so a future per-kind payload (a parsed literal, an interned string) has a
- * home that does not touch every other family.
+ * A literal carries nothing beyond the base node - the value it stands for is
+ * base.out, which is why this struct has no field of its own. It exists so the
+ * literals have a name to construct, cast and dispatch on, and so a future
+ * per-kind payload (a parsed literal, an interned string) has a home that does
+ * not touch every other family.
  *
  * The base node must stay the FIRST member: a dcg_constant_node* is therefore
  * a valid dcg_node*, which is what lets the base graph API walk it.
@@ -47,6 +57,31 @@
 typedef struct dcg_constant_node {
     dcg_node base;  // The common node header. Must stay first.
 } dcg_constant_node;
+
+/**
+ * @brief A variable input: a node that reads a value out of a logic group.
+ *
+ * It holds no value of its own - base.out is a REFERENCE to the entry's slot,
+ * so reading the variable reads that slot, live. That is what makes it usable
+ * as an input to an expression (c_expr.h binds the out slot of its inputs)
+ * while the value itself stays where it belongs, in the group's store.
+ *
+ * `key` names the entry it reads, and the node owns its copy: the key is the
+ * node's, so a caller can hand one in and walk away. `logic_group` is the
+ * group the entry belongs to, and is NOT owned - a group serves any number of
+ * variables, so it outlives them all and is the caller's to release.
+ *
+ * The pair is what the capi's AttrExpression carries: the group gives the
+ * store, the key gives the entry in it.
+ *
+ * The base node must stay the FIRST member: a dcg_variable_node* is therefore
+ * a valid dcg_node*.
+ */
+typedef struct dcg_variable_node {
+    dcg_node          base;         // The common node header. Must stay first.
+    const char*       key;          // Entry name in the group's store. // OWNED - a nested copy.
+    dcg_logic_group*  logic_group;  // The group whose store this reads. // NOT owned.
+} dcg_variable_node;
 
 // clang-format on
 
@@ -66,18 +101,25 @@ static inline dcg_constant_node* c_dcg_node_new_const_string(const char* value, 
 static inline const dcg_var_t*   c_dcg_node_const_get(const dcg_constant_node* node);
 static inline int                c_dcg_node_const_set(dcg_constant_node* node, dcg_var_t value);
 
+// Lifecycle - the variable
+static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char* key, size_t key_len, dcg_var_t* value, dcg_logic_group* group, allocator_protocol* allocator);
+static inline void               c_dcg_node_free_var(dcg_variable_node* node);
+
 // ========== Lifecycle Methods ==========
 
 /**
- * @brief Allocate a constant node of an explicit kind.
+ * @brief Allocate a literal input of an explicit kind.
  *
- * @param ntype      A constant kind (CONST / TRUE / FALSE / DOUBLE / STRING / INT).
+ * A variable is an input too, but not one this block holds: it carries a key
+ * and the group it reads, so it is built by c_dcg_node_new_var() instead.
+ *
+ * @param ntype      A literal kind (INPUT / TRUE / FALSE / DOUBLE / STRING / INT).
  * @param repr       Display text to copy (may be NULL).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
  * @return The node, or NULL on OOM / invalid kind.
  */
 static inline dcg_constant_node* c_dcg_node_new_const(dcg_node_type ntype, const char* repr, allocator_protocol* allocator) {
-    if (!c_dcg_node_type_is_const(ntype)) return NULL;
+    if (!c_dcg_node_type_is_input(ntype) || ntype == DCG_NODE_VARIABLE) return NULL;
 
     dcg_constant_node* node = (dcg_constant_node*) c_ap_alloc(sizeof(dcg_constant_node), allocator);
     if (!node) return NULL;
@@ -90,10 +132,14 @@ static inline dcg_constant_node* c_dcg_node_new_const(dcg_node_type ntype, const
 }
 
 /**
- * @brief Tear down a constant node and free its buf.
+ * @brief Tear down a literal and free its buf.
  *
  * The value lives in the base node, so there is nothing else to release: the
  * base teardown frees the repr, the string payload and the node itself.
+ *
+ * A variable is an input too, but not one this free takes: its block has a
+ * different layout, so the dispatcher routes it to c_dcg_node_free_var()
+ * instead of casting it to this one.
  *
  * @param node  Node to free (NULL-safe).
  */
@@ -113,7 +159,7 @@ static inline void c_dcg_node_free_const(dcg_constant_node* node) {
  * @return The node, or NULL on OOM.
  */
 static inline dcg_constant_node* c_dcg_node_new_const_value(const char* repr, dcg_var_t value, allocator_protocol* allocator) {
-    dcg_constant_node* node = c_dcg_node_new_const(DCG_NODE_CONST, repr, allocator);
+    dcg_constant_node* node = c_dcg_node_new_const(DCG_NODE_INPUT, repr, allocator);
     if (!node) return NULL;
 
     if (c_dcg_node_const_set(node, value) != DCG_OK) {
@@ -227,6 +273,87 @@ static inline int c_dcg_node_const_set(dcg_constant_node* node, dcg_var_t value)
     if (value.dtype == VAR_TYPE_STRING) return c_dcg_node_set_string(&node->base, value.value.as_string);
     node->base.out = value;
     return DCG_OK;
+}
+
+// ========== Public APIs - The Variable Node ==========
+
+/**
+ * @brief Allocate a node that reads an entry out of a logic group.
+ *
+ * The node's out is a REFERENCE to `value`, so the node reads that value live
+ * and hands it to whoever reads the node - an expression bound to it, or a
+ * caller inspecting the graph. `value` must outlive the node, which is what the
+ * group holding it guarantees.
+ *
+ * When `group` is given the node is allocated as a BLOCK OF THAT GROUP, so the
+ * group owns the read: freeing the group releases every variable built over its
+ * store, keys included, without the caller tracking them. The key is a nested
+ * block of the NODE either way - a variable owns its own key, not the group -
+ * so releasing the node releases the key with it.
+ *
+ * The two lifetimes are therefore nested - value outlives group, group outlives
+ * node - and a node that must outlive its group is built with a NULL group and
+ * lives on the caller's slot alone. What must NOT happen is the group going
+ * while a graph still holds one of its reads: the graph names a block that is
+ * gone, and nothing in the node header can tell.
+ *
+ * @param repr       Display text to copy (may be NULL).
+ * @param key        Entry name to copy; NULL leaves the node naming no entry.
+ * @param key_len    Length of key. The copy takes exactly this many bytes, so a
+ *                   key that came out of a store - where a name is a pointer
+ *                   and a length, not a C string - needs no termination.
+ * @param value      Value slot to reflect (must outlive the node).
+ * @param group      Group the entry belongs to (not owned; may be NULL, and
+ *                   owning the node when it is given).
+ * @param allocator  Allocator for the block; NULL derives it from the group,
+ *                   or falls back to the plain heap when there is none.
+ * @return The node, or NULL on OOM / a NULL value.
+ */
+static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char* key, size_t key_len, dcg_var_t* value, dcg_logic_group* group, allocator_protocol* allocator) {
+    if (!value) return NULL;
+
+    dcg_variable_node* node = group ? (dcg_variable_node*) c_ap_alloc_child(sizeof(dcg_variable_node), allocator, group)
+                                    : (dcg_variable_node*) c_ap_alloc(sizeof(dcg_variable_node), allocator);
+    if (!node) return NULL;
+
+    if (c_dcg_node_init(&node->base, DCG_NODE_VARIABLE, repr) != DCG_OK) {
+        c_ap_free_owned(node);
+        return NULL;
+    }
+
+    node->logic_group = group;
+    node->key         = NULL;
+
+    if (key) {
+        /* The key is the node's own copy, nested under it, so the caller's text
+         * can go away at once - and it is copied before the value is bound, so
+         * a failure here leaves nothing to unwind. */
+        char* copy = (char*) c_ap_alloc_child(key_len + 1, NULL, node);
+        if (!copy) {
+            c_ap_free_owned(node);
+            return NULL;
+        }
+        memcpy(copy, key, key_len);
+        copy[key_len] = '\0';
+        node->key     = copy;
+    }
+
+    (void) c_dcg_var_init_ref(&node->base.out, value);
+    return node;
+}
+
+/**
+ * @brief Tear down a variable node and free its buf.
+ *
+ * The reflected value is the store's, and the group is the caller's, so the
+ * base teardown is the whole of it: it releases the repr, the key and the
+ * block.
+ *
+ * @param node  Node to free (NULL-safe).
+ */
+static inline void c_dcg_node_free_var(dcg_variable_node* node) {
+    if (!node) return;
+    c_dcg_node_free(&node->base);
 }
 
 #endif  // C_DCG_BAKE_CONST_H

@@ -53,11 +53,11 @@
  *     array index - no pointer chasing.
  *
  * Both are owned by the group, in the two ways there are: the slot block is a
- * nested block of the group, so the group's own free releases it, while the
- * bytemap keeps its table in a block of its own (see c_bytemap_ex_init), which
- * is why this family has a _free of its own - it hands the table back before
- * the group block goes. The group's contexts store is beside it, with a table
- * of its own released the same way.
+ * nested block of the group - as is the name, as is every variable node built
+ * over the store - so the group's own free releases them, while the bytemap
+ * keeps its table in a block of its own (see c_bytemap_ex_init), which is why
+ * this family has a _free of its own: it hands the table back before the group
+ * block goes.
  *
  * The base group must stay the FIRST member: a dcg_mapping_lgroup* is
  * therefore a valid dcg_logic_group*.
@@ -98,8 +98,8 @@ static inline dcg_var_t*          c_dcg_mapping_lgroup_get_create_slot(dcg_mappi
 /**
  * @brief Allocate a mapping group with room for `capacity` entries.
  *
- * The base group is initialized first, so the contexts store is there whatever
- * the entries do; the entry index and slot block follow.
+ * The base group header is initialized first - a mapping is a group - and the
+ * entry index and slot block follow.
  *
  * @param name       Group name to copy (may be NULL).
  * @param capacity   Initial slot capacity (clamped to DCG_MAPPING_DEFAULT_CAPACITY if 0).
@@ -112,14 +112,13 @@ static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, siz
     dcg_mapping_lgroup* lgroup = (dcg_mapping_lgroup*) c_ap_alloc(sizeof(dcg_mapping_lgroup), allocator);
     if (!lgroup) return NULL;
 
-    if (c_dcg_logic_group_init(&lgroup->base, DCG_LG_MAPPING, name, 0) != DCG_OK) {
+    if (c_dcg_logic_group_init(&lgroup->base, DCG_LG_MAPPING, name) != DCG_OK) {
         c_ap_free_owned(lgroup);
         return NULL;
     }
 
     /* One pointer-sized value slot per entry: the index of the value in `slots`. */
     if (c_bytemap_ex_init(&lgroup->idx_mapping, capacity, sizeof(uintptr_t), c_ap_protocol_from_ptr(lgroup)) != BYTEMAP_OK) {
-        c_bytemap_ex_dealloc(&lgroup->base.idx_contexts);
         c_ap_free_owned(lgroup);
         return NULL;
     }
@@ -127,7 +126,6 @@ static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, siz
     lgroup->slots = (dcg_var_t*) c_ap_alloc_child(capacity * sizeof(dcg_var_t), NULL, lgroup);
     if (!lgroup->slots) {
         c_bytemap_ex_dealloc(&lgroup->idx_mapping); /* the table is a block of its own, not a child */
-        c_bytemap_ex_dealloc(&lgroup->base.idx_contexts);
         c_ap_free_owned(lgroup);
         return NULL;
     }
@@ -141,11 +139,11 @@ static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, siz
 /**
  * @brief Tear down a mapping group and free its buf.
  *
- * Three things go, in this order: the two indexes, whose tables are blocks of
- * their own and are handed back first (while the fields that name them are
- * still intact), and then the group - the name, the context slots, the entry
- * slots and the string copies of the entries are nested blocks of it, so the
- * base free releases them.
+ * Two things go, in this order: the entry index, whose table is a block of its
+ * own and is handed back first (while the field that names it is still intact),
+ * and then the group - the name, the entry slots, the string copies of the
+ * entries, and every variable node built over the store are nested blocks of
+ * it, so the base free releases them all.
  *
  * @param lgroup  Group to free (NULL-safe).
  */
@@ -420,7 +418,7 @@ static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgrou
     if (lgroup->base.name) (void) snprintf(repr, sizeof(repr), "%s.%.*s", lgroup->base.name, (int) key_len, key);
     else (void) snprintf(repr, sizeof(repr), "%.*s", (int) key_len, key);
 
-    return c_dcg_node_new_var(repr, key, key_len, slot, &lgroup->base, c_ap_protocol_from_ptr((void*) lgroup));
+    return c_dcg_node_new_var(repr, key, key_len, slot, &lgroup->base, NULL); /* the group allocates its own reads */
 }
 
 #endif  // C_DCG_BAKE_COLLECTION_H

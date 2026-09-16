@@ -38,6 +38,14 @@
 
 typedef struct dcg_node dcg_node;
 
+/*
+ * Forward-declared here rather than in the header that defines it: two node
+ * families name a logic group - a variable reads one's store, a breakpoint
+ * breaks out of one - and this is the one header both of them include. The
+ * node layer never dereferences it.
+ */
+typedef struct dcg_logic_group dcg_logic_group;
+
 /**
  * @brief Kind of a node, encoded as family | variant.
  *
@@ -48,24 +56,23 @@ typedef struct dcg_node dcg_node;
  * expected.
  */
 typedef enum dcg_node_type {
-    // === Constant Node ===
-    DCG_NODE_CONST        = 0x0000,  // <- Mask and Generics
+    // === Input Node ===
+    DCG_NODE_INPUT        = 0x0000,  // <- Mask and Generics
     DCG_NODE_TRUE         = 0x0001,  // Boolean true constant.
     DCG_NODE_FALSE        = 0x0002,  // Boolean false constant.
     DCG_NODE_DOUBLE       = 0x0003,  // Double constant.
     DCG_NODE_STRING       = 0x0004,  // String constant (payload borrowed).
     DCG_NODE_INT          = 0x0005,  // Integer constant.
+    DCG_NODE_VARIABLE     = 0x0006,  // A live read from a logic group's store.
     // === Operator Node ===
     DCG_NODE_OP           = 0x0100,  // <- Mask and Generics
     DCG_NODE_UNARY        = 0x0101,  // One operand child.
     DCG_NODE_BINARY       = 0x0102,  // Two operand children.
     DCG_NODE_TERNARY      = 0x0103,  // Three operand children (cond, then, else).
     DCG_NODE_CALL         = 0x0104,  // Variadic operator (call-like).
-    // === Collection Node ===
-    DCG_NODE_COLLECTION   = 0x0200,  // <- Mask and Generics
-    DCG_NODE_MAPPING      = 0x0201,  // Children keyed by their VALUE condition.
-    DCG_NODE_LIST         = 0x0202,  // Children in positional order.
-    DCG_NODE_VARIABLE     = 0x0203,  // A value another node owns, carried by reference.
+    // 0x0200 - RESERVED. The collection family stood here; a mapping, a
+    // sequence and a generator are logic groups, not nodes, and live in
+    // c_logic_group.h and c_collection.h.
     // === Action Node ===
     DCG_NODE_ACTION       = 0x0400,  // <- Mask and Generics
     DCG_NODE_NOACTION     = 0x0401,  // Leaf action: do nothing.
@@ -206,7 +213,7 @@ typedef struct dcg_node_callback_ctx {
  * every node through the free of its kind, leaf first.
  *
  * The payload a family adds after the base header - the operands of an
- * expression, the index of a mapping - is released by that family's _free,
+ * expression, the key of a variable - is released by that family's _free,
  * which is what c_dcg_node_free_generic() reaches for a node in hand as a plain
  * dcg_node*.
  */
@@ -288,9 +295,8 @@ typedef struct dcg_strbuf {
 
 // Utilities
 static inline const char*                    c_dcg_node_type_name(dcg_node_type ntype);
-static inline bool                           c_dcg_node_type_is_const(dcg_node_type ntype);
+static inline bool                           c_dcg_node_type_is_input(dcg_node_type ntype);
 static inline bool                           c_dcg_node_type_is_op(dcg_node_type ntype);
-static inline bool                           c_dcg_node_type_is_collection(dcg_node_type ntype);
 static inline bool                           c_dcg_node_type_is_flat(dcg_node_type ntype);
 static inline bool                           c_dcg_node_type_is_action(dcg_node_type ntype);
 static inline bool                           c_dcg_node_type_is_special(dcg_node_type ntype);
@@ -322,6 +328,7 @@ static inline int                            c_dcg_node_append_at(dcg_node* pare
 static inline int                            c_dcg_node_append_at_binary(dcg_node* parent, dcg_node* child, bool condition, size_t index);
 static inline int                            c_dcg_node_detach(dcg_node* node);
 static inline int                            c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node);
+static inline int                            c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node);
 static inline size_t                         c_dcg_node_consolidate_placeholder(dcg_node* node);
 
 // Queries
@@ -385,9 +392,8 @@ static inline size_t                         c_dcg_node_collect_descendants_walk
  * the kind). Adding a variant means adding a name in the right table and
  * nothing else - the family is selected by the mask, never by parsing.
  */
-static const char* const                     DCG_NODE_CONST_NAMES[]      = {"CONST", "TRUE", "FALSE", "DOUBLE", "STRING", "INT"};
+static const char* const                     DCG_NODE_INPUT_NAMES[]      = {"INPUT", "TRUE", "FALSE", "DOUBLE", "STRING", "INT", "VARIABLE"};
 static const char* const                     DCG_NODE_OP_NAMES[]         = {"OP", "UNARY", "BINARY", "TERNARY", "CALL"};
-static const char* const                     DCG_NODE_COLLECTION_NAMES[] = {"COLLECTION", "MAPPING", "LIST", "VARIABLE"};
 static const char* const                     DCG_NODE_ACTION_NAMES[]     = {"ACTION", "NOACTION", "LONGACTION", "SHORTACTION", "CANCELACTION", "CLEARACTION", "PLACEHOLDER"};
 static const char* const                     DCG_NODE_SPECIAL_NAMES[]    = {"SPECIAL", "ROOT", "BREAKPOINT"};
 
@@ -414,12 +420,10 @@ static inline const char* c_dcg_node_type_name(dcg_node_type ntype) {
     size_t variant = (size_t) ((int) ntype & DCG_NODE_VARIANT_MASK);
 
     switch ((int) ntype & DCG_NODE_FAMILY_MASK) {
-        case DCG_NODE_CONST:
-            return c_dcg_name_at(DCG_NODE_CONST_NAMES, sizeof(DCG_NODE_CONST_NAMES) / sizeof(char*), variant);
+        case DCG_NODE_INPUT:
+            return c_dcg_name_at(DCG_NODE_INPUT_NAMES, sizeof(DCG_NODE_INPUT_NAMES) / sizeof(char*), variant);
         case DCG_NODE_OP:
             return c_dcg_name_at(DCG_NODE_OP_NAMES, sizeof(DCG_NODE_OP_NAMES) / sizeof(char*), variant);
-        case DCG_NODE_COLLECTION:
-            return c_dcg_name_at(DCG_NODE_COLLECTION_NAMES, sizeof(DCG_NODE_COLLECTION_NAMES) / sizeof(char*), variant);
         case DCG_NODE_ACTION:
             return c_dcg_name_at(DCG_NODE_ACTION_NAMES, sizeof(DCG_NODE_ACTION_NAMES) / sizeof(char*), variant);
         case DCG_NODE_SPECIAL:
@@ -430,13 +434,16 @@ static inline const char* c_dcg_node_type_name(dcg_node_type ntype) {
 }
 
 /**
- * @brief Predicate: is the kind in the constant family?
+ * @brief Predicate: is the kind in the input family?
+ *
+ * The input family is what a graph is fed: a literal it carries, or a read it
+ * takes from the store of a logic group.
  *
  * @param ntype  Node kind.
- * @return true for constant kinds (the family head included).
+ * @return true for input kinds (the family head included).
  */
-static inline bool c_dcg_node_type_is_const(dcg_node_type ntype) {
-    return (ntype & DCG_NODE_FAMILY_MASK) == DCG_NODE_CONST;
+static inline bool c_dcg_node_type_is_input(dcg_node_type ntype) {
+    return (ntype & DCG_NODE_FAMILY_MASK) == DCG_NODE_INPUT;
 }
 
 /**
@@ -450,37 +457,24 @@ static inline bool c_dcg_node_type_is_op(dcg_node_type ntype) {
 }
 
 /**
- * @brief Predicate: is the kind in the collection family?
- *
- * @param ntype  Node kind.
- * @return true for collection kinds.
- */
-/**
  * @brief Predicate: does the kind live in the base header alone?
  *
- * A constant and a list ARE the whole struct - their variant adds no field of
- * its own - so a dcg_node block holds them. An expression carries its operand
- * array after the header, a mapping its index and its slots, a variable its
- * owner, an action its placement fields, a root or a breakpoint its walk state:
- * those need their family's constructor, because only the family knows how big
- * the block has to be.
+ * A literal IS the whole struct - its variant adds no field of its own - so a
+ * dcg_node block holds it. An expression carries its operand array after the
+ * header, a variable its key and its group, an action its placement fields, a
+ * root or a breakpoint its walk state: those need their family's constructor,
+ * because only the family knows how big the block has to be.
  *
  * @param ntype  Node kind.
  * @return true when a plain dcg_node block is enough for the kind.
  */
 static inline bool c_dcg_node_type_is_flat(dcg_node_type ntype) {
     switch ((int) ntype & DCG_NODE_FAMILY_MASK) {
-        case DCG_NODE_CONST:
-            return true;
-        case DCG_NODE_COLLECTION:
-            return ntype == DCG_NODE_LIST;
+        case DCG_NODE_INPUT:
+            return ntype != DCG_NODE_VARIABLE;  // a variable carries its key and its group
         default:
             return false;  // an operator carries operands, the rest carry their own state
     }
-}
-
-static inline bool c_dcg_node_type_is_collection(dcg_node_type ntype) {
-    return (ntype & DCG_NODE_FAMILY_MASK) == DCG_NODE_COLLECTION;
 }
 
 /**
@@ -510,7 +504,7 @@ static inline bool c_dcg_node_type_is_special(dcg_node_type ntype) {
  *
  * @param ntype  Node kind.
  * @return 1 / 2 / 3 for the fixed-arity operators; 0 for everything else
- *         (constants, collections, actions, and the variadic CALL).
+ *         (inputs, actions, and the variadic CALL).
  */
 static inline size_t c_dcg_node_type_arity(dcg_node_type ntype) {
     switch (ntype) {
@@ -731,7 +725,7 @@ static inline int c_dcg_node_set_repr(dcg_node* node, const char* repr) {
 static inline dcg_node* c_dcg_node_new(dcg_node_type ntype, const char* repr, allocator_protocol* allocator) {
     /* The block is one dcg_node, so the kinds that carry more are refused here
      * and built by the constructor named after their family - see c_const.h,
-     * c_expr.h, c_action.h and c_collection.h. */
+     * c_expr.h and c_action.h. */
     if (!c_dcg_node_type_is_flat(ntype)) return NULL;
 
     dcg_node* node = (dcg_node*) c_ap_alloc(sizeof(dcg_node), allocator);
@@ -820,7 +814,7 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
  *
  * @param node  Node to free (NULL-safe): a base node, or one of the kinds the
  *              base alone holds. A family that adds state after the header -
- *              an expression, a mapping, a variable, a root, a breakpoint - is
+ *              an expression, a variable, a root, a breakpoint - is
  *              torn down by its own _free, or by c_dcg_node_free_generic() when
  *              only its dcg_node* is in hand.
  */
@@ -833,8 +827,8 @@ static inline void c_dcg_node_free(dcg_node* node) {
 // ========== Public APIs - Typed Constructors ==========
 
 /*
- * The payload-free kinds. Everything with state of its own - constants,
- * expressions, mappings - is constructed by its own header.
+ * The payload-free kinds. Everything with state of its own - literals,
+ * expressions, variables - is constructed by its own header.
  */
 
 /**
@@ -1196,6 +1190,44 @@ static inline int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) {
     // link() adopts the condition onto the replacement, so an owned condition
     // travels with the edge instead of dying with the displaced node.
     return c_dcg_node_link(parent, new_node, condition, anchor);
+}
+
+/**
+ * @brief Put a node into another's slot when a parent elsewhere already holds it.
+ *
+ * c_dcg_node_replace() refuses a replacement that has a parent, and in a tree
+ * that is right: one node, one parent. A control-flow JOIN is the exception.
+ * The node a breakpoint resumes into is reached from the breakpoint AND goes on
+ * being the branch it was entered as, so it has to be placed here while the
+ * parent that handed it over keeps its pointer to it - which is what the capi
+ * does when it re-parents the node a breakpoint just connected to.
+ *
+ * What moves is the TREE link, not the list entry: the node's `parent` becomes
+ * the node it displaces, while its former parent goes on naming it as a child.
+ * That former parent is then a second entry point to the same block - a walk
+ * reaches it twice and frees it once, which is what c_dcg_node_teardown_root()
+ * is built to survive.
+ *
+ * It is representable only while the node is ALONE in the list it is leaving,
+ * because the sibling links belong to the list being entered: a node with
+ * neighbours still attached would leave them pointing into a chain it is no
+ * longer in. A node that is not alone is therefore refused rather than
+ * silently corrupting the walk that reads those links.
+ *
+ * @param old_node  Node currently in the graph.
+ * @param new_node  Node to put in its place (alone in its own list, if it has one).
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_BUSY or DCG_ERR_CYCLE.
+ */
+static inline int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node) {
+    if (!old_node || !new_node) return DCG_ERR_INVALID_ARG;
+    if (!old_node->parent) return DCG_ERR_INVALID_ARG;
+    if (new_node->next_sibling || new_node->prev_sibling) return DCG_ERR_BUSY; /* not alone in its own list */
+
+    /* Shed the tree link, keep the list entry: the former parent is what makes
+     * this a join, and dropping its pointer would make it nothing. */
+    new_node->parent = NULL;
+
+    return c_dcg_node_replace(old_node, new_node);
 }
 
 /**
@@ -1768,9 +1800,9 @@ static inline bool c_dcg_node_validate_walk(const dcg_node* node, dcg_validate_r
         if (!c_dcg_node_validate_walk(child, report, depth + 1)) valid = false;
     }
 
-    // Branch-shape rules apply to decision nodes only: a collection stores one
-    // item per child, each keyed by that child's own condition.
-    if (count > 1 && node->ntype != DCG_NODE_ROOT && !c_dcg_node_type_is_collection(node->ntype)) {
+    // Branch-shape rules apply to decision nodes only: a root is unconditioned
+    // by construction, and everything else branches.
+    if (count > 1 && node->ntype != DCG_NODE_ROOT) {
         if (has_unconditioned) c_dcg_validate_fail(report, (dcg_node*) node, DCG_ERR_EDGE, &valid);
         if (has_binary && has_value) c_dcg_validate_fail(report, (dcg_node*) node, DCG_ERR_EDGE, &valid);
     }

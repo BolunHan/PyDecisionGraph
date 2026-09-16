@@ -74,7 +74,8 @@ static inline dcg_action_node* c_dcg_node_new_action_placeholder(bool auto_conne
  * @brief Allocate an action leaf of an explicit kind.
  *
  * @param action_type   An action kind.
- * @param repr          Display text to copy; NULL takes the kind's name.
+ * @param repr          Display text to copy (may be NULL: naming the kind is the
+ *                      caller's, which is what the variants below do).
  * @param auto_connect  Whether the builder should connect it as it is made.
  * @param sig           The signal to carry (+1 long, -1 short, 0 for the rest).
  * @param action_data   The caller's payload (not owned; may be NULL).
@@ -141,7 +142,7 @@ static inline dcg_action_node* c_dcg_node_new_action_trade(dcg_node_type action_
  * @return The node, or NULL on OOM.
  */
 static inline dcg_action_node* c_dcg_node_new_action_clear(bool auto_connect, allocator_protocol* allocator) {
-    return c_dcg_node_new_action(DCG_NODE_CLEARACTION, c_dcg_node_type_name(action_type), auto_connect, 0, NULL, allocator);
+    return c_dcg_node_new_action(DCG_NODE_CLEARACTION, c_dcg_node_type_name(DCG_NODE_CLEARACTION), auto_connect, 0, NULL, allocator);
 }
 
 /**

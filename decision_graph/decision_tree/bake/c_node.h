@@ -39,19 +39,6 @@
 typedef struct dcg_node dcg_node;
 
 /**
- * @brief Releases the payload a variant struct adds to the base node.
- *
- * A constant, an expression and a mapping each put their own state after the
- * base node. The base teardown cannot see it - c_node.h does not include the
- * family headers - so the family registers this hook at construction and the
- * base calls it on the way down. That is what makes c_dcg_node_free() correct
- * for ANY node, including one reached through a graph edge.
- *
- * @param node  The node being torn down (a dcg_node* that is really the variant).
- */
-typedef void (*dcg_node_variant_dealloc)(dcg_node* node);
-
-/**
  * @brief Kind of a node, encoded as family | variant.
  *
  * The high nibble is the family and is what the family predicates test
@@ -205,20 +192,23 @@ typedef struct dcg_node_callback_ctx {
 /**
  * @brief A node of the decision graph.
  *
- * The node owns its `repr`, its labels and their text, a string `out`, any
- * standalone condition adopted onto it, and whatever payload its variant adds
- * (fn_variant_dealloc releases the last of those). Everything it owns is
- * allocated as a nested child block, so one c_ap_free_owned() - what
- * c_dcg_node_free() ends with - releases the whole thing without a teardown
- * walk. The five
- * built-in edge conditions are static objects, never blocks, and are left
- * alone.
+ * The node owns its `repr`, its labels and their text, a string `out` and any
+ * standalone condition adopted onto it. Everything it owns is allocated as a
+ * nested child block, so one c_ap_free_owned() - what c_dcg_node_free() ends
+ * with - releases the whole of it without a teardown walk. The five built-in
+ * edge conditions are static objects, never blocks, and are left alone.
  *
- * Ownership is logical, not allocator-level: a parent tears its children
- * down inside its own _dealloc, depth-first, so an allocator block never
- * outlives the children it owns. Each node block itself is an ordinary
- * allocator-protocol allocation - never call c_ap_free_owned() on a node
- * tree, it would free blocks without running their teardown.
+ * What a node does NOT own is its graph: `children` names blocks of its own
+ * kind that happen to hang below it. c_dcg_node_free() is therefore a LOCAL
+ * operation - it unlinks the node from its parent and lets its children go
+ * (they become parentless fragments and stay alive). Tearing a whole graph
+ * down is the hierarchy's job: c_dcg_node_teardown_root() walks it and frees
+ * every node through the free of its kind, leaf first.
+ *
+ * The payload a family adds after the base header - the operands of an
+ * expression, the index of a mapping - is released by that family's _free,
+ * which is what c_dcg_node_free_any() reaches for a node in hand as a plain
+ * dcg_node*.
  */
 typedef struct dcg_node {
     // === Eval Callbacks ===
@@ -234,7 +224,6 @@ typedef struct dcg_node {
     uint32_t                       flags;               // dcg_node_flag bits.
     void*                          user_payload;        // Opaque slot for the binding layer.
     dcg_node_callback_ctx*         callbacks;           // Registered mutation observers (calloc/free).
-    dcg_node_variant_dealloc       fn_variant_dealloc;  // Releases the variant's payload, or NULL.
     // === Hierarchy ===
     const dcg_node_edge_condition* condition_to_parent;  // Edge condition. // OWNED if OWN_CONDITION.
     struct dcg_node*               parent;               // Parent node, NULL for the root.
@@ -315,7 +304,6 @@ static inline int                            c_dcg_node_init(dcg_node* node, dcg
 static inline dcg_node*                      c_dcg_node_new(dcg_node_type ntype, const char* repr, allocator_protocol* allocator);
 static inline void                           c_dcg_node_dealloc(dcg_node* node);
 static inline void                           c_dcg_node_free(dcg_node* node);
-static inline void                           c_dcg_node_clean(dcg_node* node);
 
 // Node metadata
 static inline int                            c_dcg_node_set_repr(dcg_node* node, const char* repr);
@@ -334,8 +322,6 @@ static inline int                            c_dcg_node_append_at(dcg_node* pare
 static inline int                            c_dcg_node_append_at_binary(dcg_node* parent, dcg_node* child, bool condition, size_t index);
 static inline int                            c_dcg_node_detach(dcg_node* node);
 static inline int                            c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node);
-static inline int                            c_dcg_node_remove(dcg_node* node);
-static inline void                           c_dcg_node_clear_children(dcg_node* node);
 static inline size_t                         c_dcg_node_consolidate_placeholder(dcg_node* node);
 
 // Queries
@@ -761,14 +747,16 @@ static inline dcg_node* c_dcg_node_new(dcg_node_type ntype, const char* repr, al
 /**
  * @brief Tear down a node - leaves a zeroed buf.
  *
- * Unlinks the node from its parent, tears down the whole subtree (children
- * are freed through their own _free, bottom-up, so the allocator never sees
- * a block that still owns children), drops labels and callback contexts,
- * fires the FREED event, and finally zeroes the buf.
+ * Releases what the BASE owns: the labels and their text, the callback
+ * contexts, the repr, a string out and an adopted condition. The node is then
+ * unlinked from its parent and its children are let go - each one is unlinked
+ * (c_dcg_node_unlink), so it survives as a parentless fragment. A node owns
+ * its block, not its graph: the subtree below it is c_dcg_node_teardown_root's
+ * business, and the payload a family adds after the header is that family's
+ * own _free (see c_dcg_node_free_any).
  *
- * The node's own buf is NOT freed - that is _free's job. A borrowed repr,
- * a borrowed condition and a borrowed label text are left untouched; only
- * what the node owns is released.
+ * The node's own buf is NOT freed - that is _free's job. A borrowed repr is
+ * left untouched; a built-in condition is a static object, never a block.
  *
  * @param node  Node to tear down (NULL-safe).
  */
@@ -777,9 +765,11 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
 
     c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_FREED, node, (uint64_t) -1);
 
-    // The variant's own payload goes first: it may hold nested blocks, and it
-    // still needs its fields intact to find them.
-    if (node->fn_variant_dealloc) node->fn_variant_dealloc(node);
+    // An adopted condition is a nested block of this node. It goes before the
+    // unlink, which drops the pointer to it.
+    if (node->condition_to_parent && !c_dcg_condition_is_sentinel(node->condition_to_parent)) {
+        c_ap_free_owned((void*) node->condition_to_parent);
+    }
 
     // Unlink from the parent first: a teardown must never leave a dangling
     // link behind in the parent's child list. This deliberately bypasses the
@@ -788,25 +778,18 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
     c_dcg_node_unlink(node);
     if (parent) c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_REMOVED, node, (uint64_t) -1);
 
-    // Take the child list over before tearing children down, so a child's own
-    // detach cannot mutate the list we are walking.
-    dcg_node* child = node->children;
-    node->children  = NULL;
-    while (child) {
-        dcg_node* next      = child->next_sibling;
-        child->parent       = NULL;
-        child->next_sibling = NULL;
-        child->prev_sibling = NULL;
-        c_dcg_node_free(child);
-        child = next;
-    }
+    // The children are blocks of their own: they are let go, not freed, and
+    // each keeps its own subtree. Unlinking pops one child per round, so the
+    // list we are walking is the one being emptied.
+    while (node->children) c_dcg_node_unlink(node->children);
 
-    // Labels are nested blocks: each frees its own text with it. Their
-    // (calloc'd) list nodes are the one allocation the protocol does not own.
+    // Labels are nested blocks, and each entry's text is nested under the
+    // entry: one free per entry releases the pair.
     dcg_node_label* label = node->labels;
+    node->labels          = NULL;
     while (label) {
         dcg_node_label* next = label->next;
-        if (label->label) c_ap_free_owned((void*) label->label);
+        c_ap_free_owned(label);
         label = next;
     }
 
@@ -818,8 +801,8 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
         cb = next;
     }
 
-    // The repr, a string out and an adopted condition are all nested blocks;
-    // c_ap_free_owned() in c_dcg_node_free() releases the rest.
+    // The repr and a string out are nested blocks, released here so the block
+    // owns nothing once the teardown is done.
     if (node->repr) c_ap_free_owned((void*) node->repr);
     if (node->out.dtype == VAR_TYPE_STRING && node->out.value.as_string) {
         c_ap_free_owned((void*) node->out.value.as_string);
@@ -829,50 +812,22 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
 }
 
 /**
- * @brief Tear down a node and free its buf.
+ * @brief Tear down a node and free its buf - the node itself, nothing below it.
  *
- * @param node  Node to free (NULL-safe). Frees the whole subtree.
+ * The children are unlinked and left alive (see c_dcg_node_dealloc), so this
+ * is the free of a node, not of a subtree. Free a whole graph from its top
+ * with c_dcg_node_teardown_root() - never by calling this on a branch.
+ *
+ * @param node  Node to free (NULL-safe): a base node, or one of the kinds the
+ *              base alone holds. A family that adds state after the header -
+ *              an expression, a mapping, a variable, a root, a breakpoint - is
+ *              torn down by its own _free, or by c_dcg_node_free_any() when
+ *              only its dcg_node* is in hand.
  */
 static inline void c_dcg_node_free(dcg_node* node) {
     if (!node) return;
     c_dcg_node_dealloc(node);
     c_ap_free_owned(node);  // everything the node nested is released here
-}
-
-/**
- * @brief Back to a fresh state, keeping the node's identity and bindings.
- *
- * Drops the subtree and the labels, resets the value slot and the eval
- * scratch, but KEEPS: the kind, the operator, the repr and its ownership
- * flag, the uid, the eval hooks, the mutation callbacks and the
- * user_payload. This is what a builder calls to reuse a node block.
- *
- * @param node  Node to clean (NULL-safe).
- */
-static inline void c_dcg_node_clean(dcg_node* node) {
-    if (!node) return;
-
-    c_dcg_node_clear_children(node);
-
-    dcg_node_label* label = node->labels;
-    while (label) {
-        dcg_node_label* next = label->next;
-        if (label->label) c_ap_free_owned((void*) label->label);
-        label = next;
-    }
-    node->labels = NULL;
-
-    if (node->out.dtype == VAR_TYPE_STRING && node->out.value.as_string) {
-        c_ap_free_owned((void*) node->out.value.as_string);
-    }
-    (void) c_dcg_var_init(&node->out);
-
-    node->eval_ctx.run    = NULL;
-    node->eval_ctx.flags  = DCG_EVAL_FLAG_NONE;
-    node->eval_ctx.depth  = 0;
-    node->eval_ctx.visits = 0;
-
-    c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CLEARED, node, (uint64_t) -1);
 }
 
 // ========== Public APIs - Typed Constructors ==========
@@ -1241,43 +1196,6 @@ static inline int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) {
     // link() adopts the condition onto the replacement, so an owned condition
     // travels with the edge instead of dying with the displaced node.
     return c_dcg_node_link(parent, new_node, condition, anchor);
-}
-
-/**
- * @brief Unlink a node and free its whole subtree.
- *
- * @param node  Node to remove (NULL-safe).
- * @return DCG_OK, or DCG_ERR_BUSY when the parent is FROZEN.
- */
-static inline int c_dcg_node_remove(dcg_node* node) {
-    if (!node) return DCG_OK;
-    if (node->parent && (node->parent->flags & DCG_NODE_FLAG_FROZEN)) return DCG_ERR_BUSY;
-
-    c_dcg_node_free(node);
-    return DCG_OK;
-}
-
-/**
- * @brief Drop every child of a node, freeing their subtrees.
- *
- * @param node  Node to clear (NULL-safe). FROZEN nodes are left untouched.
- */
-static inline void c_dcg_node_clear_children(dcg_node* node) {
-    if (!node || !node->children) return;
-    if (node->flags & DCG_NODE_FLAG_FROZEN) return;
-
-    dcg_node* child = node->children;
-    node->children  = NULL;
-    while (child) {
-        dcg_node* next      = child->next_sibling;
-        child->parent       = NULL;
-        child->next_sibling = NULL;
-        child->prev_sibling = NULL;
-        c_dcg_node_free(child);
-        child = next;
-    }
-
-    c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CLEARED, node, (uint64_t) -1);
 }
 
 /**

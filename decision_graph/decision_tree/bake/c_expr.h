@@ -570,7 +570,7 @@ static inline int c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, 
         return DCG_OK;
     }
 
-    if (c_dcg_node_type_is_const(input->ntype)) {
+    if (c_dcg_node_type_is_input(input->ntype)) {
         if (input->out.dtype != VAR_TYPE_STRING || !input->out.value.as_string) {
             *slot = input->out; /* a value, borrowed as the constant holds it */
             return DCG_OK;

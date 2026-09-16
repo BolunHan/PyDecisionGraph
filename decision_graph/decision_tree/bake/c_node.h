@@ -34,6 +34,16 @@
 #define DCG_NODE_RENDER_MAX_DEPTH 0
 #endif
 
+/*
+ * Display text of the auto-generated no-action. It lives here rather than with
+ * the rest of the action family's default reprs because two headers need it and
+ * only one of them can see c_action.h: the fill that adds one (c_action.h), and
+ * the consolidation that turns an unfilled placeholder into one (this header).
+ */
+#ifndef DCG_DEF_REPR_NOACTION
+#define DCG_DEF_REPR_NOACTION "NoAction"
+#endif
+
 // ========== Structs ==========
 
 typedef struct dcg_node dcg_node;
@@ -1239,11 +1249,13 @@ static inline int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_no
  * never contains a placeholder.
  *
  * The conversion happens in place: the node keeps its slot, its edge, its
- * labels, its hooks and whatever subtree it grew, and only its kind changes
- * (reported as a MODIFIED mutation). Nothing is allocated, so the operation
- * cannot half-fail. A placeholder that was left holding children keeps them
- * - and validation will say so, which is the honest report of a builder
- * that never filled the slot properly.
+ * labels, its hooks and whatever subtree it grew, and only its kind and its
+ * display text change (reported as a MODIFIED mutation). The retitle is the
+ * one step that allocates, so a node whose new text cannot be had keeps the
+ * text it had and says so on stderr; the kind has already flipped either way,
+ * which is the structural half. A placeholder that was left holding children
+ * keeps them - and validation will say so, which is the honest report of a
+ * builder that never filled the slot properly.
  *
  * The walk is depth-first over the whole subtree and idempotent, so it can
  * be called once at the root or at every level like the capi does.
@@ -1261,6 +1273,9 @@ static inline size_t c_dcg_node_consolidate_placeholder(dcg_node* node) {
         if (child->ntype == DCG_NODE_PLACEHOLDER) {
             child->ntype   = DCG_NODE_NOACTION;
             child->autogen = true;
+            if (c_dcg_node_set_repr(child, DCG_DEF_REPR_NOACTION) != DCG_OK) {
+                (void) fprintf(stderr, "c_dcg_node_consolidate_placeholder: no text for the no-action at %p - keeping \"%s\"\n", (void*) child, child->repr ? child->repr : "");
+            }
             c_dcg_node_invoke_callbacks(child, DCG_NODE_EVENT_MODIFIED, child, (uint64_t) -1);
             replaced++;
         }

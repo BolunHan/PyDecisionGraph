@@ -8,16 +8,10 @@
 
 #include <cbase/allocator_protocol/c_allocator_protocol.h>
 
-#include <decision_graph/decision_tree/bake/c_node.h>
-
-/*
- * The families whose own _free the teardown dispatches to. This header is the
- * top of the bake include order - the one place every kind is in view at once.
- */
 #include <decision_graph/decision_tree/bake/c_action.h>
-#include <decision_graph/decision_tree/bake/c_collection.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
 #include <decision_graph/decision_tree/bake/c_expr.h>
+#include <decision_graph/decision_tree/bake/c_node.h>
 
 /*
  * The kinds the graph's own structure is made of, and the one way a graph is
@@ -99,19 +93,22 @@ typedef struct dcg_root_node {
 /**
  * @brief An inspection sink: the base node plus its group's two fields.
  *
- * `await_connection` is the capi's field of the same name: the builder raises it
+ * `await_connection` is the capi's field of the same name: the manager raises it
  * when the group the breakpoint belongs to is left, and lowers it when the
- * breakpoint is reached again, so a breakpoint that is still waiting is not an
- * inspection point yet. `break_from` names the group it breaks out of - NOT
- * owned, and unused until the logic group lands.
+ * breakpoint is connected to the node that resumes outside it, so a breakpoint
+ * that is still waiting is not an inspection point yet.
+ *
+ * `break_from` names the group it breaks out of. It is NOT owned - a group
+ * outlives every breakpoint raised from it - and it is what the manager matches
+ * on when a group is left (see c_dcg_lgm_exit_group).
  *
  * The base node must stay the FIRST member: a dcg_breakpoint_node* is therefore
  * a valid dcg_node*.
  */
 typedef struct dcg_breakpoint_node {
-    dcg_node base;              // The common node header. Must stay first.
-    void*    break_from;        // Currently you can ignore it, we will work on the logic group later.
-    bool     await_connection;  //
+    dcg_node         base;              // The common node header. Must stay first.
+    dcg_logic_group* break_from;        // The group this breaks out of. // NOT owned.
+    bool             await_connection;  // Waiting for the node it resumes into.
 } dcg_breakpoint_node;
 
 // ========== Forward Declarations ==========
@@ -222,13 +219,14 @@ static inline void c_dcg_node_free_breakpoint(dcg_breakpoint_node* node) {
  * c_dcg_node_free() releases the base half of a node; a family that puts state
  * after the base header releases that state in its own _free. This is the one
  * place that knows both: the node's own `ntype` is the dispatch flag, and the
- * free of the kind it names is the one called - the constant family through
- * c_dcg_node_free_const(), the operator family through c_dcg_node_free_expr(),
- * a mapping and a variable through theirs, the whole action family through
+ * free of the kind it names is the one called - a literal and a variable
+ * through their two input frees, the operator family through
+ * c_dcg_node_free_expr(), the whole action family through
  * c_dcg_node_free_action(), a root and a breakpoint through theirs.
  *
- * The kinds that carry nothing beyond the base - a list - go straight to
- * c_dcg_node_free().
+ * A family whose kinds have different layouts is split here, not inside its own
+ * free: a variable is not a literal, and a free that took one as the other
+ * would be reading a block that is not that shape.
  *
  * A kind this dispatcher has no free for - a variant it has never heard of -
  * is reported on stderr, and its base is released all the same: the silent
@@ -245,26 +243,16 @@ static inline void c_dcg_node_free_generic(dcg_node* node) {
     if (!node) return;
 
     switch ((int) node->ntype & DCG_NODE_FAMILY_MASK) {
-        case DCG_NODE_CONST:
+        case DCG_NODE_INPUT:
+            if (node->ntype == DCG_NODE_VARIABLE) {
+                c_dcg_node_free_var((dcg_variable_node*) node);
+                return;
+            }
             c_dcg_node_free_const((dcg_constant_node*) node);
             return;
         case DCG_NODE_OP:
             c_dcg_node_free_expr((dcg_expression_node*) node);
             return;
-        case DCG_NODE_COLLECTION:
-            if (node->ntype == DCG_NODE_MAPPING) {
-                c_dcg_node_free_mapping((dcg_mapping_node*) node);
-                return;
-            }
-            if (node->ntype == DCG_NODE_VARIABLE) {
-                c_dcg_node_free_var((dcg_variable_node*) node);
-                return;
-            }
-            if (node->ntype == DCG_NODE_LIST) {
-                c_dcg_node_free(node); /* a list is the base node alone */
-                return;
-            }
-            break;
         case DCG_NODE_ACTION:
             c_dcg_node_free_action((dcg_action_node*) node);
             return;

@@ -92,9 +92,9 @@ typedef struct dcg_root_node {
  * a valid dcg_node*.
  */
 typedef struct dcg_breakpoint_node {
-    dcg_node base;  // The common node header. Must stay first.
-    bool     await_connection;
-    void*    break_from;  // Currently you can ignore it, we will work on the logic group later.
+    dcg_node base;              // The common node header. Must stay first.
+    void*    break_from;        // Currently you can ignore it, we will work on the logic group later.
+    bool     await_connection;  //
 } dcg_breakpoint_node;
 
 // ========== Forward Declarations ==========

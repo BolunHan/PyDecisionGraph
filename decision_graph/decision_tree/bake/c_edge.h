@@ -21,21 +21,36 @@
 
 // clang-format off
 
+typedef enum dcg_node_edge_type {
+    DCG_NODE_EDGE_VALUE = 0,  // A caller-owned condition: `value` is what selects the edge. Also what a zeroed condition reads as.
+    DCG_NODE_EDGE_NONE  = 1,  // The unconditional edge.
+    DCG_NODE_EDGE_ELSE  = 2,  // The fallback: always taken last.
+    DCG_NODE_EDGE_AUTO  = 3,  // Unresolved - the parent infers which arm the edge belongs to.
+    DCG_NODE_EDGE_TRUE  = 4,  // The true arm of a two-way branch.
+    DCG_NODE_EDGE_FALSE = 5   // The false arm of a two-way branch.
+} dcg_node_edge_type;
+
 /**
  * @brief The condition carried by an edge (i.e. by a child, about its parent).
  *
- * Identity is the address: the five built-in conditions are the static
- * objects below, handed out by the DCG_*_CONDITION macros, and every
- * comparison in the bake layer is an address comparison against them
- * (c_dcg_condition_is_else, c_dcg_condition_matches, ...). Any other
- * condition is a caller-owned object whose `value` is what the parent's
- * evaluated value gets compared against.
+ * Identity is the `type`: the five built-ins are the static objects below,
+ * handed out by the DCG_*_CONDITION macros, and every comparison in the bake
+ * layer is a test of that field (c_dcg_condition_is_else,
+ * c_dcg_condition_matches, ...) - never of the object's address. Any other
+ * condition is a caller-owned object of type DCG_NODE_EDGE_VALUE, whose
+ * `value` is what the parent's evaluated value gets compared against.
+ *
+ * The field rather than the address is what makes identity survive the
+ * header being included by more than one translation unit: each unit gets its
+ * own copy of the built-ins, and the copies agree because they carry the same
+ * type - which an address comparison could never see.
  *
  * The repr is an inline buffer naming the condition and its address, so a
  * condition owns no memory at all: the built-ins are static objects and a
  * user condition is one flat block.
  */
 typedef struct dcg_node_edge_condition {
+    dcg_node_edge_type type;
     dcg_var_t value;                       // Condition payload (bools for the TRUE/FALSE built-ins).
     char      repr[DCG_EDGE_REPR_MAXLEN];  // Display text, always present.
 } dcg_node_edge_condition;
@@ -46,22 +61,24 @@ typedef struct dcg_node_edge_condition {
  * The five built-ins live in static storage: no heap, so nothing can leak
  * and there is nothing to free.
  *
+ * They are file-scope objects in a header, so every translation unit that
+ * includes this header gets its own copy. That is harmless: each copy is born
+ * carrying its type, and every comparison reads the type - a graph built in
+ * one unit and inspected in another still agrees on which edge is which. Only
+ * the repr is unit-local (it names the copy's own address, which is there for
+ * debugging and is never compared).
+ *
  * Static storage is writable by default, which is what lets the repr carry
  * each condition's own address - that address only exists once the object
  * does, so it is written by the one-time c_dcg_condition_init_globals(),
  * guarded by __DCG_CONDITION_INITIALIZED and triggered from the macros below.
- *
- * They are file-scope objects in a header: every translation unit that
- * includes this header gets its own copy and its own one-time init, so
- * identity is only meaningful WITHIN a translation unit. Build and inspect a
- * graph in the same TU (which is what the module and each suite do).
  */
 
-static dcg_node_edge_condition __DCG_NO_CONDITION;
-static dcg_node_edge_condition __DCG_ELSE_CONDITION;
-static dcg_node_edge_condition __DCG_AUTO_CONDITION;
-static dcg_node_edge_condition __DCG_TRUE_CONDITION;
-static dcg_node_edge_condition __DCG_FALSE_CONDITION;
+static dcg_node_edge_condition __DCG_NO_CONDITION    = {.type = DCG_NODE_EDGE_NONE};
+static dcg_node_edge_condition __DCG_ELSE_CONDITION  = {.type = DCG_NODE_EDGE_ELSE};
+static dcg_node_edge_condition __DCG_AUTO_CONDITION  = {.type = DCG_NODE_EDGE_AUTO};
+static dcg_node_edge_condition __DCG_TRUE_CONDITION  = {.type = DCG_NODE_EDGE_TRUE};
+static dcg_node_edge_condition __DCG_FALSE_CONDITION = {.type = DCG_NODE_EDGE_FALSE};
 
 static bool                    __DCG_CONDITION_INITIALIZED = false;
 
@@ -69,20 +86,20 @@ static bool                    __DCG_CONDITION_INITIALIZED = false;
 
 // ========== Forward Declarations ==========
 
-static inline void c_dcg_condition_init_globals(void);
+static inline void                     c_dcg_condition_init_globals(void);
 
 // Identity (address comparison - the way conditions are told apart)
-static inline bool c_dcg_condition_is_sentinel(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_none(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_else(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_auto(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_true(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_false(const dcg_node_edge_condition* cond);
-static inline bool c_dcg_condition_is_binary(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_sentinel(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_none(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_else(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_auto(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_true(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_false(const dcg_node_edge_condition* cond);
+static inline bool                     c_dcg_condition_is_binary(const dcg_node_edge_condition* cond);
 
 // Comparison
-static inline bool c_dcg_condition_equals(const dcg_node_edge_condition* lhs, const dcg_node_edge_condition* rhs);
-static inline bool c_dcg_condition_matches(const dcg_node_edge_condition* cond, const dcg_var_t* value);
+static inline bool                     c_dcg_condition_equals(const dcg_node_edge_condition* lhs, const dcg_node_edge_condition* rhs);
+static inline bool                     c_dcg_condition_matches(const dcg_node_edge_condition* cond, const dcg_var_t* value);
 
 // Lifecycle
 static inline int                      c_dcg_condition_init(dcg_node_edge_condition* cond, dcg_var_t value, const char* repr);
@@ -91,9 +108,9 @@ static inline void                     c_dcg_condition_dealloc(dcg_node_edge_con
 static inline void                     c_dcg_condition_free(dcg_node_edge_condition* cond);
 
 // Output
-static inline const char* c_dcg_condition_repr(const dcg_node_edge_condition* cond);
-static inline int         c_dcg_condition_format(const dcg_node_edge_condition* cond, const char* fallback_prefix, char* out, size_t cap);
-static inline int         c_dcg_condition_print(const dcg_node_edge_condition* cond, FILE* stream);
+static inline const char*              c_dcg_condition_repr(const dcg_node_edge_condition* cond);
+static inline int                      c_dcg_condition_format(const dcg_node_edge_condition* cond, const char* fallback_prefix, char* out, size_t cap);
+static inline int                      c_dcg_condition_print(const dcg_node_edge_condition* cond, FILE* stream);
 
 // ========== Utility Functions ==========
 
@@ -109,7 +126,7 @@ static inline int         c_dcg_condition_print(const dcg_node_edge_condition* c
  * from several threads should touch one of the DCG_*_CONDITION macros once,
  * up front, from the thread that starts up.
  */
-static inline void c_dcg_condition_init_globals(void) {
+static inline void                     c_dcg_condition_init_globals(void) {
     if (__DCG_CONDITION_INITIALIZED) return;
 
     dcg_node_edge_condition* no_condition    = &__DCG_NO_CONDITION;
@@ -199,8 +216,10 @@ static inline void c_dcg_condition_init_globals(void) {
 // ========== Public APIs ==========
 
 /*
- * The identity predicates compare against the built-in objects themselves,
- * so they answer correctly whether or not the one-time init has run yet.
+ * The identity predicates read the condition's type, which every copy of a
+ * built-in carries from its first byte - so they answer correctly whether or
+ * not the one-time init has run, and whichever translation unit built the
+ * condition and whichever one is inspecting it.
  */
 
 /**
@@ -211,11 +230,7 @@ static inline void c_dcg_condition_init_globals(void) {
  */
 static inline bool c_dcg_condition_is_sentinel(const dcg_node_edge_condition* cond) {
     if (!cond) return false;
-    return cond == &__DCG_NO_CONDITION ||
-           cond == &__DCG_ELSE_CONDITION ||
-           cond == &__DCG_AUTO_CONDITION ||
-           cond == &__DCG_TRUE_CONDITION ||
-           cond == &__DCG_FALSE_CONDITION;
+    return cond->type != DCG_NODE_EDGE_VALUE;
 }
 
 /**
@@ -228,7 +243,7 @@ static inline bool c_dcg_condition_is_sentinel(const dcg_node_edge_condition* co
  * @return true for NULL or DCG_NO_CONDITION.
  */
 static inline bool c_dcg_condition_is_none(const dcg_node_edge_condition* cond) {
-    return cond == NULL || cond == &__DCG_NO_CONDITION;
+    return cond == NULL || cond->type == DCG_NODE_EDGE_NONE;
 }
 
 /**
@@ -238,7 +253,7 @@ static inline bool c_dcg_condition_is_none(const dcg_node_edge_condition* cond) 
  * @return true for DCG_ELSE_CONDITION.
  */
 static inline bool c_dcg_condition_is_else(const dcg_node_edge_condition* cond) {
-    return cond == &__DCG_ELSE_CONDITION;
+    return cond && cond->type == DCG_NODE_EDGE_ELSE;
 }
 
 /**
@@ -248,7 +263,7 @@ static inline bool c_dcg_condition_is_else(const dcg_node_edge_condition* cond) 
  * @return true for DCG_AUTO_CONDITION.
  */
 static inline bool c_dcg_condition_is_auto(const dcg_node_edge_condition* cond) {
-    return cond == &__DCG_AUTO_CONDITION;
+    return cond && cond->type == DCG_NODE_EDGE_AUTO;
 }
 
 /**
@@ -258,7 +273,7 @@ static inline bool c_dcg_condition_is_auto(const dcg_node_edge_condition* cond) 
  * @return true for DCG_TRUE_CONDITION.
  */
 static inline bool c_dcg_condition_is_true(const dcg_node_edge_condition* cond) {
-    return cond == &__DCG_TRUE_CONDITION;
+    return cond && cond->type == DCG_NODE_EDGE_TRUE;
 }
 
 /**
@@ -268,7 +283,7 @@ static inline bool c_dcg_condition_is_true(const dcg_node_edge_condition* cond) 
  * @return true for DCG_FALSE_CONDITION.
  */
 static inline bool c_dcg_condition_is_false(const dcg_node_edge_condition* cond) {
-    return cond == &__DCG_FALSE_CONDITION;
+    return cond && cond->type == DCG_NODE_EDGE_FALSE;
 }
 
 /**
@@ -278,17 +293,18 @@ static inline bool c_dcg_condition_is_false(const dcg_node_edge_condition* cond)
  * @return true for DCG_TRUE_CONDITION / DCG_FALSE_CONDITION.
  */
 static inline bool c_dcg_condition_is_binary(const dcg_node_edge_condition* cond) {
-    return cond == &__DCG_TRUE_CONDITION || cond == &__DCG_FALSE_CONDITION;
+    return cond && (cond->type == DCG_NODE_EDGE_TRUE || cond->type == DCG_NODE_EDGE_FALSE);
 }
 
 /**
- * @brief Equality of two conditions: identity first, payload for the rest.
+ * @brief Equality of two conditions: the type, then the payload.
  *
- * The built-ins are unique objects, so two of them are equal only when they
- * are the same one. A NULL condition equals DCG_NO_CONDITION. Anything else
- * is a caller-owned condition and compares by payload - which is what an
- * evaluator uses to pick a branch, so two user conditions carrying the same
- * value are the same edge as far as the graph is concerned.
+ * The built-ins compare by type, so any copy of DCG_TRUE_CONDITION equals any
+ * other - which is what makes a condition built in one translation unit
+ * recognisable in another. A NULL condition equals DCG_NO_CONDITION. Two
+ * value conditions compare by payload, which is what an evaluator uses to
+ * pick a branch: two user conditions carrying the same value are the same
+ * edge as far as the graph is concerned.
  *
  * @param lhs  Left condition (NULL-safe: NULL is DCG_NO_CONDITION).
  * @param rhs  Right condition (NULL-safe: NULL is DCG_NO_CONDITION).
@@ -297,7 +313,9 @@ static inline bool c_dcg_condition_is_binary(const dcg_node_edge_condition* cond
 static inline bool c_dcg_condition_equals(const dcg_node_edge_condition* lhs, const dcg_node_edge_condition* rhs) {
     if (lhs == rhs) return true;
     if (c_dcg_condition_is_none(lhs) && c_dcg_condition_is_none(rhs)) return true;
-    if (c_dcg_condition_is_sentinel(lhs) || c_dcg_condition_is_sentinel(rhs)) return false;
+    if (!lhs || !rhs) return false;
+    if (lhs->type != rhs->type) return false;
+    if (lhs->type != DCG_NODE_EDGE_VALUE) return true;
     return c_dcg_var_equals(&lhs->value, &rhs->value);
 }
 
@@ -338,6 +356,7 @@ static inline int c_dcg_condition_init(dcg_node_edge_condition* cond, dcg_var_t 
     if (!cond) return DCG_ERR_INVALID_ARG;
 
     memset(cond, 0, sizeof(*cond));
+    cond->type  = DCG_NODE_EDGE_VALUE;  // stated rather than left to the zeroing: the type is what identity reads
     cond->value = value;
 
     if (repr) {
@@ -457,8 +476,12 @@ static inline int c_dcg_condition_print(const dcg_node_edge_condition* cond, FIL
 /**
  * The five built-in edge conditions. Each expands to a const pointer to its
  * static object, initializing the built-ins on first use; the pointer is
- * stable for the lifetime of the translation unit, so it can be compared
- * with ==, stored in a static node table, and never needs freeing.
+ * stable for the lifetime of the translation unit, so it can be stored in a
+ * static node table and never needs freeing.
+ *
+ * Two pointers to the same built-in from two translation units are different
+ * addresses - what identifies the edge is the type the object carries, so
+ * compare through c_dcg_condition_* rather than with ==.
  */
 #define DCG_NO_CONDITION         \
     (__DCG_CONDITION_INITIALIZED \

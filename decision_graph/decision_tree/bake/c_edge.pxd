@@ -13,7 +13,17 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
 
 cdef extern from "decision_graph/decision_tree/bake/c_edge.h":
     const int DCG_EDGE_REPR_MAXLEN
+
+    ctypedef enum dcg_node_edge_type:
+        DCG_NODE_EDGE_VALUE
+        DCG_NODE_EDGE_NONE
+        DCG_NODE_EDGE_ELSE
+        DCG_NODE_EDGE_AUTO
+        DCG_NODE_EDGE_TRUE
+        DCG_NODE_EDGE_FALSE
+
     ctypedef struct dcg_node_edge_condition:
+        dcg_node_edge_type type
         dcg_var_t value
         char repr[DCG_EDGE_REPR_MAXLEN]
 
@@ -84,11 +94,11 @@ cdef class ConditionFalse(BinaryCondition):
     cdef ConditionFalse c_from_header(dcg_node_edge_condition* header, bint owner=?)
 
 
-cdef const dcg_node_edge_condition* C_NO_CONDITION
-cdef const dcg_node_edge_condition* C_ELSE_CONDITION
-cdef const dcg_node_edge_condition* C_AUTO_CONDITION
-cdef const dcg_node_edge_condition* C_TRUE_CONDITION
-cdef const dcg_node_edge_condition* C_FALSE_CONDITION
+cdef dcg_node_edge_condition* C_NO_CONDITION
+cdef dcg_node_edge_condition* C_ELSE_CONDITION
+cdef dcg_node_edge_condition* C_AUTO_CONDITION
+cdef dcg_node_edge_condition* C_TRUE_CONDITION
+cdef dcg_node_edge_condition* C_FALSE_CONDITION
 
 cdef NodeEdgeCondition NO_CONDITION
 cdef NodeEdgeCondition ELSE_CONDITION

@@ -250,6 +250,7 @@ typedef struct dcg_var_t {
 // Containers (contiguous double payloads with their own metadata)
 static inline dcg_d_vector_t* c_dcg_d_vector_new(size_t n, allocator_protocol* allocator);
 static inline dcg_d_vector_t* c_dcg_d_vector_new_child(size_t n, allocator_protocol* allocator, const void* parent);
+static inline void            c_dcg_d_vector_dealloc(dcg_d_vector_t* vector);
 static inline void            c_dcg_d_vector_free(dcg_d_vector_t* vector);
 static inline double*         c_dcg_d_vector_data(const dcg_d_vector_t* vector);
 static inline size_t          c_dcg_d_vector_size(const dcg_d_vector_t* vector);
@@ -258,6 +259,7 @@ static inline int             c_dcg_d_vector_set(dcg_d_vector_t* vector, size_t 
 
 static inline dcg_d_matrix_t* c_dcg_d_matrix_new(size_t n_rows, size_t n_cols, bool row_major, allocator_protocol* allocator);
 static inline dcg_d_matrix_t* c_dcg_d_matrix_new_child(size_t n_rows, size_t n_cols, bool row_major, allocator_protocol* allocator, const void* parent);
+static inline void            c_dcg_d_matrix_dealloc(dcg_d_matrix_t* matrix);
 static inline void            c_dcg_d_matrix_free(dcg_d_matrix_t* matrix);
 static inline double*         c_dcg_d_matrix_data(const dcg_d_matrix_t* matrix);
 static inline size_t          c_dcg_d_matrix_rows(const dcg_d_matrix_t* matrix);
@@ -276,6 +278,7 @@ static inline dcg_var_t*      c_dcg_var_new_ptr(void* value, allocator_protocol*
 static inline dcg_var_t*      c_dcg_var_new_dvector(size_t n, allocator_protocol* allocator);
 static inline dcg_var_t*      c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, bool row_major, allocator_protocol* allocator);
 static inline dcg_var_t*      c_dcg_var_new_ref(const dcg_var_t* src, allocator_protocol* allocator);
+static inline void            c_dcg_var_dealloc(dcg_var_t* var);
 static inline void            c_dcg_var_free(dcg_var_t* var);
 
 // Population (caller-owned buffer - never allocates)
@@ -360,14 +363,23 @@ static inline dcg_d_vector_t* c_dcg_d_vector_new_child(size_t n, allocator_proto
     return vector;
 }
 
+static inline void c_dcg_d_vector_dealloc(dcg_d_vector_t* vector) {
+    if (!vector) return;
+    c_ap_free_owned(vector->data);
+    memset(vector, 0, sizeof(*vector));
+}
+
 /**
  * @brief Release a vector and its data.
+ *
+ * The clean half first, then the block.
  *
  * @param vector  Vector to free (NULL-safe).
  */
 static inline void c_dcg_d_vector_free(dcg_d_vector_t* vector) {
     if (!vector) return;
-    c_ap_free_owned(vector);  // frees the nested data block first
+    c_dcg_d_vector_dealloc(vector);
+    c_ap_free_owned(vector);
 }
 
 /**
@@ -457,14 +469,23 @@ static inline dcg_d_matrix_t* c_dcg_d_matrix_new_child(size_t n_rows, size_t n_c
     return matrix;
 }
 
+static inline void c_dcg_d_matrix_dealloc(dcg_d_matrix_t* matrix) {
+    if (!matrix) return;
+    c_ap_free_owned(matrix->data);
+    memset(matrix, 0, sizeof(*matrix));
+}
+
 /**
  * @brief Release a matrix and its data.
+ *
+ * The clean half first, then the block.
  *
  * @param matrix  Matrix to free (NULL-safe).
  */
 static inline void c_dcg_d_matrix_free(dcg_d_matrix_t* matrix) {
     if (!matrix) return;
-    c_ap_free_owned(matrix);  // frees the nested data block first
+    c_dcg_d_matrix_dealloc(matrix);
+    c_ap_free_owned(matrix);
 }
 
 /**
@@ -713,17 +734,43 @@ static inline dcg_var_t* c_dcg_var_new_ref(const dcg_var_t* src, allocator_proto
 }
 
 /**
- * @brief Release a value together with everything it owns.
+ * @brief Release what a value owns, leaving the buf to its holder.
  *
- * Frees the whole ownership chain - a string copy, a vector or a matrix and
- * its data - then the value block itself. A plain scalar value owns nothing,
- * so this is just its block.
+ * A payload the value OWNS is a block nested under it - a string copy, a
+ * vector, a matrix - and it is handed back here, exactly as
+ * c_dcg_node_dealloc() hands back node->out. A payload the value only REFERS to
+ * (the _REF tags) belongs to whatever it points at and is left alone. The tag is
+ * reset afterwards, so a buf that is reused owns nothing.
+ *
+ * @param var  Value to tear down (NULL-safe).
+ */
+static inline void c_dcg_var_dealloc(dcg_var_t* var) {
+    if (!var) return;
+
+    if (var->dtype == VAR_TYPE_STRING && var->value.as_string) {
+        c_ap_free_owned((void*) var->value.as_string);
+    }
+    else if (var->dtype == VAR_TYPE_D_VECTOR && var->value.as_dvector) {
+        c_ap_free_owned(var->value.as_dvector);
+    }
+    else if (var->dtype == VAR_TYPE_D_MATRIX && var->value.as_dmatrix) {
+        c_ap_free_owned(var->value.as_dmatrix);
+    }
+
+    memset(var, 0, sizeof(*var));
+}
+
+/**
+ * @brief Release a value and its block.
+ *
+ * The clean half first, then the block.
  *
  * @param var  Value to free (NULL-safe). Must be a c_dcg_var_new_*() value,
  *             never one that only went through c_dcg_var_init_*().
  */
 static inline void c_dcg_var_free(dcg_var_t* var) {
     if (!var) return;
+    c_dcg_var_dealloc(var);
     c_ap_free_owned(var);
 }
 

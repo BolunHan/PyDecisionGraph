@@ -74,6 +74,7 @@ typedef struct dcg_mapping_lgroup {
 
 // Lifecycle
 static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, size_t capacity, allocator_protocol* allocator);
+static inline void                c_dcg_mapping_lgroup_dealloc(dcg_mapping_lgroup* lgroup);
 static inline void                c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup);
 
 // Setter
@@ -137,20 +138,33 @@ static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, siz
 }
 
 /**
- * @brief Tear down a mapping group and free its buf.
+ * @brief Tear down a mapping's contents, leaving the group buf alone.
  *
  * Two things go, in this order: the entry index, whose table is a block of its
  * own and is handed back first (while the field that names it is still intact),
- * and then the group - the name, the entry slots, the string copies of the
- * entries, and every variable node built over the store are nested blocks of
- * it, so the base free releases them all.
+ * and then the base group's half, which releases the name. The entry slots, the
+ * string copies of the entries and every variable node built over the store are
+ * nested blocks of the group block, so they go with it rather than here.
+ *
+ * @param lgroup  Group to tear down (NULL-safe).
+ */
+static inline void c_dcg_mapping_lgroup_dealloc(dcg_mapping_lgroup* lgroup) {
+    if (!lgroup) return;
+    c_bytemap_ex_dealloc(&lgroup->idx_mapping); /* a table block of its own, not a child */
+    c_dcg_logic_group_dealloc(&lgroup->base);
+}
+
+/**
+ * @brief Tear down a mapping group and free its buf.
+ *
+ * The clean half first, then the block.
  *
  * @param lgroup  Group to free (NULL-safe).
  */
 static inline void c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup) {
     if (!lgroup) return;
-    c_bytemap_ex_dealloc(&lgroup->idx_mapping); /* a table block of its own, not a child */
-    c_dcg_logic_group_free(&lgroup->base);
+    c_dcg_mapping_lgroup_dealloc(lgroup);
+    c_ap_free_owned(lgroup);
 }
 
 // ========== Internal Helpers ==========

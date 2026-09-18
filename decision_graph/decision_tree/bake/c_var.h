@@ -71,7 +71,7 @@ typedef enum dcg_ret_code {
     DCG_ERR_FULL        = -5,   // Caller-provided buffer is too small.
     DCG_ERR_BAD_CAST    = -6,   // Value tags are not convertible.
     DCG_ERR_FORMAT      = -7,   // Formatting failed.
-    DCG_ERR_TYPE        = -8,   // Node/condition kind does not allow the operation.
+    DCG_ERR_TYPE        = -8,   // Node/condition type does not allow the operation.
     DCG_ERR_CYCLE       = -9,   // Operation would create a parent/child cycle.
     DCG_ERR_BUSY        = -10,  // Object is in a state that forbids the operation.
     DCG_ERR_DUPLICATE   = -11,  // The edge condition is already registered on the parent.
@@ -1207,7 +1207,7 @@ static inline bool c_dcg_var_is_container(const dcg_var_t* var) {
 }
 
 /**
- * @brief Predicate: is the value absent (no payload of any kind)?
+ * @brief Predicate: is the value absent (no payload of any type)?
  *
  * Absent is about the VALUE: a live reference whose slot holds NULL is absent,
  * like a NULL string or a vector with no buffer. A reference that points at

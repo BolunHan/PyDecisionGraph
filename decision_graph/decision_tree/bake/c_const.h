@@ -48,7 +48,7 @@
  * A literal carries nothing beyond the base node - the value it stands for is
  * base.out, which is why this struct has no field of its own. It exists so the
  * literals have a name to construct, cast and dispatch on, and so a future
- * per-kind payload (a parsed literal, an interned string) has a home that does
+ * per-type payload (a parsed literal, an interned string) has a home that does
  * not touch every other family.
  *
  * The base node must stay the FIRST member: a dcg_constant_node* is therefore
@@ -108,15 +108,15 @@ static inline void               c_dcg_node_free_var(dcg_variable_node* node);
 // ========== Lifecycle Methods ==========
 
 /**
- * @brief Allocate a literal input of an explicit kind.
+ * @brief Allocate a literal input of an explicit type.
  *
  * A variable is an input too, but not one this block holds: it carries a key
  * and the group it reads, so it is built by c_dcg_node_new_var() instead.
  *
- * @param ntype      A literal kind (INPUT / TRUE / FALSE / DOUBLE / STRING / INT).
+ * @param ntype      A literal type (INPUT / TRUE / FALSE / DOUBLE / STRING / INT).
  * @param repr       Display text to copy (may be NULL).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind.
+ * @return The node, or NULL on OOM / invalid type.
  */
 static inline dcg_constant_node* c_dcg_node_new_const(dcg_node_type ntype, const char* repr, allocator_protocol* allocator) {
     if (!c_dcg_node_type_is_input(ntype) || ntype == DCG_NODE_VARIABLE) return NULL;
@@ -172,7 +172,7 @@ static inline dcg_constant_node* c_dcg_node_new_const_value(const char* repr, dc
 /**
  * @brief Allocate a boolean constant.
  *
- * The kind follows the value (TRUE / FALSE) and so does the repr
+ * The type follows the value (TRUE / FALSE) and so does the repr
  * (DCG_DEF_REPR_TRUE / DCG_DEF_REPR_FALSE), so there is nothing for the caller
  * to tell it that the payload does not already say.
  *

@@ -223,7 +223,7 @@ globals()['AUTO_CONDITION']                     = AUTO_CONDITION
 globals()['TRUE_CONDITION']                     = TRUE_CONDITION
 globals()['FALSE_CONDITION']                    = FALSE_CONDITION
 
-EDGE_REGISTRY                                   = EdgeConditionRegistry()
+cdef EdgeConditionRegistry EDGE_REGISTRY        = EdgeConditionRegistry()
 EDGE_REGISTRY[<uintptr_t> C_NO_CONDITION]       = NO_CONDITION
 EDGE_REGISTRY[<uintptr_t> C_ELSE_CONDITION]     = ELSE_CONDITION
 EDGE_REGISTRY[<uintptr_t> C_AUTO_CONDITION]     = AUTO_CONDITION

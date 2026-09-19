@@ -43,6 +43,16 @@
 #define DCG_DEF_REPR_NOACTION "NoAction"
 #endif
 
+/*
+ * Display text of the auto-generated placeholder. It lives here rather than with
+ * the action family's default reprs because the placeholder is not an action: it
+ * is a plain node the builder leaves behind, and both its constructor and the
+ * consolidation that retires it are in this header.
+ */
+#ifndef DCG_DEF_REPR_PLACEHOLDER
+#define DCG_DEF_REPR_PLACEHOLDER "Placeholder"
+#endif
+
 // ========== Structs ==========
 
 /**
@@ -92,7 +102,7 @@ typedef enum dcg_node_type {
     DCG_NODE_CALL         = 0x0104,  // Variadic operator (call-like).
     // 0x0200 - RESERVED. The collection family stood here; a mapping, a
     // sequence and a generator are logic groups, not nodes, and live in
-    // c_logic_group.h and c_collection.h.
+    // c_logic_group.h and c_collections.h.
     // === Action Node ===
     DCG_NODE_ACTION       = 0x0400,  // <- Mask and Generics
     DCG_NODE_NOACTION     = 0x0401,  // Leaf action: do nothing.
@@ -349,6 +359,7 @@ static inline int                            c_dcg_node_append_at_binary(dcg_nod
 static inline int                            c_dcg_node_detach(dcg_node* node);
 static inline int                            c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node);
 static inline int                            c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node);
+static inline dcg_node*                      c_dcg_node_new_placeholder(allocator_protocol* allocator);
 static inline size_t                         c_dcg_node_consolidate_placeholder(dcg_node* node);
 
 // Queries
@@ -1297,6 +1308,29 @@ static inline int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_no
     new_node->parent = NULL;
 
     return c_dcg_node_replace(old_node, new_node);
+}
+
+/**
+ * @brief Allocate an auto-generated placeholder.
+ *
+ * A placeholder is what an unfinished branch leaves behind. It is a plain node,
+ * not an action: it carries none of the fields the action family's struct exists
+ * for - no signal, no payload, no connect flag - and it is flagged autogen so
+ * consolidation can tell it from a node the caller built.
+ *
+ * The opening half of the placeholder discipline: a branch reserves its slot
+ * with this and fills it later, and whatever is still a placeholder when the
+ * graph closes is retired by c_dcg_node_consolidate_placeholder below.
+ *
+ * @param allocator  Allocator for the block; NULL falls back to the plain heap.
+ * @return The node, or NULL on OOM.
+ */
+static inline dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator) {
+    dcg_node* node = c_dcg_node_new(DCG_NODE_PLACEHOLDER, DCG_DEF_REPR_PLACEHOLDER, allocator);
+    if (!node) return NULL;
+
+    node->autogen = true;
+    return node;
 }
 
 /**

@@ -3,9 +3,9 @@ from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
 from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
-from cbase.int128 cimport uint128_t
+from cbase.bytemap cimport BoundByteMap, bytemap
 
-from .c_edge cimport dcg_node_edge_condition
+from .c_edge cimport dcg_node_edge_condition, NodeEdgeCondition
 from .c_var cimport dcg_ret_code, dcg_var_t
 
 
@@ -93,12 +93,14 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
         uintptr_t id
         dcg_node_callback_ctx* next
 
+    ctypedef unsigned char uuid_t[16]
+
     ctypedef struct dcg_node:
         dcg_node_eval_ctx eval_ctx
         dcg_var_t out
         dcg_node_type ntype
         const char* repr
-        uint128_t uid
+        uuid_t uid
         dcg_node_label* labels
         c_bool autogen
         uint32_t flags
@@ -170,6 +172,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_detach(dcg_node* node) noexcept nogil
     int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) noexcept nogil
     int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node) noexcept nogil
+    dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator) noexcept nogil
     size_t c_dcg_node_consolidate_placeholder(dcg_node* node) noexcept nogil
 
     size_t c_dcg_node_child_count(const dcg_node* node) noexcept nogil
@@ -188,6 +191,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     c_bool c_dcg_node_is_leaf(const dcg_node* node) noexcept nogil
     c_bool c_dcg_node_is_root(const dcg_node* node) noexcept nogil
     c_bool c_dcg_node_is_ancestor(const dcg_node* node, const dcg_node* descendant) noexcept nogil
+    dcg_node* c_dcg_node_find_by_uid(const dcg_node* root, const uuid_t uid) noexcept nogil
     size_t c_dcg_node_collect_leaves(const dcg_node* root, dcg_node** out, size_t cap) noexcept nogil
     size_t c_dcg_node_collect_descendants(const dcg_node* root, dcg_node** out, size_t cap) noexcept nogil
     size_t c_dcg_node_path_to(const dcg_node* node, const dcg_node** out, size_t cap) noexcept nogil
@@ -204,6 +208,8 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_render(const dcg_node* node, FILE* stream, const dcg_render_opts* opts) noexcept nogil
     int c_dcg_node_print(const dcg_node* node) noexcept nogil
     int c_dcg_node_render_to_string(const dcg_node* node, char* out, size_t cap, const dcg_render_opts* opts) noexcept nogil
+    void c_dcg_node_arm_uuid(dcg_node* node) noexcept nogil
+    int c_dcg_node_format_uid(const uuid_t uid, char* out, size_t cap) noexcept nogil
     uint64_t c_dcg_node_getpid() noexcept nogil
     void c_dcg_sb_init(dcg_strbuf* buf, char* data, size_t cap) noexcept nogil
     void c_dcg_sb_puts(dcg_strbuf* buf, const char* text) noexcept nogil
@@ -217,3 +223,53 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_render_walk(const dcg_node* node, FILE* stream, const dcg_render_opts* opts, const char* prefix, c_bool is_last, size_t depth) noexcept nogil
     size_t c_dcg_node_collect_leaves_walk(const dcg_node* node, dcg_node** out, size_t cap, size_t* written) noexcept nogil
     size_t c_dcg_node_collect_descendants_walk(const dcg_node* node, dcg_node** out, size_t cap, size_t* written) noexcept nogil
+
+
+cdef extern from "decision_graph/decision_tree/bake/c_action.h":
+    int c_dcg_node_auto_fill(dcg_node* node) noexcept nogil
+
+
+cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
+    void c_dcg_node_free_generic(dcg_node* node) noexcept nogil
+
+
+cdef class LogicNode:
+    cdef dcg_node* header
+    cdef bint owner
+
+    cdef readonly LogicNode parent
+    cdef readonly dict children
+    cdef readonly NodeEdgeCondition condition_to_parent
+
+    @staticmethod
+    cdef inline LogicNode c_from_header(dcg_node* header, bint owner=?)
+
+    cdef inline void c_register_node(self)
+
+    cdef void c_enter(self)
+
+    cdef void c_on_exit(self)
+
+    cdef void sync_children(self)
+
+    cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition)
+
+    cdef void c_replace(self, dcg_node* old_node, dcg_node* new_node)
+
+    cdef void c_detach(self)
+
+    cdef str c_render(self, int max_depth, bint show_labels, bint show_out, str style)
+
+
+cdef class PlaceholderNode(LogicNode):
+    pass
+
+
+cdef class LogicNodeRegistry(BoundByteMap):
+    cdef void* _ws_key_buf
+
+    @staticmethod
+    cdef LogicNodeRegistry c_from_header(bytemap* header, bint owner=?)
+
+
+cdef LogicNodeRegistry NODE_REGISTRY

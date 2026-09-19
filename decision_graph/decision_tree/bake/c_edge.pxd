@@ -2,6 +2,7 @@ from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
 from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
+from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_var cimport dcg_var_t
 
@@ -94,6 +95,13 @@ cdef class ConditionFalse(BinaryCondition):
     cdef ConditionFalse c_from_header(dcg_node_edge_condition* header, bint owner=?)
 
 
+cdef class EdgeConditionRegistry(BoundByteMap):
+    cdef void* _ws_key_buf
+
+    @staticmethod
+    cdef EdgeConditionRegistry c_from_header(bytemap* header, bint owner=?)
+
+
 cdef dcg_node_edge_condition* C_NO_CONDITION
 cdef dcg_node_edge_condition* C_ELSE_CONDITION
 cdef dcg_node_edge_condition* C_AUTO_CONDITION
@@ -105,3 +113,5 @@ cdef NodeEdgeCondition ELSE_CONDITION
 cdef NodeEdgeCondition AUTO_CONDITION
 cdef NodeEdgeCondition TRUE_CONDITION
 cdef NodeEdgeCondition FALSE_CONDITION
+
+cdef EdgeConditionRegistry EDGE_REGISTRY

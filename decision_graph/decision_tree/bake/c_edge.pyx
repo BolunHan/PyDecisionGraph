@@ -1,6 +1,8 @@
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString
 from libc.stdint cimport uintptr_t
 
+from cbase.bytemap.c_bytemap cimport c_bytemap_gen_seq_id
+
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_var cimport c_dcg_var_pypack
 
@@ -157,6 +159,50 @@ cdef class ConditionFalse(BinaryCondition):
         return 0
 
 
+cdef class EdgeConditionRegistry(BoundByteMap):
+    @staticmethod
+    cdef EdgeConditionRegistry c_from_header(bytemap* header, bint owner=False):
+        cdef EdgeConditionRegistry instance = EdgeConditionRegistry.__new__(EdgeConditionRegistry)
+        instance.owner = owner
+        instance.seq_id = c_bytemap_gen_seq_id(<void*> instance)
+        instance.c_bind(header)
+        return instance
+
+    cdef const char* c_serialize_key(self, object obj, size_t* key_len):
+        # A header address is provided in format of int (uintptr_t)
+        if isinstance(obj, int):
+            self._ws_key_buf = <void*> <uintptr_t> obj
+            if key_len:
+                key_len[0] = sizeof(void*)
+            return <const char*> &self._ws_key_buf
+        return BoundByteMap.c_serialize_key(self, obj, key_len)
+
+    cdef object c_deserialize_key(self, const char* key, size_t key_len):
+        return <uintptr_t> <void*> key
+
+    cdef const char* c_serialize_value(self, object obj, size_t* value_len):
+        cdef NodeEdgeCondition edge = <NodeEdgeCondition> obj
+        self._ws_ptr = <void*> edge.header
+        if value_len:
+            value_len[0] = sizeof(void*)
+        return <const char*> &self._ws_ptr
+
+    cdef object c_deserialize_value(self, const char* value, size_t value_len):
+        cdef void** vp = <void**> value
+        cdef dcg_node_edge_condition* edge = <dcg_node_edge_condition*> vp[0]
+        if not edge or c_dcg_condition_is_none(edge):
+            return NO_CONDITION
+        elif c_dcg_condition_is_else(edge):
+            return ELSE_CONDITION
+        elif c_dcg_condition_is_auto(edge):
+            return AUTO_CONDITION
+        elif c_dcg_condition_is_true(edge):
+            return TRUE_CONDITION
+        elif c_dcg_condition_is_false(edge):
+            return FALSE_CONDITION
+        return NodeEdgeCondition.c_from_header(edge, False)
+
+
 c_dcg_condition_init_globals()
 
 cdef dcg_node_edge_condition* C_NO_CONDITION    = &__DCG_NO_CONDITION
@@ -176,3 +222,10 @@ globals()['ELSE_CONDITION']                     = ELSE_CONDITION
 globals()['AUTO_CONDITION']                     = AUTO_CONDITION
 globals()['TRUE_CONDITION']                     = TRUE_CONDITION
 globals()['FALSE_CONDITION']                    = FALSE_CONDITION
+
+EDGE_REGISTRY                                   = EdgeConditionRegistry()
+EDGE_REGISTRY[<uintptr_t> C_NO_CONDITION]       = NO_CONDITION
+EDGE_REGISTRY[<uintptr_t> C_ELSE_CONDITION]     = ELSE_CONDITION
+EDGE_REGISTRY[<uintptr_t> C_AUTO_CONDITION]     = AUTO_CONDITION
+EDGE_REGISTRY[<uintptr_t> C_TRUE_CONDITION]     = TRUE_CONDITION
+EDGE_REGISTRY[<uintptr_t> C_FALSE_CONDITION]    = FALSE_CONDITION

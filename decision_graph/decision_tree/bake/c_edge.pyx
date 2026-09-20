@@ -1,3 +1,4 @@
+from cpython.dict cimport PyDict_Contains
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString
 from libc.stdint cimport uintptr_t
 
@@ -201,6 +202,12 @@ cdef class EdgeConditionRegistry(BoundByteMap):
         elif c_dcg_condition_is_false(edge):
             return FALSE_CONDITION
         return NodeEdgeCondition.c_from_header(edge, False)
+
+    def __getitem__(self, object key):
+        cdef int ret_code = PyDict_Contains(<dict> self, key)
+        if ret_code == 0:
+            return NodeEdgeCondition.c_from_header(<dcg_node_edge_condition*> <uintptr_t> key, False)
+        return super().__getitem__(key)
 
 
 c_dcg_condition_init_globals()

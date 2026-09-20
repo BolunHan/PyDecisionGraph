@@ -1,4 +1,6 @@
 from cpython.bytes cimport PyBytes_AsString, PyBytes_FromStringAndSize
+from cpython.dict cimport PyDict_Contains
+from cpython.object cimport PyObject
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString, PyUnicode_FromStringAndSize
 from libc.stdint cimport uintptr_t
 
@@ -28,6 +30,7 @@ cdef class LogicNode:
     def __cinit__(self, *args, **kwargs):
         self.children = {}
         self.condition_to_parent = NO_CONDITION
+        # self.callback_id = 0
 
     def __init__(self, *, str repr=None, object uid=None, **kwargs):
         raise NodeTypeError(
@@ -40,6 +43,8 @@ cdef class LogicNode:
             return
 
         if self.header:
+            if self.callback_id:
+                c_dcg_node_unregister_callback(self.header, self.callback_id)
             c_dcg_node_free_generic(self.header)
 
     @staticmethod
@@ -54,25 +59,54 @@ cdef class LogicNode:
             instance.parent = NODE_REGISTRY[parent_addr]
         return instance
 
+    @staticmethod
+    cdef inline dcg_logic_group_manager* c_get_manager():
+        if not C_LGM:
+            from .c_logic_group import LGM
+            global C_LGM
+            C_LGM = <dcg_logic_group_manager*> <uintptr_t> LGM.address
+        return C_LGM
+
     cdef inline void c_register_node(self):
+        cdef int ret_code = c_dcg_lgm_label_node(LogicNode.c_get_manager(), self.header)
+        if ret_code != dcg_ret_code.DCG_OK:
+            raise RuntimeError(f'c_dcg_lgm_label_node failed with err code: {ret_code}')
+
         NODE_REGISTRY[<uintptr_t> self.header] = self
+
+        ret_code = c_dcg_node_register_callback(self.header, LogicNode.c_node_callback_event_adaptor, <void*> <PyObject*> self, &self.callback_id)
+        if ret_code != dcg_ret_code.DCG_OK:
+            raise RuntimeError(f'c_dcg_node_register_callback failed with err code: {ret_code}')
 
     # === Cython Internal Binding ===
 
-    cdef void sync_children(self):
-        cdef dcg_node* child
-        cdef NodeEdgeCondition condition
-        cdef LogicNode wrapper
+    @staticmethod
+    cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept:
+        if not node or not user_data:
+            return
 
-        self.children.clear()
-        child = c_dcg_node_first_child(self.header)
-        while child:
-            wrapper = NODE_REGISTRY[<uintptr_t> child]
-            condition = EDGE_REGISTRY[<uintptr_t> child.condition_to_parent]
-            self.children[condition] = wrapper
-            wrapper.parent = self
-            wrapper.condition_to_parent = condition
-            child = c_dcg_node_next_sibling(child)
+        cdef LogicNode wrapper = <LogicNode> <PyObject*> user_data
+        cdef LogicNode child
+        cdef NodeEdgeCondition condition
+
+        if event == DCG_NODE_EVENT_CHILD_ADDED or event == DCG_NODE_EVENT_CHILD_UPDATED:
+            child = NODE_REGISTRY[<uintptr_t> subject]
+            condition = EDGE_REGISTRY[<uintptr_t> subject.condition_to_parent]
+            wrapper.children[condition] = child
+            child.parent = wrapper
+            child.condition_to_parent = condition
+        elif event == DCG_NODE_EVENT_CHILD_REMOVED:
+            for condition, child in wrapper.children.items():
+                if <uintptr_t> child.header == <uintptr_t> subject:
+                    break
+            else:
+                raise BufferError(f'Node {<uintptr_t> node:#0x} not found!')
+            wrapper.children.pop(condition)
+            child = NODE_REGISTRY[<uintptr_t> subject]
+            child.parent = None
+            child.condition_to_parent = NO_CONDITION
+        elif event == DCG_NODE_EVENT_CHILD_CLEARED:
+            wrapper.children.clear()
 
     cdef void c_enter(self):
         cdef PlaceholderNode false_arm = PlaceholderNode()
@@ -87,15 +121,12 @@ cdef class LogicNode:
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_append (true arm) failed with err code: {ret_code}')
 
-        self.sync_children()
-
     cdef void c_on_exit(self):
         cdef int ret_code = c_dcg_node_auto_fill(self.header)
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_auto_fill failed with err code: {ret_code}')
 
         c_dcg_node_consolidate_placeholder(self.header)
-        self.sync_children()
 
     cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition):
         cdef int ret_code = c_dcg_node_append(self.header, child, condition)
@@ -141,7 +172,6 @@ cdef class LogicNode:
 
     def __rshift__(self, LogicNode other):
         self.c_append(other.header, C_AUTO_CONDITION)
-        self.sync_children()
         return other
 
     def __enter__(self):
@@ -156,28 +186,18 @@ cdef class LogicNode:
 
     def append(self, LogicNode child, NodeEdgeCondition condition=None):
         self.c_append(child.header, condition.header if condition is not None else C_AUTO_CONDITION)
-        self.sync_children()
 
     def overwrite(self, LogicNode new_node, NodeEdgeCondition condition):
         cdef LogicNode original = self.children.get(condition)
         if original is None:
             raise KeyError(f'Edge {condition} not registered, cannot overwrite.')
         self.c_replace(original.header, new_node.header)
-        original.parent = None  # displaced: no longer in the tree, so nothing else clears it
-        self.sync_children()
 
     def replace(self, LogicNode original_node, LogicNode new_node):
         self.c_replace(original_node.header, new_node.header)
-        original_node.parent = None  # displaced: no longer in the tree, so nothing else clears it
-        self.sync_children()
 
     def detach(self):
-        cdef LogicNode parent = self.parent
         self.c_detach()
-        self.parent = None
-        self.condition_to_parent = NO_CONDITION
-        if parent is not None:
-            parent.sync_children()  # the edge it held is gone
 
     def label(self, str name):
         cdef int ret_code = c_dcg_node_add_label(self.header, PyUnicode_AsUTF8(name))
@@ -194,9 +214,6 @@ cdef class LogicNode:
 
     def render(self, int max_depth=0, bint show_labels=True, bint show_out=False, str style='unicode'):
         return self.c_render(max_depth, show_labels, show_out, style)
-
-    def print(self, int max_depth=0, bint show_labels=True, bint show_out=False, str style='unicode'):
-        print(self.c_render(max_depth, show_labels, show_out, style))
 
     def validate(self):
         cdef dcg_validate_report report
@@ -313,6 +330,15 @@ cdef class LogicNodeRegistry(BoundByteMap):
         cdef dcg_node* node = <dcg_node*> vp[0]
         return LogicNode.c_from_header(node, False)
 
+    def __getitem__(self, object key):
+        cdef int ret_code = PyDict_Contains(<dict> self, key)
+        if ret_code == 0:
+            return LogicNode.c_from_header(<dcg_node*> <uintptr_t> key, False)
+        return super().__getitem__(key)
+
+
+# Cached LGM Pointer
+cdef dcg_logic_group_manager* C_LGM = NULL
 
 cdef LogicNodeRegistry NODE_REGISTRY = LogicNodeRegistry()
 globals()['NODE_REGISTRY'] = NODE_REGISTRY

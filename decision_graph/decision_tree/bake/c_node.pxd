@@ -80,10 +80,11 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
 
     ctypedef enum dcg_node_event:
         DCG_NODE_EVENT_CHILD_ADDED
+        DCG_NODE_EVENT_CHILD_UPDATED
         DCG_NODE_EVENT_CHILD_REMOVED
+        DCG_NODE_EVENT_CHILD_CLEARED
         DCG_NODE_EVENT_MODIFIED
-        DCG_NODE_EVENT_CLEARED
-        DCG_NODE_EVENT_FREED
+        DCG_NODE_EVENT_EVALUATED
 
     ctypedef void (*dcg_node_callback_fn)(dcg_node_event event, dcg_node* self, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept
 
@@ -174,6 +175,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node) noexcept nogil
     dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator) noexcept nogil
     size_t c_dcg_node_consolidate_placeholder(dcg_node* node) noexcept nogil
+    dcg_node* c_dcg_node_get_placeholder(dcg_node* node) noexcept nogil
 
     size_t c_dcg_node_child_count(const dcg_node* node) noexcept nogil
     dcg_node* c_dcg_node_first_child(const dcg_node* node) noexcept nogil
@@ -233,9 +235,17 @@ cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
     void c_dcg_node_free_generic(dcg_node* node) noexcept nogil
 
 
+cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":
+    ctypedef struct dcg_logic_group_manager:
+        pass
+
+    int c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
+
+
 cdef class LogicNode:
     cdef dcg_node* header
     cdef bint owner
+    cdef uintptr_t callback_id
 
     cdef readonly LogicNode parent
     cdef readonly dict children
@@ -244,13 +254,17 @@ cdef class LogicNode:
     @staticmethod
     cdef inline LogicNode c_from_header(dcg_node* header, bint owner=?)
 
+    @staticmethod
+    cdef inline dcg_logic_group_manager* c_get_manager()
+
+    @staticmethod
+    cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept
+
     cdef inline void c_register_node(self)
 
     cdef void c_enter(self)
 
     cdef void c_on_exit(self)
-
-    cdef void sync_children(self)
 
     cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition)
 
@@ -272,4 +286,5 @@ cdef class LogicNodeRegistry(BoundByteMap):
     cdef LogicNodeRegistry c_from_header(bytemap* header, bint owner=?)
 
 
+cdef dcg_logic_group_manager* C_LGM
 cdef LogicNodeRegistry NODE_REGISTRY

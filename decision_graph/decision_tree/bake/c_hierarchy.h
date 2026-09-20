@@ -14,7 +14,7 @@
 #include <decision_graph/decision_tree/bake/c_node.h>
 
 /*
- * The kinds the graph's own structure is made of, and the one way a graph is
+ * The types the graph's own structure is made of, and the one way a graph is
  * torn down:
  *
  *   - the root: the one node that may have no parent, and the entry a walk
@@ -30,13 +30,13 @@
  * - so their _free is the base teardown and nothing else goes with them. What
  * is NOT local is the graph: c_dcg_node_teardown_root() is the single place a
  * graph is walked and freed, leaf first, and c_dcg_node_free_generic() is the
- * step it takes per node - the free of whatever kind that node turns out to be.
+ * step it takes per node - the free of whatever type that node turns out to be.
  */
 
 // ========== Constants ==========
 
 /*
- * Display text a kind is given when the caller does not retitle it: a build can
+ * Display text a type is given when the caller does not retitle it: a build can
  * name them its own way, and the capi names the same things the same way.
  */
 #ifndef DCG_DEF_REPR_ROOT
@@ -214,23 +214,23 @@ static inline void c_dcg_node_free_breakpoint(dcg_breakpoint_node* node) {
 // ========== Teardown ==========
 
 /**
- * @brief Free a node whose kind is only known at run time.
+ * @brief Free a node whose type is only known at run time.
  *
  * c_dcg_node_free() releases the base half of a node; a family that puts state
  * after the base header releases that state in its own _free. This is the one
  * place that knows both: the node's own `ntype` is the dispatch flag, and the
- * free of the kind it names is the one called - a literal and a variable
+ * free of the type it names is the one called - a literal and a variable
  * through their two input frees, the operator family through
  * c_dcg_node_free_expr(), the whole action family through
  * c_dcg_node_free_action(), a root and a breakpoint through theirs.
  *
- * A family whose kinds have different layouts is split here, not inside its own
+ * A family whose types have different layouts is split here, not inside its own
  * free: a variable is not a literal, and a free that took one as the other
  * would be reading a block that is not that shape.
  *
- * A kind this dispatcher has no free for - a variant it has never heard of -
+ * A type this dispatcher has no free for - a variant it has never heard of -
  * is reported on stderr, and its base is released all the same: the silent
- * alternative would hand back half a node and leak whatever the kind put
+ * alternative would hand back half a node and leak whatever the type put
  * behind the base, while the caller that built such a node is the one that
  * can fix it.
  *
@@ -270,11 +270,11 @@ static inline void c_dcg_node_free_generic(dcg_node* node) {
             break;
     }
 
-    /* Every kind with a free of its own returned above, so getting here means
-     * the kind is one this dispatcher cannot take apart. Say so: a node like
+    /* Every type with a free of its own returned above, so getting here means
+     * the type is one this dispatcher cannot take apart. Say so: a node like
      * that is a bug in whoever built it, and the message is the only trace the
      * caller gets. */
-    (void) fprintf(stderr, "c_dcg_node_free_generic: no free for node kind %s (0x%04x) at %p - releasing the base only\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+    (void) fprintf(stderr, "c_dcg_node_free_generic: no free for node type %s (0x%04x) at %p - releasing the base only\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
     c_dcg_node_free(node);
 }
 
@@ -419,7 +419,7 @@ static inline int c_dcg_node_clear_children(dcg_node* node) {
 
     if (error != DCG_OK) return error; /* a child that could not be collected */
 
-    c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CLEARED, node, (uint64_t) -1);
+    c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CHILD_CLEARED, node, (uint64_t) -1);
     return freed;
 }
 
@@ -427,7 +427,7 @@ static inline int c_dcg_node_clear_children(dcg_node* node) {
  * @brief Back to a fresh state, keeping the node's identity and bindings.
  *
  * Drops the subtree and the labels, resets the value slot and the eval
- * scratch, but KEEPS: the kind, the operator, the repr and its ownership
+ * scratch, but KEEPS: the type, the operator, the repr and its ownership
  * flag, the uid, the eval hooks, the mutation callbacks and the
  * user_payload. This is what a builder calls to reuse a node block.
  *
@@ -462,7 +462,7 @@ static inline int c_dcg_node_clean(dcg_node* node) {
     node->eval_ctx.depth  = 0;
     node->eval_ctx.visits = 0;
 
-    if (ret >= 0 && !had_children) c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CLEARED, node, (uint64_t) -1);
+    if (ret >= 0 && !had_children) c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CHILD_CLEARED, node, (uint64_t) -1);
     return ret;
 }
 

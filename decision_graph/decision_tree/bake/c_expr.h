@@ -97,6 +97,22 @@ typedef enum dcg_op_mask {
  * input's out slot, or the folded value of a constant input. A string value
  * folded in is a copy nested under the node; a reference owns nothing.
  *
+ * `components` is the node's hold on the operands it has to keep. A slot that
+ * took an operand's VALUE - a constant, folded - is self-contained and holds
+ * nothing, which is what lets a caller release a literal the moment it is bound.
+ * A slot that refers to the operand's storage is not: released, the operand
+ * would leave the slot reading a block that is gone. Binding such an operand
+ * takes a reference on it (c_ap_incref) and teardown gives it back
+ * (c_ap_decref), so the expression keeps working after its caller lets go. The
+ * array is n_args entries - exactly as many as there are slots, which is why
+ * there is no capacity field - and it sits in the node's OWN block, right behind
+ * the operand slots, so the node has no separate block to release and the array
+ * goes where the node goes.
+ *
+ * That is the C half of the hold. The Python wrapper keeps the other half, on
+ * the wrapper objects rather than on the blocks, and both are needed: this one
+ * keeps the BLOCK alive, the wrapper's keeps the WRAPPER alive.
+ *
  * The repr is composed when the node is built, from the operator and the texts of
  * the nodes it was given: "-12" for a negation of 12, "12 - 3" for a difference,
  * "my_call(a, b)" for a call. Both renderings stay available afterwards -
@@ -107,11 +123,23 @@ typedef enum dcg_op_mask {
  * a valid dcg_node*.
  */
 typedef struct dcg_expression_node {
-    dcg_node    base;    // The common node header. Must stay first.
-    dcg_op_code op;      // The operator applied to the operands.
-    size_t      n_args;  // Number of operands in `args`.
-    dcg_var_t   args[];  // Operand slots, n_args of them.
+    dcg_node    base;        // The common node header. Must stay first.
+    dcg_op_code op;          // The operator applied to the operands.
+    size_t      n_args;      // Number of operands in `args`, and in `components`.
+    dcg_node**  components;  // Operand pointers, n_args of them (see below).
+    dcg_var_t   args[];      // Operand slots, n_args of them, then the pointers.
 } dcg_expression_node;
+
+/*
+ * Where `components` points: the operand pointers are the second of the two
+ * arrays the block is sized for, immediately behind the slots. Two arrays and
+ * one allocation, because a flexible array member has to be last - and because
+ * an array of pointers needs no more alignment than a var slot provides, the
+ * slots being sizeof(dcg_var_t) apart.
+ */
+static inline dcg_node** c_dcg_node_expr_components(dcg_expression_node* node) {
+    return (dcg_node**) (node->args + node->n_args);
+}
 
 // ========== Forward Declarations ==========
 
@@ -215,7 +243,7 @@ static inline const char* c_dcg_op_code_name(dcg_op_code op) {
     }
 }
 /**
- * @brief The node kind an operator code belongs to.
+ * @brief The node type an operator code belongs to.
  *
  * @param op  Operator code.
  * @return UNARY / BINARY / TERNARY / CALL as implied by the operator, or
@@ -360,15 +388,15 @@ static inline int c_dcg_node_expr_func_style(dcg_node* const* inputs, size_t n_i
  * with c_dcg_node_expr_bind() or use a typed constructor, which fills them.
  *
  * @param n_args     Number of operands (clamped to DCG_EXPR_DEFAULT_ARGS if 0).
- * @param ntype      An operator kind (UNARY / BINARY / TERNARY / CALL, or the head).
+ * @param ntype      An operator type (UNARY / BINARY / TERNARY / CALL, or the head).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind.
+ * @return The node, or NULL on OOM / invalid type.
  */
 static inline dcg_expression_node* c_dcg_node_new_expr(size_t n_args, dcg_node_type ntype, allocator_protocol* allocator) {
     if (!c_dcg_node_type_is_op(ntype)) return NULL;
     if (n_args == 0) n_args = DCG_EXPR_DEFAULT_ARGS;
 
-    dcg_expression_node* node = (dcg_expression_node*) c_ap_alloc(sizeof(dcg_expression_node) + (n_args * sizeof(dcg_var_t)), allocator);
+    dcg_expression_node* node = (dcg_expression_node*) c_ap_alloc(sizeof(dcg_expression_node) + (n_args * (sizeof(dcg_var_t) + sizeof(dcg_node*))), allocator);
     if (!node) return NULL;
 
     if (c_dcg_node_init(&node->base, ntype, NULL) != DCG_OK) {
@@ -376,9 +404,14 @@ static inline dcg_expression_node* c_dcg_node_new_expr(size_t n_args, dcg_node_t
         return NULL;
     }
 
-    node->op     = DCG_OP_NONE;
-    node->n_args = n_args;
-    for (size_t i = 0; i < n_args; i++) (void) c_dcg_var_init(&node->args[i]);
+    node->op         = DCG_OP_NONE;
+    node->n_args     = n_args;
+    node->components = c_dcg_node_expr_components(node);
+
+    for (size_t i = 0; i < n_args; i++) {
+        (void) c_dcg_var_init(&node->args[i]);
+        node->components[i] = NULL;
+    }
 
     return node;
 }
@@ -386,15 +419,19 @@ static inline dcg_expression_node* c_dcg_node_new_expr(size_t n_args, dcg_node_t
 /**
  * @brief Tear down an expression node and free its buf.
  *
- * The operand array sits INSIDE the block, so it goes with it. The one thing
- * an operand may own is a folded string copy, and that copy is a block nested
- * under the expression: the base free releases it. A reference operand owns
- * nothing to release.
+ * The operand slots and the pointer array both sit in blocks of the node's own,
+ * so they go with it. What has to be given back first is the hold the node took
+ * on its operands: an operand nothing else holds is released here, and one that
+ * outlives the expression is simply left with one fewer reference.
  *
  * @param node  Node to free (NULL-safe).
  */
 static inline void c_dcg_node_free_expr(dcg_expression_node* node) {
     if (!node) return;
+
+    for (size_t i = 0; i < node->n_args; i++) {
+        if (node->components[i]) c_ap_decref(node->components[i]);
+    }
     c_dcg_node_free(&node->base);
 }
 
@@ -406,7 +443,7 @@ static inline void c_dcg_node_free_expr(dcg_expression_node* node) {
  * @param op         Operator code (e.g. DCG_OP_NEG, DCG_OP_NOT).
  * @param src        Input node the operand refers to.
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind / a missing input.
+ * @return The node, or NULL on OOM / invalid type / a missing input.
  */
 static inline dcg_expression_node* c_dcg_node_new_expr_unary(dcg_op_code op, dcg_node* src, allocator_protocol* allocator) {
     if (!src) return NULL;
@@ -437,7 +474,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr_unary(dcg_op_code op, dcg
  * @param var_0      Left input node.
  * @param var_1      Right input node.
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind / a missing input.
+ * @return The node, or NULL on OOM / invalid type / a missing input.
  */
 static inline dcg_expression_node* c_dcg_node_new_expr_binary(dcg_op_code op, dcg_node* var_0, dcg_node* var_1, allocator_protocol* allocator) {
     if (!var_0 || !var_1) return NULL;
@@ -469,7 +506,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr_binary(dcg_op_code op, dc
  * @param var_1      Input node taken when the condition holds.
  * @param var_2      Input node taken when it does not.
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind / a missing input.
+ * @return The node, or NULL on OOM / invalid type / a missing input.
  */
 static inline dcg_expression_node* c_dcg_node_new_expr_ternary(dcg_op_code op, dcg_node* var_0, dcg_node* var_1, dcg_node* var_2, allocator_protocol* allocator) {
     if (!var_0 || !var_1 || !var_2) return NULL;
@@ -506,7 +543,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr_ternary(dcg_op_code op, d
  * @param n_vars     Number of input nodes.
  * @param repr       The callee's name; the repr is composed from it (may be NULL).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM / invalid kind / a missing input.
+ * @return The node, or NULL on OOM / invalid type / a missing input.
  */
 static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_node** vars, size_t n_vars, const char* repr, allocator_protocol* allocator) {
     if (!vars || n_vars == 0) return NULL;
@@ -559,7 +596,9 @@ static inline int c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, 
     if (!node || !input) return DCG_ERR_INVALID_ARG;
     if (index >= node->n_args) return DCG_ERR_RANGE;
 
-    dcg_var_t* slot = &node->args[index];
+    dcg_var_t* slot     = &node->args[index];
+    int        ret_code = DCG_OK;
+    int        refers   = 0;
 
     /* A variable node holds no value of its own: its out is already a reference
      * to the value it reflects. Taking it as it is keeps the operand one hop
@@ -567,23 +606,47 @@ static inline int c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, 
      * charge every read an indirection that reads nothing. */
     if (input->ntype == DCG_NODE_VARIABLE) {
         *slot = input->out;
-        return DCG_OK;
     }
-
-    if (c_dcg_node_type_is_input(input->ntype)) {
+    else if (c_dcg_node_type_is_input(input->ntype)) {
         if (input->out.dtype != VAR_TYPE_STRING || !input->out.value.as_string) {
             *slot = input->out; /* a value, borrowed as the constant holds it */
-            return DCG_OK;
         }
-
-        size_t len  = strlen(input->out.value.as_string);
-        char*  copy = (char*) c_ap_alloc_child(len + 1, NULL, node);
-        if (!copy) return DCG_ERR_OOM;
-        memcpy(copy, input->out.value.as_string, len + 1);
-        return c_dcg_var_init_string(slot, copy);
+        else {
+            size_t len  = strlen(input->out.value.as_string);
+            char*  copy = (char*) c_ap_alloc_child(len + 1, NULL, node);
+            if (!copy) return DCG_ERR_OOM;
+            memcpy(copy, input->out.value.as_string, len + 1);
+            ret_code = c_dcg_var_init_string(slot, copy);
+        }
     }
+    else {
+        ret_code = c_dcg_var_init_ref(slot, &input->out);
+        refers   = 1;
+    }
+    if (ret_code != DCG_OK) return ret_code;
 
-    return c_dcg_var_init_ref(slot, &input->out);
+    /* The hold goes on last, so a slot that could not be filled leaves the
+     * previous operand standing.
+     *
+     * Only a slot that refers to the operand's storage takes a reference. A slot
+     * that took the operand's VALUE does not need the node afterwards - that is
+     * what folding is for, and it is what lets a caller release a literal the
+     * moment it is bound. `components[index]` is therefore the operand this
+     * expression holds alive, or NULL when the slot is self-contained.
+     *
+     * The new reference is taken before the old one is given back: rebinding a
+     * slot to the operand it already holds, or two expressions trading one, must
+     * not drop the last reference between the two steps. */
+    dcg_node* previous = node->components[index];
+    if (previous == input) return DCG_OK;
+
+    if (previous) c_ap_decref(previous);
+    node->components[index] = NULL;
+    if (refers) {
+        c_ap_incref(input);
+        node->components[index] = input;
+    }
+    return DCG_OK;
 }
 
 #endif  // C_DCG_BAKE_EXPR_H

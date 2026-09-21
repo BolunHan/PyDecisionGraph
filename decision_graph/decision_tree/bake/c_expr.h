@@ -408,10 +408,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr(size_t n_args, dcg_node_t
     node->n_args     = n_args;
     node->components = c_dcg_node_expr_components(node);
 
-    for (size_t i = 0; i < n_args; i++) {
-        (void) c_dcg_var_init(&node->args[i]);
-        node->components[i] = NULL;
-    }
+    for (size_t i = 0; i < n_args; i++) (void) c_dcg_var_init(&node->args[i]);
 
     return node;
 }

@@ -353,4 +353,4 @@ cdef LogicNodeRegistry NODE_REGISTRY = LogicNodeRegistry()
 globals()['NODE_REGISTRY'] = NODE_REGISTRY
 
 # The one family this module owns is the node layer's own: the placeholder.
-register_types({DCG_NODE_PLACEHOLDER: PlaceholderNode})
+register_types({dcg_node_type.DCG_NODE_PLACEHOLDER: PlaceholderNode})

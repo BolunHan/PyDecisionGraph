@@ -2,8 +2,6 @@ from cpython.object cimport PyObject
 
 from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
 
-from cpython.object cimport PyObject
-
 from .c_node cimport LogicNode, dcg_node, dcg_node_type
 from .c_var cimport dcg_var_t
 

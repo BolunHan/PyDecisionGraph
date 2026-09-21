@@ -1,12 +1,10 @@
 import enum
 
 from cpython.mem cimport PyMem_Calloc, PyMem_Free, PyMem_Malloc
-from cpython.object cimport PyObject
 from cpython.ref cimport Py_XDECREF, Py_XINCREF
 from cpython.unicode cimport PyUnicode_AsUTF8
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node cimport DCG_NODE_BINARY, DCG_NODE_CALL, DCG_NODE_OP, DCG_NODE_TERNARY, DCG_NODE_UNARY, LogicNode
 from .c_node import register_types
 from .c_var cimport dcg_ret_code
 
@@ -42,7 +40,7 @@ class ExpressionOperator(enum.IntEnum):
 
 
 cdef class ExpressionNode(LogicNode):
-    def __init__(self, size_t n_args=DCG_EXPR_DEFAULT_ARGS, dcg_node_type node_type=DCG_NODE_OP):
+    def __init__(self, size_t n_args=DCG_EXPR_DEFAULT_ARGS, dcg_node_type node_type=dcg_node_type.DCG_NODE_OP):
         cdef dcg_expression_node* node = c_dcg_node_new_expr(n_args, node_type, DCG_DEFAULT_ALLOCATOR)
         if not node:
             raise MemoryError(f'Failed to allocate the {self.__class__.__name__}.')
@@ -245,9 +243,9 @@ cdef class CallExpression(ExpressionNode):
 
 # What a rebuilt tree comes back as: the class each operator type is wrapped in.
 register_types({
-    DCG_NODE_OP: ExpressionNode,
-    DCG_NODE_UNARY: UnaryExpression,
-    DCG_NODE_BINARY: BinaryExpression,
-    DCG_NODE_TERNARY: TernaryExpression,
-    DCG_NODE_CALL: CallExpression,
+    dcg_node_type.DCG_NODE_OP: ExpressionNode,
+    dcg_node_type.DCG_NODE_UNARY: UnaryExpression,
+    dcg_node_type.DCG_NODE_BINARY: BinaryExpression,
+    dcg_node_type.DCG_NODE_TERNARY: TernaryExpression,
+    dcg_node_type.DCG_NODE_CALL: CallExpression,
 })

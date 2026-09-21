@@ -19,8 +19,8 @@
  * The logic groups: the scopes a graph is built inside, and the manager that
  * keeps track of which one is open.
  *
- * A group is a NAME, A KIND and a PARENT - nothing else. What
- * makes it more than a record is that a build runs inside one: a node built
+ * A group is a NAME, A TYPE and a PARENT - nothing else. What makes it more
+ * than a record is that a build runs inside one: a node built
  * while groups are open carries their names as labels (which is how the capi's
  * list_labels() finds the nodes of a group), and breaking out of a group is
  * the only way a branch stops where it stands and resumes outside.
@@ -64,10 +64,10 @@
 typedef struct dcg_lgm_state dcg_lgm_state;
 
 /**
- * @brief Kind of a logic group.
+ * @brief Type of a logic group.
  *
- * One flat set rather than a family tree like the node kinds: every group is
- * the same struct - a name, a parent and a kind - and a variant is
+ * One flat set rather than a family tree like the node types: every group is
+ * the same struct - a name, a parent and a type - and a variant is
  * the group that adds a store of its own beside them. The value is what a
  * caller dispatches on and what a baked artifact records.
  */
@@ -102,7 +102,7 @@ typedef enum dcg_logic_group_type {
  */
 typedef struct dcg_logic_group {
     // === Meta ===
-    dcg_logic_group_type lgtype;  // Group kind.
+    dcg_logic_group_type lgtype;  // Group type.
     const char*          name;    // Display and lookup name. // OWNED - a nested copy.
     dcg_logic_group*     parent;  // The group this one is nested in, or NULL. // NOT owned.
 } dcg_logic_group;
@@ -175,56 +175,68 @@ typedef struct dcg_logic_group_manager {
 
 // ========== Forward Declarations ==========
 
-// Utilities
-static inline const char*      c_dcg_logic_group_type_name(dcg_logic_group_type lgtype);
+// Utility Functions
+static inline const char*              c_dcg_logic_group_type_name(dcg_logic_group_type lgtype);
 
-// Group lifecycle
-static inline int              c_dcg_logic_group_init(dcg_logic_group* group, dcg_logic_group_type lgtype, const char* name);
-static inline dcg_logic_group* c_dcg_logic_group_new(dcg_logic_group_type lgtype, const char* name, allocator_protocol* allocator);
-static inline void             c_dcg_logic_group_free(dcg_logic_group* group);
+// Internal Helpers (exposed for reuse and testing - not part of the stable surface)
+static inline void*                    c_dcg_lgm_reserve(void** block, size_t* capacity, size_t count, size_t element_size, allocator_protocol* allocator);
+static inline int                      c_dcg_lgm_push_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
+static inline int                      c_dcg_lgm_push_node(dcg_logic_group_manager* mgr, dcg_node* node);
+static inline int                      c_dcg_lgm_push_breakpoint(dcg_logic_group_manager* mgr, dcg_breakpoint_node* breakpoint);
 
-// Manager lifecycle
-static inline int              c_dcg_lgm_init(dcg_logic_group_manager* mgr, allocator_protocol* allocator);
-static inline void             c_dcg_lgm_free(dcg_logic_group_manager* mgr);
-static inline void             c_dcg_lgm_clear(dcg_logic_group_manager* mgr);
+// Group Lifecycle
+static inline int                      c_dcg_logic_group_init(dcg_logic_group* group, dcg_logic_group_type lgtype, const char* name);
+static inline dcg_logic_group*         c_dcg_logic_group_new(dcg_logic_group_type lgtype, const char* name, allocator_protocol* allocator);
+static inline void                     c_dcg_logic_group_dealloc(dcg_logic_group* group);
+static inline void                     c_dcg_logic_group_free(dcg_logic_group* group);
+
+// Manager Lifecycle
+static inline dcg_logic_group_manager* c_dcg_lgm_new(allocator_protocol* allocator);
+static inline int                      c_dcg_lgm_init(dcg_logic_group_manager* mgr, allocator_protocol* allocator);
+static inline void                     c_dcg_lgm_dealloc(dcg_logic_group_manager* mgr);
+static inline void                     c_dcg_lgm_free(dcg_logic_group_manager* mgr);
+static inline void                     c_dcg_lgm_clear(dcg_logic_group_manager* mgr);
 
 // Registry
-static inline int              c_dcg_lgm_register(dcg_logic_group_manager* mgr, dcg_logic_group* group);
-static inline dcg_logic_group* c_dcg_lgm_find(const dcg_logic_group_manager* mgr, const char* name, size_t name_len);
+static inline int                      c_dcg_lgm_register(dcg_logic_group_manager* mgr, dcg_logic_group* group);
+static inline dcg_logic_group*         c_dcg_lgm_find(const dcg_logic_group_manager* mgr, const char* name, size_t name_len);
 
-// Building inside the manager
-static inline int              c_dcg_lgm_enter_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
-static inline int              c_dcg_lgm_exit_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
-static inline int              c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* node);
-static inline int              c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node);
-static inline int              c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node);
-static inline int              c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_logic_group* group);
+// Building Inside the Manager
+static inline int                      c_dcg_lgm_enter_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
+static inline int                      c_dcg_lgm_exit_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
+static inline int                      c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* node);
+static inline int                      c_dcg_lgm_connect_awaiting(dcg_logic_group_manager* mgr, dcg_node* node);  // Internal helper: not part of the stable surface.
+static inline int                      c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node);
+static inline int                      c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node);
+static inline int                      c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_logic_group* group);
 
 // Shelving
-static inline int              c_dcg_lgm_shelve(dcg_logic_group_manager* mgr);
-static inline int              c_dcg_lgm_unshelve(dcg_logic_group_manager* mgr);
+static inline int                      c_dcg_node_root_ctx_shelve(dcg_root_node* root, dcg_logic_group_manager* mgr);
+static inline int                      c_dcg_node_root_ctx_unshelve(dcg_root_node* root, dcg_logic_group_manager* mgr);
+static inline int                      c_dcg_lgm_shelve(dcg_logic_group_manager* mgr);
+static inline int                      c_dcg_lgm_unshelve(dcg_logic_group_manager* mgr);
 
 // Queries
-static inline dcg_logic_group* c_dcg_lgm_active_group(const dcg_logic_group_manager* mgr);
-static inline dcg_node*        c_dcg_lgm_active_node(const dcg_logic_group_manager* mgr);
-static inline size_t           c_dcg_lgm_breakpoint_count(const dcg_logic_group_manager* mgr);
+static inline dcg_logic_group*         c_dcg_lgm_active_group(const dcg_logic_group_manager* mgr);
+static inline dcg_node*                c_dcg_lgm_active_node(const dcg_logic_group_manager* mgr);
+static inline size_t                   c_dcg_lgm_breakpoint_count(const dcg_logic_group_manager* mgr);
 
-// Internal helpers (exposed for reuse and testing - not part of the stable surface)
-static inline void*            c_dcg_lgm_reserve(void** block, size_t* capacity, size_t count, size_t element_size, allocator_protocol* allocator);
-static inline int              c_dcg_lgm_push_group(dcg_logic_group_manager* mgr, dcg_logic_group* group);
-static inline int              c_dcg_lgm_push_node(dcg_logic_group_manager* mgr, dcg_node* node);
-static inline int              c_dcg_lgm_push_breakpoint(dcg_logic_group_manager* mgr, dcg_breakpoint_node* breakpoint);
-static inline int              c_dcg_lgm_connect_awaiting(dcg_logic_group_manager* mgr, dcg_node* node);
+// Building: Nodes That Join As They Are Made
+static inline int                      c_dcg_node_auto_connect(dcg_node* node, dcg_logic_group_manager* mgr);
+static inline dcg_action_node*         c_dcg_node_connect_new_action(dcg_node_type action_type, const char* repr, bool auto_connect, ssize_t sig, void* action_data, dcg_logic_group_manager* mgr, allocator_protocol* allocator);
+static inline dcg_action_node*         c_dcg_node_connect_new_action_trade(dcg_node_type action_type, bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator);
+static inline dcg_action_node*         c_dcg_node_connect_new_action_clear(bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator);
+static inline dcg_node*                c_dcg_node_connect_new_placeholder(bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator);
 
 // ========== Utility Functions ==========
 
 /**
- * @brief Stable display name of a group kind.
+ * @brief Stable display name of a group type.
  *
- * @param lgtype  Group kind.
- * @return Static string; "UNKNOWN" for an out-of-range kind.
+ * @param lgtype  Group type.
+ * @return Static string; "UNKNOWN" for an out-of-range type.
  */
-static inline const char*      c_dcg_logic_group_type_name(dcg_logic_group_type lgtype) {
+static inline const char*              c_dcg_logic_group_type_name(dcg_logic_group_type lgtype) {
     switch (lgtype) {
         case DCG_LG_BASE:
             return "BASE";
@@ -316,7 +328,7 @@ static inline int c_dcg_lgm_push_breakpoint(dcg_logic_group_manager* mgr, dcg_br
  * under it.
  *
  * @param group   Group buf to initialize.
- * @param lgtype  Group kind.
+ * @param lgtype  Group type.
  * @param name    Group name to copy (may be NULL).
  * @return DCG_OK, DCG_ERR_INVALID_ARG or DCG_ERR_OOM.
  */
@@ -342,7 +354,7 @@ static inline int c_dcg_logic_group_init(dcg_logic_group* group, dcg_logic_group
  * A scope with values to carry is a dcg_mapping_lgroup, whose constructor
  * initializes this header and then builds its store beside it.
  *
- * @param lgtype     Group kind.
+ * @param lgtype     Group type.
  * @param name       Group name to copy (may be NULL).
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
  * @return The group, or NULL on OOM.
@@ -359,23 +371,52 @@ static inline dcg_logic_group* c_dcg_logic_group_new(dcg_logic_group_type lgtype
 }
 
 /**
+ * @brief Tear down a group's contents, leaving the buf itself alone.
+ *
+ * The name is the one block the base group owns, and it is nested under the
+ * group, so this releases it and zeroes the buf. The block the group sits in
+ * is NOT touched - that is c_dcg_logic_group_free()'s half - which is what lets
+ * a group be embedded (a dcg_mapping_lgroup embeds one) be cleaned without its
+ * owner's block going with it.
+ *
+ * @param group  Group to tear down (NULL-safe).
+ */
+static inline void c_dcg_logic_group_dealloc(dcg_logic_group* group) {
+    if (!group) return;
+    if (group->name) c_ap_free_owned((void*) group->name);
+    memset(group, 0, sizeof(*group));
+}
+
+/**
  * @brief Tear down a group and free its buf.
  *
- * The name is a nested block of the group, so the free releases it; there is
- * nothing else the base group holds.
- *
- * A variant that adds a store of its own has a _free of its own too: a
- * dcg_mapping_lgroup is released by c_dcg_mapping_lgroup_free(), which hands
- * back its own tables before reaching this one.
+ * The clean half first, then the block. A variant that adds a store of its own
+ * has the pair as well: a dcg_mapping_lgroup is released by
+ * c_dcg_mapping_lgroup_free(), which hands its own table back before reaching
+ * this one.
  *
  * @param group  Group to free (NULL-safe).
  */
 static inline void c_dcg_logic_group_free(dcg_logic_group* group) {
     if (!group) return;
+    c_dcg_logic_group_dealloc(group);
     c_ap_free_owned(group);
 }
 
 // ========== Manager Lifecycle ==========
+
+static inline dcg_logic_group_manager* c_dcg_lgm_new(allocator_protocol* allocator) {
+    dcg_logic_group_manager* mgr = c_ap_alloc(sizeof(dcg_logic_group_manager), allocator);
+    if (!mgr) return NULL;
+
+    int ret_code = c_dcg_lgm_init(mgr, allocator);
+    if (ret_code != DCG_OK) {
+        c_dcg_lgm_free(mgr);
+        return NULL;
+    }
+
+    return mgr;
+}
 
 /**
  * @brief Initialize a manager: an empty registry and three empty stacks.
@@ -396,16 +437,22 @@ static inline int c_dcg_lgm_init(dcg_logic_group_manager* mgr, allocator_protoco
 }
 
 /**
- * @brief Release the manager's blocks.
+ * @brief Tear down a manager's contents, leaving the manager buf alone.
  *
- * The registry table and the three stack blocks go; nothing they point at
- * does. Groups and nodes are the caller's, and freeing a manager that still
- * holds frames is legitimate - a build that is abandoned, or one that is torn
- * down by whoever owns the graph.
+ * The registry table and the stack blocks go; nothing they POINT at does.
+ * Groups and nodes are the caller's - the manager only borrows them - so a
+ * manager still holding frames is torn down cleanly, and a build that is
+ * abandoned, or one whose graph is freed by whoever owns it, leaves nothing
+ * behind here.
  *
- * @param mgr  Manager to free (NULL-safe).
+ * The manager buf itself is NOT freed: a manager is usually the caller's own
+ * local, so this is the half that a stack-allocated one needs. A manager from
+ * c_dcg_lgm_new() is released with c_dcg_lgm_free(), which is this plus the
+ * block.
+ *
+ * @param mgr  Manager to tear down (NULL-safe).
  */
-static inline void c_dcg_lgm_free(dcg_logic_group_manager* mgr) {
+static inline void c_dcg_lgm_dealloc(dcg_logic_group_manager* mgr) {
     if (!mgr) return;
 
     c_bytemap_ex_dealloc(&mgr->registry);
@@ -423,6 +470,17 @@ static inline void c_dcg_lgm_free(dcg_logic_group_manager* mgr) {
     c_ap_free_owned(mgr->shelved);
 
     memset(mgr, 0, sizeof(*mgr));
+}
+
+/**
+ * @brief Tear down a manager and free its buf.
+ *
+ * @param mgr  Manager to free (NULL-safe).
+ */
+static inline void c_dcg_lgm_free(dcg_logic_group_manager* mgr) {
+    if (!mgr) return;
+    c_dcg_lgm_dealloc(mgr);
+    c_ap_free_owned(mgr);
 }
 
 /**
@@ -548,9 +606,40 @@ static inline int c_dcg_lgm_exit_group(dcg_logic_group_manager* mgr, dcg_logic_g
  */
 static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* node) {
     if (!mgr || !node) return DCG_ERR_INVALID_ARG;
-    if (c_dcg_node_type_is_action(node->ntype)) return DCG_ERR_TYPE; /* a leaf: nothing is built inside it */
 
-    int ret = c_dcg_lgm_connect_awaiting(mgr, node);
+    /*
+     * The node's own half of the enter runs first, because it is the node's type
+     * that decides what entering it means - reserving the branches a build will
+     * fill, or refusing because there is nothing inside a leaf to build in.
+     *
+     * The exit half is uniform for every type and its body needs the action
+     * family's constructors, which live above the header that declares the pair.
+     * So it is installed here, where both are visible, rather than by the
+     * constructor that armed the enter.
+     */
+    if (!node->ctx_ops.exit_fn) node->ctx_ops.exit_fn = c_dcg_node_ctx_exit_closed;
+
+    int ret = node->ctx_ops.enter_fn(node, mgr);
+    if (ret != DCG_OK) {
+        (void) fprintf(
+            stderr, "c_dcg_lgm_enter_node: the context enter of type %d failed with err code: %d\n",
+            (int) node->ntype, ret
+        );
+        return ret;
+    }
+
+    /*
+     * A node entered inside a group is a member of it, and the label is how it
+     * says so. This is the entering's business, not the constructor's: a node
+     * built outside any group belongs to none, and a root that does not inherit
+     * its contexts takes its own before the names of the groups around it could
+     * still mean anything - which is why this runs here, with the outer groups
+     * still standing, rather than at construction.
+     */
+    ret = c_dcg_lgm_label_node(mgr, node);
+    if (ret < 0) return ret;
+
+    ret = c_dcg_lgm_connect_awaiting(mgr, node);
     if (ret != DCG_OK) return ret;
 
     /* A breakpoint that took the node over is its parent now, and that is what
@@ -568,7 +657,25 @@ static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* n
         c_dcg_node_free_generic(placeholder); /* displaced: the slot is the new node's now */
     }
 
-    return c_dcg_lgm_push_node(mgr, node);
+    ret = c_dcg_lgm_push_node(mgr, node);
+    if (ret != DCG_OK) return ret;
+
+    /*
+     * A root opens a context of its own. The outer build - which the link above
+     * just placed the root into - goes on the shelf, and the root, now the only
+     * thing in a fresh context, is made its active node. That is why a root is
+     * entered twice: once into the graph it is being built in, once into the
+     * context it opens.
+     */
+    if (node->ntype == DCG_NODE_ROOT) {
+        ret = c_dcg_node_root_ctx_shelve((dcg_root_node*) node, mgr);
+        if (ret != DCG_OK) {
+            (void) fprintf(stderr, "c_dcg_lgm_enter_node: shelving for the root failed with err code: %d\n", ret);
+            return ret;
+        }
+        ret = c_dcg_lgm_push_node(mgr, node);
+    }
+    return ret;
 }
 
 /**
@@ -622,7 +729,33 @@ static inline int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* no
     if (!mgr->n_nodes) return DCG_ERR_NOT_FOUND;
     if (mgr->nodes[mgr->n_nodes - 1] != node) return DCG_ERR_BUSY;
 
+    /* The node's own half first, while it is still the one being built in: fill
+     * the branches it never got, then retire the stand-ins they left. */
+    int ret = node->ctx_ops.exit_fn(node, mgr);
+    if (ret != DCG_OK) {
+        (void) fprintf(
+            stderr, "c_dcg_lgm_exit_node: the context exit of type %d failed with err code: %d\n",
+            (int) node->ntype, ret
+        );
+        return ret;
+    }
+
     mgr->n_nodes--;
+
+    /*
+     * Leaving the context a root opened hands the outer build back. It comes
+     * off the shelf with the root still on top of ITS node stack - the root was
+     * placed there before the shelve - so it is popped a second time, from
+     * there, and the build that entered the root is the active node again.
+     */
+    if (node->ntype == DCG_NODE_ROOT) {
+        ret = c_dcg_node_root_ctx_unshelve((dcg_root_node*) node, mgr);
+        if (ret != DCG_OK) {
+            (void) fprintf(stderr, "c_dcg_lgm_exit_node: unshelving for the root failed with err code: %d\n", ret);
+            return ret;
+        }
+        if (mgr->n_nodes && mgr->nodes[mgr->n_nodes - 1] == node) mgr->n_nodes--;
+    }
     return DCG_OK;
 }
 
@@ -684,10 +817,8 @@ static inline int c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_l
     dcg_node* placeholder = c_dcg_node_get_placeholder(active);
     if (!placeholder) return DCG_ERR_UNRESOLVED;
 
-    dcg_breakpoint_node* breakpoint = c_dcg_node_new_breakpoint(c_ap_protocol_from_ptr(active));
+    dcg_breakpoint_node* breakpoint = c_dcg_node_new_breakpoint(group, NULL, c_ap_protocol_from_ptr(active));
     if (!breakpoint) return DCG_ERR_OOM;
-
-    breakpoint->break_from = group; /* borrowed: the group outlives the graph */
 
     int ret = c_dcg_node_replace(placeholder, &breakpoint->base);
     if (ret != DCG_OK) {
@@ -702,6 +833,77 @@ static inline int c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_l
 }
 
 // ========== Shelving ==========
+
+/**
+ * @brief Shelve for a root's entry: put the outer build's stacks away.
+ *
+ * A root starts a context of its own, so whatever the outer build had open goes
+ * on the shelf. `inherit_contexts` - the root's own field, and the only place
+ * it is read - decides whether the GROUPS travel with it: set, the active group
+ * stack is carried across and the subgraph is built inside the groups the root
+ * was entered from; unset, the capi's default, the groups are shelved too and
+ * the subgraph starts with none.
+ *
+ * Either way the manager is left in inspection mode, which is what marks a
+ * build laying a graph out rather than evaluating one.
+ *
+ * @param root  The root being entered.
+ * @param mgr   Manager holding the build.
+ * @return DCG_OK, or a DCG_ERR_* code.
+ */
+static inline int c_dcg_node_root_ctx_shelve(dcg_root_node* root, dcg_logic_group_manager* mgr) {
+    if (!root || !mgr) return DCG_ERR_INVALID_ARG;
+
+    if (root->inherit_contexts) {
+        /* The groups travel WITH the root, so the shelf does not take them: the
+         * manager's stack is saved, the shelf runs - which hands its own copy of
+         * the stack to the shelf and leaves the manager empty - and the saved
+         * one goes back. Both now name the same block, which is what makes it
+         * inherited rather than shelved; the unshelve drops the manager's copy
+         * before restoring so it cannot free the stack it is handing back. */
+        dcg_logic_group** groups          = mgr->groups;
+        size_t            n_groups        = mgr->n_groups;
+        size_t            groups_capacity = mgr->groups_capacity;
+
+        int               ret = c_dcg_lgm_shelve(mgr);
+        if (ret != DCG_OK) return ret;
+
+        mgr->groups          = groups;
+        mgr->n_groups        = n_groups;
+        mgr->groups_capacity = groups_capacity;
+    }
+    else {
+        int ret = c_dcg_lgm_shelve(mgr);
+        if (ret != DCG_OK) return ret;
+    }
+
+    mgr->inspection_mode = true;
+    return DCG_OK;
+}
+
+/**
+ * @brief Unshelve for a root's exit: bring the outer build back.
+ *
+ * With `inherit_contexts` set, the groups standing on the manager are the ones
+ * that travelled WITH the root rather than the ones the shelf is holding, so
+ * they are dropped first - otherwise the unshelve would free the inherited
+ * stack while putting it back.
+ *
+ * @param root  The root being left.
+ * @param mgr   Manager holding the build.
+ * @return DCG_OK, or a DCG_ERR_* code.
+ */
+static inline int c_dcg_node_root_ctx_unshelve(dcg_root_node* root, dcg_logic_group_manager* mgr) {
+    if (!root || !mgr) return DCG_ERR_INVALID_ARG;
+
+    if (root->inherit_contexts) {
+        mgr->groups          = NULL;
+        mgr->n_groups        = 0;
+        mgr->groups_capacity = 0;
+    }
+
+    return c_dcg_lgm_unshelve(mgr);
+}
 
 /**
  * @brief Put the open stacks away and start from an empty state.
@@ -823,6 +1025,127 @@ static inline dcg_node* c_dcg_lgm_active_node(const dcg_logic_group_manager* mgr
 static inline size_t c_dcg_lgm_breakpoint_count(const dcg_logic_group_manager* mgr) {
     if (!mgr) return 0;
     return mgr->n_breakpoints;
+}
+
+// ========== Building: Nodes That Join As They Are Made ==========
+
+/**
+ * @brief Connect a node to the arm the active node reserved for it.
+ *
+ * What "auto-connect" means, and the reason it is a function here rather than
+ * inside the constructors in c_action.h: joining needs to know which node is
+ * being built, and only the manager knows that. The node takes the placeholder
+ * the active node left open - the newest one, so a node built inside a block
+ * lands in the arm the block reserved for it.
+ *
+ * A node built with no build in progress is not an error: it is a standalone
+ * node that has not been placed yet, and it stays that way.
+ *
+ * @param node  Node to join (must be parentless).
+ * @param mgr   Manager holding the build (NULL means no build).
+ * @return DCG_OK, or a DCG_ERR_* code.
+ */
+static inline int c_dcg_node_auto_connect(dcg_node* node, dcg_logic_group_manager* mgr) {
+    if (!node) return DCG_ERR_INVALID_ARG;
+    if (!mgr) return DCG_OK; /* no manager, no build: nothing to join */
+
+    dcg_node* active = c_dcg_lgm_active_node(mgr);
+    if (!active) return DCG_OK; /* a build outside any node: still nothing to join */
+
+    dcg_node* placeholder = c_dcg_node_get_placeholder(active);
+    if (!placeholder) return DCG_ERR_OOM;
+
+    return c_dcg_node_replace(placeholder, node);
+}
+
+/**
+ * @brief Allocate an action leaf of an explicit type and join it as it is made.
+ *
+ * The plain constructor in c_action.h builds the node; this one places it, and
+ * only does so when the caller asked for it and there is a build to join.
+ *
+ * @param action_type   An action type.
+ * @param repr          Display text to copy (may be NULL).
+ * @param auto_connect  Whether to join the active node now.
+ * @param sig           The signal to carry (+1 long, -1 short, 0 for the rest).
+ * @param action_data   The caller's payload (not owned; may be NULL).
+ * @param mgr           Manager holding the build (NULL means no build).
+ * @param allocator     Allocator for the block; NULL falls back to the plain heap.
+ * @return The node, or NULL on OOM / an invalid type / a refused join.
+ */
+static inline dcg_action_node* c_dcg_node_connect_new_action(dcg_node_type action_type, const char* repr, bool auto_connect, ssize_t sig, void* action_data, dcg_logic_group_manager* mgr, allocator_protocol* allocator) {
+    dcg_action_node* node = c_dcg_node_new_action(action_type, repr, sig, action_data, allocator);
+    if (!node) return NULL;
+
+    node->auto_connect = auto_connect;
+
+    if (auto_connect && c_dcg_node_auto_connect(&node->base, mgr) != DCG_OK) {
+        c_dcg_node_free_action(node);
+        return NULL;
+    }
+    return node;
+}
+
+/**
+ * @brief Allocate a trade action of an explicit type and join it as it is made.
+ *
+ * @param action_type   DCG_NODE_LONGACTION, DCG_NODE_SHORTACTION or DCG_NODE_CANCELACTION.
+ * @param auto_connect  Whether to join the active node now.
+ * @param mgr           Manager holding the build (NULL means no build).
+ * @param allocator     Allocator for the block; NULL falls back to the plain heap.
+ * @return The node, or NULL on OOM / a type that does not trade / a refused join.
+ */
+static inline dcg_action_node* c_dcg_node_connect_new_action_trade(dcg_node_type action_type, bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator) {
+    dcg_action_node* node = c_dcg_node_new_action_trade(action_type, allocator);
+    if (!node) return NULL;
+
+    node->auto_connect = auto_connect;
+
+    if (auto_connect && c_dcg_node_auto_connect(&node->base, mgr) != DCG_OK) {
+        c_dcg_node_free_action(node);
+        return NULL;
+    }
+    return node;
+}
+
+/**
+ * @brief Allocate a position-flattening action and join it as it is made.
+ *
+ * @param auto_connect  Whether to join the active node now.
+ * @param mgr           Manager holding the build (NULL means no build).
+ * @param allocator     Allocator for the block; NULL falls back to the plain heap.
+ * @return The node, or NULL on OOM / a refused join.
+ */
+static inline dcg_action_node* c_dcg_node_connect_new_action_clear(bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator) {
+    dcg_action_node* node = c_dcg_node_new_action_clear(allocator);
+    if (!node) return NULL;
+
+    node->auto_connect = auto_connect;
+
+    if (auto_connect && c_dcg_node_auto_connect(&node->base, mgr) != DCG_OK) {
+        c_dcg_node_free_action(node);
+        return NULL;
+    }
+    return node;
+}
+
+/**
+ * @brief Allocate an auto-generated placeholder and join it as it is made.
+ *
+ * @param auto_connect  Whether to join the active node now.
+ * @param mgr           Manager holding the build (NULL means no build).
+ * @param allocator     Allocator for the block; NULL falls back to the plain heap.
+ * @return The node, or NULL on OOM / a refused join.
+ */
+static inline dcg_node* c_dcg_node_connect_new_placeholder(bool auto_connect, dcg_logic_group_manager* mgr, allocator_protocol* allocator) {
+    dcg_node* node = c_dcg_node_new_placeholder(allocator);
+    if (!node) return NULL;
+
+    if (auto_connect && c_dcg_node_auto_connect(node, mgr) != DCG_OK) {
+        c_dcg_node_free(node);
+        return NULL;
+    }
+    return node;
 }
 
 #endif  // C_DCG_BAKE_LOGIC_GROUP_H

@@ -12,18 +12,37 @@ from ..exc import NodeTypeError
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_var cimport dcg_ret_code
-from .c_edge cimport (
-    EDGE_REGISTRY,
-    NodeEdgeCondition,
-    dcg_node_edge_condition,
-    NO_CONDITION,
-    C_AUTO_CONDITION,
-    C_FALSE_CONDITION,
-    C_TRUE_CONDITION,
-)
+from .c_edge cimport EDGE_REGISTRY, NodeEdgeCondition, dcg_node_edge_condition, NO_CONDITION, C_AUTO_CONDITION
 
 
 cdef size_t DCG_RENDER_BUFSIZE = 1 << 16
+
+# Filled in by every module that owns a node family, at import. The map lives
+# here because every module needs the wrapping helper and none of them owns it:
+# a module registering its types is how a rebuilt tree comes back as the classes
+# the build used, without this module importing anybody. A plain Python import
+# of `register_types` is not an edge in the pxd graph, which is what keeps a
+# family module reachable from here (DEPENDENCY.md 4.2).
+cdef dict TYPE_CLASSES = {}
+
+
+def register_types(dict mapping):
+    TYPE_CLASSES.update(mapping)
+
+
+cdef inline type c_class_for_type(dcg_node_type node_type):
+    """The wrapper class a node type is rebuilt as.
+
+    The exact type is asked first, then its family head, and finally the base -
+    so a node from a family this package does not know yet still comes back as
+    something readable rather than as a bare pointer.
+    """
+    cdef type found = TYPE_CLASSES.get(<int> node_type)
+    if found is None:
+        found = TYPE_CLASSES.get(<int> (node_type & DCG_NODE_FAMILY_MASK))
+    if found is None:
+        found = LogicNode
+    return found
 
 
 cdef class LogicNode:
@@ -49,32 +68,41 @@ cdef class LogicNode:
 
     @staticmethod
     cdef inline LogicNode c_from_header(dcg_node* header, bint owner=False):
-        cdef LogicNode instance = LogicNode.__new__(LogicNode)
+        cdef type cls = c_class_for_type(header.ntype)
+        cdef LogicNode instance = <LogicNode> cls.__new__(cls)
         instance.header = header
         instance.owner = owner
-        if not header.parent:
-            instance.parent = None
-        cdef uintptr_t parent_addr = <uintptr_t> instance.parent
-        if parent_addr in NODE_REGISTRY:
-            instance.parent = NODE_REGISTRY[parent_addr]
+
+        # The registry is keyed by the header address, so the parent is looked
+        # up by ITS header - a wrapper is not an address, and a parentless node
+        # has none to look up.
+        cdef uintptr_t parent_addr = 0
+        instance.parent = None
+        if header.parent:
+            parent_addr = <uintptr_t> header.parent
+            if parent_addr in NODE_REGISTRY:
+                instance.parent = NODE_REGISTRY[parent_addr]
         return instance
 
     @staticmethod
     cdef inline dcg_logic_group_manager* c_get_manager():
         if not C_LGM:
-            from .c_logic_group import LGM
-            global C_LGM
-            C_LGM = <dcg_logic_group_manager*> <uintptr_t> LGM.address
+            from .c_logic_group import LGM as _LGM
+            global C_LGM, LGM
+            C_LGM = <dcg_logic_group_manager*> <uintptr_t> _LGM.address
+            LGM = _LGM
         return C_LGM
 
-    cdef inline void c_register_node(self):
-        cdef int ret_code = c_dcg_lgm_label_node(LogicNode.c_get_manager(), self.header)
-        if ret_code != dcg_ret_code.DCG_OK:
-            raise RuntimeError(f'c_dcg_lgm_label_node failed with err code: {ret_code}')
+    @staticmethod
+    def get_manager():
+        if not LGM:
+            LogicNode.c_get_manager()
+        return LGM
 
+    cdef inline void c_register_node(self):
         NODE_REGISTRY[<uintptr_t> self.header] = self
 
-        ret_code = c_dcg_node_register_callback(self.header, LogicNode.c_node_callback_event_adaptor, <void*> <PyObject*> self, &self.callback_id)
+        cdef int ret_code = c_dcg_node_register_callback(self.header, LogicNode.c_node_callback_event_adaptor, <void*> <PyObject*> self, &self.callback_id)
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_register_callback failed with err code: {ret_code}')
 
@@ -107,26 +135,6 @@ cdef class LogicNode:
             child.condition_to_parent = NO_CONDITION
         elif event == DCG_NODE_EVENT_CHILD_CLEARED:
             wrapper.children.clear()
-
-    cdef void c_enter(self):
-        cdef PlaceholderNode false_arm = PlaceholderNode()
-        cdef PlaceholderNode true_arm = PlaceholderNode()
-        cdef int ret_code
-
-        ret_code = c_dcg_node_append(self.header, false_arm.header, C_FALSE_CONDITION)
-        if ret_code != dcg_ret_code.DCG_OK:
-            raise RuntimeError(f'c_dcg_node_append (false arm) failed with err code: {ret_code}')
-
-        ret_code = c_dcg_node_append(self.header, true_arm.header, C_TRUE_CONDITION)
-        if ret_code != dcg_ret_code.DCG_OK:
-            raise RuntimeError(f'c_dcg_node_append (true arm) failed with err code: {ret_code}')
-
-    cdef void c_on_exit(self):
-        cdef int ret_code = c_dcg_node_auto_fill(self.header)
-        if ret_code != dcg_ret_code.DCG_OK:
-            raise RuntimeError(f'c_dcg_node_auto_fill failed with err code: {ret_code}')
-
-        c_dcg_node_consolidate_placeholder(self.header)
 
     cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition):
         cdef int ret_code = c_dcg_node_append(self.header, child, condition)
@@ -175,11 +183,17 @@ cdef class LogicNode:
         return other
 
     def __enter__(self):
-        self.c_enter()
+        cdef int ret_code = c_dcg_lgm_enter_node(LogicNode.c_get_manager(), self.header)
+        if ret_code != dcg_ret_code.DCG_OK:
+            raise RuntimeError(f'c_dcg_lgm_enter_node failed with err code: {ret_code}')
+        self.get_manager().node_stack_append(self)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.c_on_exit()
+        cdef int ret_code = c_dcg_lgm_exit_node(LogicNode.c_get_manager(), self.header)
+        if ret_code != dcg_ret_code.DCG_OK:
+            raise RuntimeError(f'c_dcg_lgm_exit_node failed with err code: {ret_code}')
+        self.get_manager().node_stack_pop(self)
         return False
 
     # === Python Interfaces ===
@@ -290,12 +304,6 @@ cdef class PlaceholderNode(LogicNode):
         self.owner = True
         self.c_register_node()
 
-    cdef void c_enter(self):
-        raise NodeTypeError(
-            f'{self!r} is a stand-in for a branch that was never built: '
-            'a build cannot be entered inside it.'
-        )
-
 
 cdef class LogicNodeRegistry(BoundByteMap):
     @staticmethod
@@ -337,8 +345,12 @@ cdef class LogicNodeRegistry(BoundByteMap):
         return super().__getitem__(key)
 
 
-# Cached LGM Pointer
+# Local Cached LGM Pointer
 cdef dcg_logic_group_manager* C_LGM = NULL
+cdef object LGM = None
 
 cdef LogicNodeRegistry NODE_REGISTRY = LogicNodeRegistry()
 globals()['NODE_REGISTRY'] = NODE_REGISTRY
+
+# The one family this module owns is the node layer's own: the placeholder.
+register_types({DCG_NODE_PLACEHOLDER: PlaceholderNode})

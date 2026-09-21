@@ -96,8 +96,13 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
 
     ctypedef unsigned char uuid_t[16]
 
+    ctypedef struct dcg_node_ctx_ops:
+        int (*enter_fn)(dcg_node* node, dcg_logic_group_manager* mgr)
+        int (*exit_fn)(dcg_node* node, dcg_logic_group_manager* mgr)
+
     ctypedef struct dcg_node:
         dcg_node_eval_ctx eval_ctx
+        dcg_node_ctx_ops ctx_ops
         dcg_var_t out
         dcg_node_type ntype
         const char* repr
@@ -227,10 +232,6 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     size_t c_dcg_node_collect_descendants_walk(const dcg_node* node, dcg_node** out, size_t cap, size_t* written) noexcept nogil
 
 
-cdef extern from "decision_graph/decision_tree/bake/c_action.h":
-    int c_dcg_node_auto_fill(dcg_node* node) noexcept nogil
-
-
 cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
     void c_dcg_node_free_generic(dcg_node* node) noexcept nogil
 
@@ -239,7 +240,8 @@ cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":
     ctypedef struct dcg_logic_group_manager:
         pass
 
-    int c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
+    int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
+    int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
 
 
 cdef class LogicNode:
@@ -261,10 +263,6 @@ cdef class LogicNode:
     cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept
 
     cdef inline void c_register_node(self)
-
-    cdef void c_enter(self)
-
-    cdef void c_on_exit(self)
 
     cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition)
 

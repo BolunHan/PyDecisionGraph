@@ -41,7 +41,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
 
 
 cdef class RootLogicNode(LogicNode):
-    pass
+    cdef readonly str name
 
 
 cdef class BreakpointNode(LogicNode):

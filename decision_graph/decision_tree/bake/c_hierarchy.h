@@ -75,20 +75,28 @@ typedef struct dcg_node_eval_path {
 /**
  * @brief The graph entry point: the base node plus what a walk starts with.
  *
- * `inherit_contexts` mirrors the capi's field of the same name: whether the
- * entry takes the contexts of the groups it is entered from with it (its
- * default, as there, is not to). `max_depth` caps how far a walk may descend,
- * 0 meaning the whole graph. `eval_path` is the record the walk fills in.
+ * `eval_path` is that record - the nodes a walk visited and the value each one
+ * produced. `inherit_contexts` is the capi's field of the same name: whether
+ * the entry takes the contexts of the groups it is entered from in with it, its
+ * default (as there) being not to. It is what chooses between the two halves of
+ * the shelving a root's enter performs, and only the root reads it.
  *
  * The base node must stay the FIRST member: a dcg_root_node* is therefore a
  * valid dcg_node*.
  */
 typedef struct dcg_root_node {
     dcg_node           base;  // The common node header. Must stay first.
-    bool               inherit_contexts;
-    size_t             max_depth;
     dcg_node_eval_path eval_path;
+    bool               inherit_contexts;
 } dcg_root_node;
+
+/**
+ * @note What entering a root does to the manager's stacks, and its undo, are
+ * declared AND defined in c_logic_group.h - the only header that can reach the
+ * shelving. They cannot be declared here: a `static inline` must be defined in
+ * every translation unit that declares it, and a unit that includes this header
+ * for the node types has no reason to include the manager's.
+ */
 
 /**
  * @brief An inspection sink: the base node plus its group's two fields.
@@ -114,8 +122,8 @@ typedef struct dcg_breakpoint_node {
 // ========== Forward Declarations ==========
 
 // Lifecycle
-static inline dcg_root_node*       c_dcg_node_new_root(allocator_protocol* allocator);
-static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(allocator_protocol* allocator);
+static inline dcg_root_node*       c_dcg_node_new_root(const char* repr, allocator_protocol* allocator);
+static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* break_from, const char* repr, allocator_protocol* allocator);
 static inline void                 c_dcg_node_free_root(dcg_root_node* node);
 static inline void                 c_dcg_node_free_breakpoint(dcg_breakpoint_node* node);
 
@@ -135,21 +143,19 @@ static inline int                  c_dcg_node_clean(dcg_node* node);
  * off the root directly - and the walk's record starts empty: nothing has been
  * walked yet, so there is no path to report and no block to own.
  *
+ * @param repr       Display text to copy; NULL takes the root's own default.
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
  * @return The node, or NULL on OOM.
  */
-static inline dcg_root_node*       c_dcg_node_new_root(allocator_protocol* allocator) {
+static inline dcg_root_node*       c_dcg_node_new_root(const char* repr, allocator_protocol* allocator) {
     dcg_root_node* node = (dcg_root_node*) c_ap_alloc(sizeof(dcg_root_node), allocator);
     if (!node) return NULL;
 
-    if (c_dcg_node_init(&node->base, DCG_NODE_ROOT, DCG_DEF_REPR_ROOT) != DCG_OK) {
+    if (c_dcg_node_init(&node->base, DCG_NODE_ROOT, repr ? repr : DCG_DEF_REPR_ROOT) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
     (void) c_dcg_var_init_bool(&node->base.out, true);
-
-    node->inherit_contexts = false; /* the capi's default: take nothing with it */
-    node->max_depth        = 0;     /* 0 walks the whole graph */
 
     node->eval_path.node     = NULL;
     node->eval_path.eval_val = NULL;
@@ -165,22 +171,24 @@ static inline dcg_root_node*       c_dcg_node_new_root(allocator_protocol* alloc
  * this node without having to know which nodes are inspection points. The group
  * fields start empty: nothing has been entered or left yet.
  *
- * @param allocator  Allocator for the block; NULL falls back to the plain heap.
+ * @param break_from  The group this breaks out of (not owned; may be NULL).
+ * @param repr        Display text to copy; NULL takes the breakpoint's own default.
+ * @param allocator   Allocator for the block; NULL falls back to the plain heap.
  * @return The node, or NULL on OOM.
  */
-static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(allocator_protocol* allocator) {
+static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* break_from, const char* repr, allocator_protocol* allocator) {
     dcg_breakpoint_node* node = (dcg_breakpoint_node*) c_ap_alloc(sizeof(dcg_breakpoint_node), allocator);
     if (!node) return NULL;
 
-    if (c_dcg_node_init(&node->base, DCG_NODE_BREAKPOINT, DCG_DEF_REPR_BREAKPOINT) != DCG_OK) {
+    if (c_dcg_node_init(&node->base, DCG_NODE_BREAKPOINT, repr ? repr : DCG_DEF_REPR_BREAKPOINT) != DCG_OK) {
         c_ap_free_owned(node);
         return NULL;
     }
     node->base.eval_ctx.flags |= DCG_EVAL_FLAG_BREAKPOINT;
 
     node->base.autogen     = true;
-    node->await_connection = false; /* not left yet, so nothing to wait for */
-    node->break_from       = NULL;  /* and no group to break out of */
+    node->await_connection = false;   /* not left yet, so nothing to wait for */
+    node->break_from       = break_from;
     return node;
 }
 

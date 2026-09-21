@@ -79,8 +79,8 @@ typedef struct dcg_constant_node {
  */
 typedef struct dcg_variable_node {
     dcg_node          base;         // The common node header. Must stay first.
-    const char*       key;          // Entry name in the group's store. // OWNED - a nested copy.
-    dcg_logic_group*  logic_group;  // The group whose store this reads. // NOT owned.
+    const char*       key;          // Entry name in the group's store.
+    dcg_logic_group*  logic_group;  // The parent group whose store this reads.
 } dcg_variable_node;
 
 // clang-format on
@@ -103,6 +103,7 @@ static inline int                c_dcg_node_const_set(dcg_constant_node* node, d
 
 // Lifecycle - the variable
 static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char* key, size_t key_len, dcg_var_t* value, dcg_logic_group* group, allocator_protocol* allocator);
+static inline int                c_dcg_node_var_bind(dcg_variable_node* node, dcg_var_t* value);
 static inline void               c_dcg_node_free_var(dcg_variable_node* node);
 
 // ========== Lifecycle Methods ==========
@@ -285,6 +286,11 @@ static inline int c_dcg_node_const_set(dcg_constant_node* node, dcg_var_t value)
  * caller inspecting the graph. `value` must outlive the node, which is what the
  * group holding it guarantees.
  *
+ * A node built with no slot reflects nothing until c_dcg_node_var_bind() gives
+ * it one. That is the late half of the pair: a read often has to exist before
+ * the store it reads does, and refusing to build one without a slot would only
+ * push the same ordering problem onto the caller.
+ *
  * When `group` is given the node is allocated as a BLOCK OF THAT GROUP, so the
  * group owns the read: freeing the group releases every variable built over its
  * store, keys included, without the caller tracking them. The key is a nested
@@ -302,16 +308,15 @@ static inline int c_dcg_node_const_set(dcg_constant_node* node, dcg_var_t value)
  * @param key_len    Length of key. The copy takes exactly this many bytes, so a
  *                   key that came out of a store - where a name is a pointer
  *                   and a length, not a C string - needs no termination.
- * @param value      Value slot to reflect (must outlive the node).
+ * @param value      Value slot to reflect (must outlive the node; NULL leaves
+ *                   the node reflecting nothing, for c_dcg_node_var_bind()).
  * @param group      Group the entry belongs to (not owned; may be NULL, and
  *                   owning the node when it is given).
  * @param allocator  Allocator for the block; NULL derives it from the group,
  *                   or falls back to the plain heap when there is none.
- * @return The node, or NULL on OOM / a NULL value.
+ * @return The node, or NULL on OOM.
  */
 static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char* key, size_t key_len, dcg_var_t* value, dcg_logic_group* group, allocator_protocol* allocator) {
-    if (!value) return NULL;
-
     dcg_variable_node* node = group ? (dcg_variable_node*) c_ap_alloc_child(sizeof(dcg_variable_node), allocator, group)
                                     : (dcg_variable_node*) c_ap_alloc(sizeof(dcg_variable_node), allocator);
     if (!node) return NULL;
@@ -338,8 +343,25 @@ static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char
         node->key     = copy;
     }
 
-    (void) c_dcg_var_init_ref(&node->base.out, value);
+    if (value) (void) c_dcg_var_init_ref(&node->base.out, value);
+    else (void) c_dcg_var_init(&node->base.out); /* reflects nothing yet */
     return node;
+}
+
+/**
+ * @brief Give a variable the slot it reads, after it was built.
+ *
+ * The node's out becomes a reference to `value`, so from here on the read is
+ * live: whatever the slot holds when the node is read is what the node reports.
+ * Binding again simply points the read somewhere else.
+ *
+ * @param node   Variable node to modify.
+ * @param value  Value slot to reflect (must outlive the node).
+ * @return DCG_OK, or DCG_ERR_INVALID_ARG.
+ */
+static inline int c_dcg_node_var_bind(dcg_variable_node* node, dcg_var_t* value) {
+    if (!node || !value) return DCG_ERR_INVALID_ARG;
+    return c_dcg_var_init_ref(&node->base.out, value);
 }
 
 /**

@@ -1,5 +1,5 @@
-#ifndef C_DCG_BAKE_COLLECTION_H
-#define C_DCG_BAKE_COLLECTION_H
+#ifndef C_DCG_BAKE_COLLECTIONS_H
+#define C_DCG_BAKE_COLLECTIONS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -435,4 +435,4 @@ static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgrou
     return c_dcg_node_new_var(repr, key, key_len, slot, &lgroup->base, NULL); /* the group allocates its own reads */
 }
 
-#endif  // C_DCG_BAKE_COLLECTION_H
+#endif  // C_DCG_BAKE_COLLECTIONS_H

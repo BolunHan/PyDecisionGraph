@@ -286,3 +286,7 @@ cdef class LogicNodeRegistry(BoundByteMap):
 
 cdef dcg_logic_group_manager* C_LGM
 cdef LogicNodeRegistry NODE_REGISTRY
+
+# The class a node type is rebuilt as, and the wrapping helper a family module
+# uses to reach another family's classes without naming them (DEPENDENCY.md 4.2).
+cdef type c_class_for_type(dcg_node_type node_type)

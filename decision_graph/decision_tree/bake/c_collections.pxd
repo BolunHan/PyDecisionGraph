@@ -8,7 +8,9 @@ from .c_logic_group cimport dcg_logic_group
 from .c_var cimport dcg_var_t
 
 
-cdef extern from "decision_graph/decision_tree/bake/c_collection.h":
+cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
+    const size_t DCG_MAPPING_DEFAULT_CAPACITY
+
     ctypedef struct dcg_mapping_lgroup:
         dcg_logic_group base
         bytemap idx_mapping

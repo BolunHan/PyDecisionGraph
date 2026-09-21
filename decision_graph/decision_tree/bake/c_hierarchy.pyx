@@ -2,7 +2,7 @@ from cpython.unicode cimport PyUnicode_AsUTF8
 from libc.stdint cimport uintptr_t
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node cimport DCG_NODE_BREAKPOINT, DCG_NODE_ROOT, LogicNode
+from .c_node cimport dcg_node_type
 from .c_node import register_types
 
 
@@ -50,6 +50,6 @@ cdef class BreakpointNode(LogicNode):
 
 # What a rebuilt tree comes back as: the class each special type is wrapped in.
 register_types({
-    DCG_NODE_ROOT: RootLogicNode,
-    DCG_NODE_BREAKPOINT: BreakpointNode,
+    dcg_node_type.DCG_NODE_ROOT: RootLogicNode,
+    dcg_node_type.DCG_NODE_BREAKPOINT: BreakpointNode,
 })

@@ -12,8 +12,7 @@
 
 /*
  * The action family: the leaves that say what the graph decides (NOACTION /
- * LONGACTION / SHORTACTION / CANCELACTION / CLEARACTION), plus the placeholder
- * an unfinished branch leaves behind.
+ * LONGACTION / SHORTACTION / CANCELACTION / CLEARACTION).
  *
  * Every one of them is the same struct - the base node and the two fields the
  * builder needs to place it: whether it should be connected to the active node
@@ -28,15 +27,9 @@
 
 // ========== Constants ==========
 
-/*
- * Display text a type is given when the caller does not retitle it: a build can
- * name them its own way, and the capi names the same things the same way.
- */
-#ifndef DCG_DEF_REPR_PLACEHOLDER
-#define DCG_DEF_REPR_PLACEHOLDER "Placeholder"
-#endif
-
 /* DCG_DEF_REPR_NOACTION is defined in c_node.h - see the note there. */
+/* DCG_DEF_REPR_PLACEHOLDER is defined in c_node.h too: the placeholder is a
+ * plain node rather than an action, and its constructor sits there. */
 
 // ========== Structs ==========
 
@@ -81,18 +74,7 @@ static inline void                     c_dcg_node_free_action(dcg_action_node* n
 
 static inline dcg_action_node*         c_dcg_node_new_action_trade(dcg_node_type action_type, allocator_protocol* allocator);
 static inline dcg_action_node*         c_dcg_node_new_action_clear(allocator_protocol* allocator);
-static inline dcg_action_node*         c_dcg_node_new_action_placeholder(allocator_protocol* allocator);
 
-/*
- * The connect variants of the four constructors above - the ones that take a
- * manager and join the node to the active one - are declared and defined in
- * c_logic_group.h, next to each other: a static inline function has to be
- * defined in every translation unit that declares it, and only that header
- * knows what a manager is.
- */
-
-// Closing a branch
-static inline dcg_node*                c_dcg_node_get_placeholder(dcg_node* node);
 static inline int                      c_dcg_node_auto_fill(dcg_node* node);
 
 // ========== Lifecycle Methods ==========
@@ -189,72 +171,6 @@ static inline dcg_action_node* c_dcg_node_new_action_trade(dcg_node_type action_
  */
 static inline dcg_action_node* c_dcg_node_new_action_clear(allocator_protocol* allocator) {
     return c_dcg_node_new_action(DCG_NODE_CLEARACTION, c_dcg_node_type_name(DCG_NODE_CLEARACTION), 0, NULL, allocator);
-}
-
-/**
- * @brief Allocate an auto-generated placeholder.
- *
- * A placeholder is what an unfinished branch leaves behind: it is flagged
- * autogen, so consolidation can tell it from an action the caller built.
- *
- * @param allocator  Allocator for the block; NULL falls back to the plain heap.
- * @return The node, or NULL on OOM.
- */
-static inline dcg_action_node* c_dcg_node_new_action_placeholder(allocator_protocol* allocator) {
-    dcg_action_node* node = c_dcg_node_new_action(DCG_NODE_PLACEHOLDER, DCG_DEF_REPR_PLACEHOLDER, 0, NULL, allocator);
-    if (!node) return NULL;
-
-    node->base.autogen = true;
-    return node;
-}
-
-/**
- * @brief The placeholder slot under a node: the one already reserved, or a new one.
- *
- * The opening half of the placeholder discipline - the closing half is
- * c_dcg_node_consolidate_placeholder(). A branch that is about to be built
- * reserves its slot first, and whatever fills the slot replaces the
- * placeholder; a slot nothing ever fills becomes a no-action when the graph
- * closes.
- *
- * The rules are the capi's, in its order:
- *
- *   - the NEWEST existing placeholder is reused, so a build that descends into
- *     a node fills the slot that was reserved last rather than reserving a
- *     second. Newest and not first, because a node entered by a `with` block
- *     reserves its two arms in the order FALSE then TRUE, and the capi - whose
- *     stack puts the newest at index 0 - fills the TRUE arm first. Taking the
- *     first placeholder here would fill the arms in the opposite order and
- *     build a different graph;
- *   - otherwise a placeholder is appended on the INFERRED edge, which is what
- *     makes this fail exactly when the node has no room left for a branch -
- *     a node with one non-binary child and no free edge, say. A root is no
- *     exception: the inference hands back the unconditioned edge it requires.
- *
- * The placeholder is allocated from the same allocator the node came from, so
- * the two are one allocation family; it is NOT nested under the node, because
- * a node does not own its children (see c_dcg_node_free).
- *
- * @param node  Node to reserve a slot under (NULL-safe).
- * @return The placeholder, or NULL on OOM / when no edge can be inferred.
- */
-static inline dcg_node* c_dcg_node_get_placeholder(dcg_node* node) {
-    if (!node) return NULL;
-
-    dcg_node* newest = NULL;
-    for (dcg_node* child = node->children; child; child = child->next_sibling) {
-        if (child->ntype == DCG_NODE_PLACEHOLDER) newest = child;
-    }
-    if (newest) return newest;
-
-    dcg_action_node* placeholder = c_dcg_node_new_action_placeholder(c_ap_protocol_from_ptr(node));
-    if (!placeholder) return NULL;
-
-    if (c_dcg_node_append_auto(node, &placeholder->base) != DCG_OK) {
-        c_dcg_node_free_action(placeholder);
-        return NULL;
-    }
-    return &placeholder->base;
 }
 
 // ========== Public APIs - Closing a Branch ==========
@@ -363,6 +279,35 @@ static inline int c_dcg_node_auto_fill(dcg_node* node) {
     ret = c_dcg_node_append(node, &no_action->base, DCG_ELSE_CONDITION);
     if (ret != DCG_OK) c_dcg_node_free_action(no_action);
     return ret;
+}
+
+/**
+ * @brief Leave a node: fill the branch it never got, then retire the stand-ins.
+ *
+ * The order is the capi's, and it is the same for every type. `auto_fill`
+ * supplies the branches a build did not build, so a node entered and left
+ * without one still says something; the consolidation that follows turns
+ * whatever is STILL a placeholder into a no-action, so a graph that has closed
+ * never contains a stand-in.
+ *
+ * This is the exit half of every type's context ops - which is why the manager
+ * installs it as a node arrives rather than each constructor arming it: the body
+ * needs the action family's constructors, and those are above the header that
+ * declares the ops.
+ *
+ * @param node  Node being left.
+ * @param mgr   Manager holding the build (unused: closing is the node's own).
+ * @return DCG_OK, or a DCG_ERR_* code.
+ */
+static inline int c_dcg_node_ctx_exit_closed(dcg_node* node, dcg_logic_group_manager* mgr) {
+    (void) mgr;
+    if (!node) return DCG_ERR_INVALID_ARG;
+
+    int ret = c_dcg_node_auto_fill(node);
+    if (ret != DCG_OK) return ret;
+
+    c_dcg_node_consolidate_placeholder(node);
+    return DCG_OK;
 }
 
 #endif  // C_DCG_BAKE_ACTION_H

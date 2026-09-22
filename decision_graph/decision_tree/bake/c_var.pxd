@@ -166,3 +166,5 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
 
 
 cdef void c_dcg_var_pypack(dcg_var_t* out, object value) except *
+
+cdef object c_dcg_var_pyunpack(const dcg_var_t* var)

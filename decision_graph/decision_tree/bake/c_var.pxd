@@ -26,6 +26,10 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         DCG_ERR_EDGE
         DCG_ERR_UNRESOLVED
         DCG_ERR_RANGE
+        DCG_ERR_HOOK
+        DCG_ERR_NO_MATCH
+        DCG_ERR_MATH
+        DCG_ERR_UNBOUND
 
     ctypedef enum dcg_var_type_mask:
         VAR_TYPE_BASE_MASK

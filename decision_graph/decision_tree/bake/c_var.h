@@ -77,7 +77,11 @@ typedef enum dcg_ret_code {
     DCG_ERR_DUPLICATE   = -11,  // The edge condition is already registered on the parent.
     DCG_ERR_EDGE        = -12,  // The edge condition is not acceptable for this parent.
     DCG_ERR_UNRESOLVED  = -13,  // No condition could be inferred for the edge.
-    DCG_ERR_RANGE       = -14   // Index outside the container.
+    DCG_ERR_RANGE       = -14,  // Index outside the container.
+    DCG_ERR_HOOK        = -15,  // An eval hook failed - the failure it reported is the hook's own.
+    DCG_ERR_NO_MATCH    = -16,  // No edge matched the value and the node has no else arm.
+    DCG_ERR_MATH        = -17,  // Operator operands are outside the operator's domain.
+    DCG_ERR_UNBOUND     = -18   // The value a node reads has no type yet - nothing has landed in it.
 } dcg_ret_code;
 
 /**
@@ -1114,6 +1118,14 @@ static inline const char* c_dcg_ret_code_name(dcg_ret_code code) {
             return "UNRESOLVED";
         case DCG_ERR_RANGE:
             return "RANGE";
+        case DCG_ERR_HOOK:
+            return "HOOK";
+        case DCG_ERR_NO_MATCH:
+            return "NO_MATCH";
+        case DCG_ERR_MATH:
+            return "MATH";
+        case DCG_ERR_UNBOUND:
+            return "UNBOUND";
         default:
             return "UNKNOWN";
     }

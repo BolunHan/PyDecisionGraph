@@ -4,7 +4,7 @@ from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_expr cimport BinaryExpression, UnaryExpression, dcg_op_code
 from .c_node cimport c_dcg_node_set_repr
 from .c_node import register_types
-from .c_var cimport c_dcg_var_as_bool, c_dcg_var_as_double, c_dcg_var_as_int, c_dcg_var_as_string, c_dcg_var_is_null, c_dcg_var_pypack, dcg_ret_code, dcg_var_type, dcg_var_type_mask
+from .c_var cimport c_dcg_var_pypack, c_dcg_var_pyunpack, dcg_ret_code
 
 
 cdef class ConstantNode(LogicNode):
@@ -65,6 +65,15 @@ cdef class ConstantNode(LogicNode):
     def __neg__(self):
         return UnaryExpression(dcg_op_code.DCG_OP_NEG, self)
 
+    def __eq__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_EQ, self, other)
+
+    def __ne__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_NE, self, other)
+
+    def __hash__(self):
+        return hash(self.address)
+
     def __lt__(self, LogicNode other):
         return BinaryExpression(dcg_op_code.DCG_OP_LT, self, other)
 
@@ -92,21 +101,7 @@ cdef class ConstantNode(LogicNode):
         def __get__(self):
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-
-            cdef const dcg_var_t* var = c_dcg_node_const_get(<dcg_constant_node*> self.header)
-            cdef dcg_node_type ntype = self.header.ntype
-
-            if ntype == dcg_node_type.DCG_NODE_TRUE:
-                return True
-            if ntype == dcg_node_type.DCG_NODE_FALSE:
-                return False
-            if ntype == dcg_node_type.DCG_NODE_INT:
-                return c_dcg_var_as_int(var)
-            if ntype == dcg_node_type.DCG_NODE_DOUBLE:
-                return c_dcg_var_as_double(var)
-            if ntype == dcg_node_type.DCG_NODE_STRING:
-                return PyUnicode_FromString(c_dcg_var_as_string(var))
-            return None
+            return c_dcg_var_pyunpack(c_dcg_node_const_get(<dcg_constant_node*> self.header))
 
         def __set__(self, object value):
             import warnings
@@ -142,7 +137,9 @@ cdef class VariableNode(LogicNode):
             raise MemoryError('Failed to allocate the VariableNode.')
 
         self.header = &node.base
-        self.owner = True
+        # With a group given the node is a block OF THAT GROUP, and the group
+        # releases it - so the wrapper owns nothing and must free nothing.
+        self.owner = active_logic_group == NULL
         self.c_register_node()
 
     # === Cython Internal Binding ===
@@ -157,28 +154,66 @@ cdef class VariableNode(LogicNode):
     cpdef void c_bind_const(self, ConstantNode node):
         self.c_bind_slot(&node.header.out)
 
+    # === Python Operators ===
+
+    def __add__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_ADD, self, other)
+
+    def __sub__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_SUB, self, other)
+
+    def __mul__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_MUL, self, other)
+
+    def __truediv__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_DIV, self, other)
+
+    def __floordiv__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_FLOORDIV, self, other)
+
+    def __pow__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_POW, self, other)
+
+    def __neg__(self):
+        return UnaryExpression(dcg_op_code.DCG_OP_NEG, self)
+
+    def __eq__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_EQ, self, other)
+
+    def __ne__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_NE, self, other)
+
+    def __hash__(self):
+        return hash(self.address)
+
+    def __lt__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_LT, self, other)
+
+    def __le__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_LE, self, other)
+
+    def __gt__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_GT, self, other)
+
+    def __ge__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_GE, self, other)
+
+    def __and__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_AND, self, other)
+
+    def __or__(self, LogicNode other):
+        return BinaryExpression(dcg_op_code.DCG_OP_OR, self, other)
+
+    def __invert__(self):
+        return UnaryExpression(dcg_op_code.DCG_OP_NOT, self)
+
     # === Python Properties ===
 
     property value:
         def __get__(self):
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-
-            cdef dcg_var_t* slot = &self.header.out
-            if c_dcg_var_is_null(slot):
-                return None
-
-            cdef dcg_var_type base = <dcg_var_type> ((<int> slot.dtype) & <int> dcg_var_type_mask.VAR_TYPE_BASE_MASK)
-
-            if base == dcg_var_type.VAR_TYPE_BOOL:
-                return c_dcg_var_as_bool(slot)
-            if base == dcg_var_type.VAR_TYPE_INT:
-                return c_dcg_var_as_int(slot)
-            if base == dcg_var_type.VAR_TYPE_DOUBLE:
-                return c_dcg_var_as_double(slot)
-            if base == dcg_var_type.VAR_TYPE_STRING:
-                return PyUnicode_FromString(c_dcg_var_as_string(slot))
-            return None
+            return c_dcg_var_pyunpack(&self.header.out)
 
     property key:
         def __get__(self):

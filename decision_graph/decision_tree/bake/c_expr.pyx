@@ -120,10 +120,16 @@ cdef class ExpressionNode(LogicNode):
     def __neg__(self):
         return UnaryExpression(DCG_OP_NEG, self)
 
-    # Ordered comparisons build comparison nodes. __eq__ and __ne__ are
-    # deliberately NOT overridden: they would have to answer with a node, and a
-    # node is not a bool - every `==` in the layer, a test's included, would
-    # quietly become a graph operation instead of a question about the wrapper.
+    def __eq__(self, LogicNode other):
+        return BinaryExpression(DCG_OP_EQ, self, other)
+
+    def __ne__(self, LogicNode other):
+        return BinaryExpression(DCG_OP_NE, self, other)
+
+    def __hash__(self):
+        return hash(self.address)
+
+    # Ordered comparisons build comparison nodes.
     def __lt__(self, LogicNode other):
         return BinaryExpression(DCG_OP_LT, self, other)
 

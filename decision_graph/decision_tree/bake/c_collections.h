@@ -68,6 +68,7 @@ typedef struct dcg_mapping_lgroup {
     dcg_var_t*      slots;        // OWNED - nested block of `capacity` values.
     size_t          n_slots;      // Slots in use.
     size_t          capacity;     // Slots the block has room for.
+    bool            frozen;       // Sealed: no entry may be created in it. Reading and writing what it holds are unaffected.
 } dcg_mapping_lgroup;
 
 // ========== Forward Declarations ==========
@@ -92,7 +93,7 @@ static inline dcg_variable_node*  c_dcg_mapping_lgroup_get_node(dcg_mapping_lgro
 
 // Internal helpers (exposed for reuse and testing - not part of the stable surface)
 static inline dcg_var_t*          c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len);
-static inline dcg_var_t*          c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len);
+static inline int                 c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, const dcg_var_type* var_type, dcg_var_t** out);
 
 // ========== Lifecycle Methods ==========
 
@@ -202,20 +203,46 @@ static inline dcg_var_t* c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup*
  * bytemap holds the slot INDEX, so a move does not invalidate the index - which
  * is why the index, rather than a pointer into the block, is what the map holds.
  *
- * @param lgroup   Group to modify.
- * @param key      Entry name.
- * @param key_len  Length of key.
- * @return The slot, or NULL on OOM / invalid argument.
+ * A FROZEN group creates nothing NEW. This is the single point where an entry
+ * comes into being, so the check sits exactly there and every path - a setter, a
+ * reservation - inherits it, while an entry the group already holds is still
+ * served by both. It is the store's SHAPE that is sealed, not its contents, and
+ * the code says which way it went: DCG_ERR_BUSY for the store that said no,
+ * DCG_ERR_OOM for a machine that ran out.
+ *
+ * A NEW entry takes the type the caller names in `var_type`, or comes into
+ * being RESERVED when the caller names none - a slot with room for a value and
+ * no opinion yet about what it will hold, which is what a read of an entry that
+ * is not written yet needs. An entry that is ALREADY there keeps the type it
+ * has: the caller's type is checked against it in vigilant mode and the
+ * mismatch is reported - never asserted, since the store is not the side being
+ * contradicted - and RESERVED and INFERRED mean "no type claimed", so neither is
+ * ever a mismatch. What the entry holds is the truth either way.
+ *
+ * @param lgroup    Group to modify.
+ * @param key       Entry name.
+ * @param key_len   Length of key.
+ * @param var_type  Type the caller wants a NEW entry to have (NULL, RESERVED and
+ *                  INFERRED all mean "no type named"). Never written to.
+ * @param out       Receives the slot: the live slot on DCG_OK, NULL on any failure.
+ * @return DCG_OK; DCG_ERR_INVALID_ARG for a NULL argument; DCG_ERR_BUSY for a new
+ *         key in a frozen group; DCG_ERR_OOM; DCG_ERR_RANGE for an index this
+ *         mapping never handed out.
  */
-static inline dcg_var_t* c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) {
-    if (!lgroup || !key) return NULL;
+static inline int c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, const dcg_var_type* var_type, dcg_var_t** out) {
+    /* The out slot is cleared first, so a caller that ignores the code still
+     * cannot read a slot out of a call that did not take one. */
+    if (!out) return DCG_ERR_INVALID_ARG;
+    *out = NULL;
+
+    if (!lgroup || !key) return DCG_ERR_INVALID_ARG;
 
     uintptr_t index      = (uintptr_t) lgroup->n_slots;
     char*     stored     = NULL;
     size_t    stored_len = 0;
 
-    if (c_bytemap_ex_set_default(&lgroup->idx_mapping, key, key_len, (const char*) &index, sizeof(index), 0, &stored, &stored_len) != BYTEMAP_OK) return NULL;
-    if (!stored || stored_len != sizeof(uintptr_t)) return NULL;
+    if (c_bytemap_ex_set_default(&lgroup->idx_mapping, key, key_len, (const char*) &index, sizeof(index), 0, &stored, &stored_len) != BYTEMAP_OK) return DCG_ERR_OOM;
+    if (!stored || stored_len != sizeof(uintptr_t)) return DCG_ERR_OOM;
 
     uintptr_t slot_index = 0;
     memcpy(&slot_index, stored, sizeof(slot_index));
@@ -223,23 +250,48 @@ static inline dcg_var_t* c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup
     /* The key was new exactly when the map handed back the default, which is the
      * index of a slot this block does not have yet. */
     if (slot_index == lgroup->n_slots) {
+        if (lgroup->frozen) {
+            c_bytemap_pop(&lgroup->idx_mapping, key, key_len, NULL); /* take the index back */
+            return DCG_ERR_BUSY;                                     /* sealed: nothing new appears here */
+        }
+
         if (lgroup->n_slots == lgroup->capacity) {
             size_t new_capacity = lgroup->capacity ? lgroup->capacity * 2 : DCG_MAPPING_DEFAULT_CAPACITY;
             void*  grown        = c_ap_realloc(lgroup->slots, new_capacity * sizeof(dcg_var_t), NULL);
             if (!grown) {
                 c_bytemap_pop(&lgroup->idx_mapping, key, key_len, NULL); /* take the index back */
-                return NULL;
+                return DCG_ERR_OOM;
             }
 
             lgroup->slots = (dcg_var_t*) grown;
             for (size_t i = lgroup->capacity; i < new_capacity; i++) (void) c_dcg_var_init(&lgroup->slots[i]);
             lgroup->capacity = new_capacity;
         }
+
+        (void) c_dcg_var_init_reserved(&lgroup->slots[slot_index]); /* born holding nothing */
+        if (var_type && *var_type != VAR_TYPE_RESERVED && *var_type != VAR_TYPE_INFERRED) lgroup->slots[slot_index].dtype = *var_type;
+
         lgroup->n_slots++;
     }
+    else if (var_type && *var_type != VAR_TYPE_RESERVED && *var_type != VAR_TYPE_INFERRED) {
+        /* The entry is already there and the caller named a type for it: if it
+         * holds another one, the caller is working from a wrong idea of the
+         * store and is told so. Reported rather than refused - the slot is what
+         * the store has and it is handed back as it is. */
+#if DCG_VIGILANT
+        if (lgroup->slots[slot_index].dtype != *var_type) {
+            (void) fprintf(
+                stderr, "[DCG] c_dcg_mapping_lgroup_get_create_slot: entry \"%.*s\" is %s, not the %s the caller named - the entry keeps what it holds\n", (int) key_len,
+                key, c_dcg_var_type_name(lgroup->slots[slot_index].dtype), c_dcg_var_type_name(*var_type)
+            );
+            (void) fflush(stderr);
+        }
+#endif
+    }
 
-    if (slot_index >= lgroup->n_slots) return NULL; /* not an index this mapping handed out */
-    return &lgroup->slots[slot_index];
+    if (slot_index >= lgroup->n_slots) return DCG_ERR_RANGE; /* not an index this mapping handed out */
+    *out = &lgroup->slots[slot_index];
+    return DCG_OK;
 }
 
 // ========== Public APIs - Setters ==========
@@ -261,8 +313,9 @@ static inline dcg_var_t* c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup
 static inline int c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, dcg_var_t* value) {
     if (!lgroup || !key || !value) return DCG_ERR_INVALID_ARG;
 
-    dcg_var_t* slot = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len);
-    if (!slot) return DCG_ERR_OOM;
+    dcg_var_t* slot     = NULL;
+    int        ret_code = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len, NULL, &slot);
+    if (ret_code != DCG_OK) return ret_code;
 
     /* What the slot held goes first: a string value is a nested block of this
      * group, and it is about to be replaced. */
@@ -302,8 +355,9 @@ static inline int c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const cha
 static inline int c_dcg_mapping_lgroup_set_ref(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, dcg_var_t* value) {
     if (!lgroup || !key || !value) return DCG_ERR_INVALID_ARG;
 
-    dcg_var_t* slot = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len);
-    if (!slot) return DCG_ERR_OOM;
+    dcg_var_t* slot     = NULL;
+    int        ret_code = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len, NULL, &slot);
+    if (ret_code != DCG_OK) return ret_code;
 
     if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) c_ap_free_owned((void*) slot->value.as_string);
     return c_dcg_var_init_ref(slot, value);

@@ -3,9 +3,9 @@ from libcpp cimport bool as c_bool
 from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
 from cbase.bytemap.c_bytemap cimport bytemap
 
-from .c_const cimport dcg_variable_node
-from .c_logic_group cimport dcg_logic_group
-from .c_var cimport dcg_var_t
+from .c_const cimport VariableNode, dcg_variable_node
+from .c_logic_group cimport LogicGroup, dcg_logic_group
+from .c_var cimport dcg_var_t, dcg_var_type
 
 
 cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
@@ -17,6 +17,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
         dcg_var_t* slots
         size_t n_slots
         size_t capacity
+        c_bool frozen
 
     dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, size_t capacity, allocator_protocol* allocator) noexcept nogil
     void c_dcg_mapping_lgroup_dealloc(dcg_mapping_lgroup* lgroup) noexcept nogil
@@ -34,4 +35,13 @@ cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
     dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) noexcept nogil
 
     dcg_var_t* c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) noexcept nogil
-    dcg_var_t* c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) noexcept nogil
+    int c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, const dcg_var_type* var_type, dcg_var_t** out) noexcept nogil
+
+
+cdef class LogicMapping(LogicGroup):
+    cdef dcg_var_t* c_get_slot(self, const char* key, size_t key_len)
+    cdef dcg_var_t* c_get_create_slot(self, const char* key, size_t key_len, const dcg_var_type* var_type) except NULL
+
+
+cdef class AttrExpression(VariableNode):
+    pass

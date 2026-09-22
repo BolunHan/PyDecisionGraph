@@ -69,6 +69,12 @@ cdef class NodeEdgeCondition:
         c_dcg_condition_format(self.header, NULL, buf, sizeof(buf))
         return PyUnicode_FromString(buf)
 
+    property address:
+        def __get__(self):
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            return <uintptr_t> self.header
+
     property is_none:
         def __get__(self):
             if not self.header:
@@ -160,6 +166,25 @@ cdef class ConditionFalse(BinaryCondition):
         return 0
 
 
+cdef inline NodeEdgeCondition c_dcg_condition_reconstruct(dcg_node_edge_condition* edge):
+    if not edge:
+        return NO_CONDITION
+
+    cdef dcg_node_edge_type edge_type = edge.type
+
+    if edge_type == dcg_node_edge_type.DCG_NODE_EDGE_NONE:
+        return ConditionAny.c_from_header(edge, False)
+    if edge_type == dcg_node_edge_type.DCG_NODE_EDGE_ELSE:
+        return ConditionElse.c_from_header(edge, False)
+    if edge_type == dcg_node_edge_type.DCG_NODE_EDGE_AUTO:
+        return ConditionAuto.c_from_header(edge, False)
+    if edge_type == dcg_node_edge_type.DCG_NODE_EDGE_TRUE:
+        return ConditionTrue.c_from_header(edge, False)
+    if edge_type == dcg_node_edge_type.DCG_NODE_EDGE_FALSE:
+        return ConditionFalse.c_from_header(edge, False)
+    return NodeEdgeCondition.c_from_header(edge, False)
+
+
 cdef class EdgeConditionRegistry(BoundByteMap):
     @staticmethod
     cdef EdgeConditionRegistry c_from_header(bytemap* header, bint owner=False):
@@ -190,23 +215,12 @@ cdef class EdgeConditionRegistry(BoundByteMap):
 
     cdef object c_deserialize_value(self, const char* value, size_t value_len):
         cdef void** vp = <void**> value
-        cdef dcg_node_edge_condition* edge = <dcg_node_edge_condition*> vp[0]
-        if not edge or c_dcg_condition_is_none(edge):
-            return NO_CONDITION
-        elif c_dcg_condition_is_else(edge):
-            return ELSE_CONDITION
-        elif c_dcg_condition_is_auto(edge):
-            return AUTO_CONDITION
-        elif c_dcg_condition_is_true(edge):
-            return TRUE_CONDITION
-        elif c_dcg_condition_is_false(edge):
-            return FALSE_CONDITION
-        return NodeEdgeCondition.c_from_header(edge, False)
+        return c_dcg_condition_reconstruct(<dcg_node_edge_condition*> vp[0])
 
     def __getitem__(self, object key):
         cdef int ret_code = PyDict_Contains(<dict> self, key)
         if ret_code == 0:
-            return NodeEdgeCondition.c_from_header(<dcg_node_edge_condition*> <uintptr_t> key, False)
+            return c_dcg_condition_reconstruct(<dcg_node_edge_condition*> <uintptr_t> key)
         return super().__getitem__(key)
 
 
@@ -236,3 +250,5 @@ EDGE_REGISTRY[<uintptr_t> C_ELSE_CONDITION]     = ELSE_CONDITION
 EDGE_REGISTRY[<uintptr_t> C_AUTO_CONDITION]     = AUTO_CONDITION
 EDGE_REGISTRY[<uintptr_t> C_TRUE_CONDITION]     = TRUE_CONDITION
 EDGE_REGISTRY[<uintptr_t> C_FALSE_CONDITION]    = FALSE_CONDITION
+
+globals()['EDGE_REGISTRY']                      = EDGE_REGISTRY

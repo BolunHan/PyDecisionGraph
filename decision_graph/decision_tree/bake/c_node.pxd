@@ -260,6 +260,9 @@ cdef class LogicNode:
     cdef inline dcg_logic_group_manager* c_get_manager()
 
     @staticmethod
+    cdef LogicNode c_dcg_node_reconstruct(dcg_node* header, bint owner=?)
+
+    @staticmethod
     cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept
 
     cdef inline void c_register_node(self)
@@ -286,7 +289,3 @@ cdef class LogicNodeRegistry(BoundByteMap):
 
 cdef dcg_logic_group_manager* C_LGM
 cdef LogicNodeRegistry NODE_REGISTRY
-
-# The class a node type is rebuilt as, and the wrapping helper a family module
-# uses to reach another family's classes without naming them (DEPENDENCY.md 4.2).
-cdef type c_class_for_type(dcg_node_type node_type)

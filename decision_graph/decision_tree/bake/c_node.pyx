@@ -17,33 +17,6 @@ from .c_edge cimport EDGE_REGISTRY, NodeEdgeCondition, dcg_node_edge_condition, 
 
 cdef size_t DCG_RENDER_BUFSIZE = 1 << 16
 
-# Filled in by every module that owns a node family, at import. The map lives
-# here because every module needs the wrapping helper and none of them owns it:
-# a module registering its types is how a rebuilt tree comes back as the classes
-# the build used, without this module importing anybody. A plain Python import
-# of `register_types` is not an edge in the pxd graph, which is what keeps a
-# family module reachable from here (DEPENDENCY.md 4.2).
-cdef dict TYPE_CLASSES = {}
-
-
-def register_types(dict mapping):
-    TYPE_CLASSES.update(mapping)
-
-
-cdef inline type c_class_for_type(dcg_node_type node_type):
-    """The wrapper class a node type is rebuilt as.
-
-    The exact type is asked first, then its family head, and finally the base -
-    so a node from a family this package does not know yet still comes back as
-    something readable rather than as a bare pointer.
-    """
-    cdef type found = TYPE_CLASSES.get(<int> node_type)
-    if found is None:
-        found = TYPE_CLASSES.get(<int> (node_type & DCG_NODE_FAMILY_MASK))
-    if found is None:
-        found = LogicNode
-    return found
-
 
 cdef class LogicNode:
     def __cinit__(self, *args, **kwargs):
@@ -68,8 +41,7 @@ cdef class LogicNode:
 
     @staticmethod
     cdef inline LogicNode c_from_header(dcg_node* header, bint owner=False):
-        cdef type cls = c_class_for_type(header.ntype)
-        cdef LogicNode instance = <LogicNode> cls.__new__(cls)
+        cdef LogicNode instance = LogicNode.__new__(LogicNode)
         instance.header = header
         instance.owner = owner
 
@@ -92,6 +64,11 @@ cdef class LogicNode:
             C_LGM = <dcg_logic_group_manager*> <uintptr_t> _LGM.address
             LGM = _LGM
         return C_LGM
+
+    @staticmethod
+    cdef LogicNode c_dcg_node_reconstruct(dcg_node* header, bint owner=False):
+        from .c_reconstruct import c_dcg_node_reconstruct_from_address
+        return c_dcg_node_reconstruct_from_address(<uintptr_t> header, owner)
 
     @staticmethod
     def get_manager():
@@ -336,12 +313,12 @@ cdef class LogicNodeRegistry(BoundByteMap):
     cdef object c_deserialize_value(self, const char* value, size_t value_len):
         cdef void** vp = <void**> value
         cdef dcg_node* node = <dcg_node*> vp[0]
-        return LogicNode.c_from_header(node, False)
+        return LogicNode.c_dcg_node_reconstruct(node)
 
     def __getitem__(self, object key):
         cdef int ret_code = PyDict_Contains(<dict> self, key)
         if ret_code == 0:
-            return LogicNode.c_from_header(<dcg_node*> <uintptr_t> key, False)
+            return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
         return super().__getitem__(key)
 
 
@@ -351,6 +328,3 @@ cdef object LGM = None
 
 cdef LogicNodeRegistry NODE_REGISTRY = LogicNodeRegistry()
 globals()['NODE_REGISTRY'] = NODE_REGISTRY
-
-# The one family this module owns is the node layer's own: the placeholder.
-register_types({dcg_node_type.DCG_NODE_PLACEHOLDER: PlaceholderNode})

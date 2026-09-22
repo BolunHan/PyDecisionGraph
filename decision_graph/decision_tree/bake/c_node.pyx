@@ -11,7 +11,7 @@ from cbase.bytemap.c_bytemap cimport c_bytemap_gen_seq_id
 from ..exc import NodeTypeError
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_var cimport dcg_ret_code
+from .c_var cimport VarView, dcg_ret_code
 from .c_edge cimport EDGE_REGISTRY, NodeEdgeCondition, dcg_node_edge_condition, NO_CONDITION, C_AUTO_CONDITION
 
 
@@ -263,6 +263,12 @@ cdef class LogicNode:
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             return c_dcg_node_subtree_size(self.header)
+
+    property out:
+        def __get__(self):
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            return VarView.c_from_header(&self.header.out)
 
     property address:
         def __get__(self):

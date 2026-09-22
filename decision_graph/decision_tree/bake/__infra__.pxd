@@ -119,7 +119,6 @@ from .c_edge cimport (
 from .c_node cimport (
     dcg_node_ctx_ops,
     dcg_logic_group_manager,
-    c_class_for_type,
     c_dcg_lgm_enter_node,
     c_dcg_lgm_exit_node,
     c_dcg_node_free_generic,
@@ -291,6 +290,7 @@ from .c_hierarchy cimport (
 from .c_logic_group cimport (
     dcg_node_type,
     dcg_action_node,
+    GROUP_REGISTRY,
     DCG_LGM_DEFAULT_CAPACITY,
     dcg_logic_group_type,
     dcg_logic_group,
@@ -371,5 +371,22 @@ from .c_allocator_protocol cimport (
 )
 from .c_reconstruct cimport (
     c_dcg_node_reconstruct,
-    c_dcg_node_reconstruct_from_address
+    c_dcg_node_reconstruct_const,
+    c_dcg_node_reconstruct_variable,
+    c_dcg_node_reconstruct_attr,
+    c_dcg_node_reconstruct_expr,
+    c_dcg_node_reconstruct_unary,
+    c_dcg_node_reconstruct_binary,
+    c_dcg_node_reconstruct_ternary,
+    c_dcg_node_reconstruct_action,
+    c_dcg_node_reconstruct_noaction,
+    c_dcg_node_reconstruct_longaction,
+    c_dcg_node_reconstruct_shortaction,
+    c_dcg_node_reconstruct_cancelaction,
+    c_dcg_node_reconstruct_clearaction,
+    c_dcg_node_reconstruct_placeholder,
+    c_dcg_node_reconstruct_root,
+    c_dcg_node_reconstruct_breakpoint,
+    c_dcg_node_reconstruct_from_address,
+    c_dcg_node_root_from_address
 )

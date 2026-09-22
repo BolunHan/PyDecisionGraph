@@ -2,8 +2,6 @@ from cpython.unicode cimport PyUnicode_AsUTF8
 from libc.stdint cimport uintptr_t
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node cimport dcg_node_type
-from .c_node import register_types
 
 
 cdef class RootLogicNode(LogicNode):
@@ -46,10 +44,3 @@ cdef class BreakpointNode(LogicNode):
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             cdef dcg_breakpoint_node* node = <dcg_breakpoint_node*> self.header
             return node.await_connection
-
-
-# What a rebuilt tree comes back as: the class each special type is wrapped in.
-register_types({
-    dcg_node_type.DCG_NODE_ROOT: RootLogicNode,
-    dcg_node_type.DCG_NODE_BREAKPOINT: BreakpointNode,
-})

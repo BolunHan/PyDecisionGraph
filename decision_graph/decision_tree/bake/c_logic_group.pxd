@@ -157,3 +157,5 @@ cdef class LogicGroupWrapperRegistry(BoundByteMap):
 
     @staticmethod
     cdef LogicGroupWrapperRegistry c_from_header(bytemap* header, bint owner=?)
+
+cdef LogicGroupWrapperRegistry GROUP_REGISTRY

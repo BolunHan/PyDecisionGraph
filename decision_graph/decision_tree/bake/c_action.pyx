@@ -1,7 +1,6 @@
 from cpython.unicode cimport PyUnicode_AsUTF8
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node import register_types
 
 
 cdef class ActionNode(LogicNode):
@@ -64,13 +63,3 @@ cdef class ClearAction(ActionNode):
 
     def __int__(self):
         return 0
-
-
-# What a rebuilt tree comes back as: the class each action type is wrapped in.
-register_types({
-    dcg_node_type.DCG_NODE_NOACTION: NoAction,
-    dcg_node_type.DCG_NODE_LONGACTION: LongAction,
-    dcg_node_type.DCG_NODE_SHORTACTION: ShortAction,
-    dcg_node_type.DCG_NODE_CANCELACTION: CancelAction,
-    dcg_node_type.DCG_NODE_CLEARACTION: ClearAction,
-})

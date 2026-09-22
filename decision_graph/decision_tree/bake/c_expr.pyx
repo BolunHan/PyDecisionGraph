@@ -5,7 +5,6 @@ from cpython.ref cimport Py_XDECREF, Py_XINCREF
 from cpython.unicode cimport PyUnicode_AsUTF8
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node import register_types
 from .c_var cimport dcg_ret_code
 
 
@@ -86,18 +85,6 @@ cdef class ExpressionNode(LogicNode):
         self.c_components_assign(index, node)
 
     # === Python Operators ===
-    # An operator over an expression yields an expression, so a graph is written
-    # as the arithmetic it is rather than as a nest of constructors.
-    #
-    # The operand is typed as the node BASE deliberately. It is the one type
-    # every family can name without importing another family: the constants
-    # override the same operators, and a module that named ExpressionNode would
-    # be naming its own layer. What an operand turns out to be is a question for
-    # its header's node type field, not for its wrapper class.
-    #
-    # The operator is named by the C constant, not by the enum member: the
-    # constant is a value the translator hands straight to the call, where a
-    # member would be built by a lookup and a boxing on every operator.
 
     def __add__(self, LogicNode other):
         return BinaryExpression(DCG_OP_ADD, self, other)
@@ -245,13 +232,3 @@ cdef class CallExpression(ExpressionNode):
         for i in range(n_vars):
             self.c_components_assign(i, <LogicNode> inputs[i])
         self.c_register_node()
-
-
-# What a rebuilt tree comes back as: the class each operator type is wrapped in.
-register_types({
-    dcg_node_type.DCG_NODE_OP: ExpressionNode,
-    dcg_node_type.DCG_NODE_UNARY: UnaryExpression,
-    dcg_node_type.DCG_NODE_BINARY: BinaryExpression,
-    dcg_node_type.DCG_NODE_TERNARY: TernaryExpression,
-    dcg_node_type.DCG_NODE_CALL: CallExpression,
-})

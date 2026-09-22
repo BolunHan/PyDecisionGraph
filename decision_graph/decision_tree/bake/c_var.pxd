@@ -168,6 +168,13 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     int c_dcg_var_print(const dcg_var_t* var, FILE* stream) noexcept nogil
 
 
+cdef class VarView:
+    cdef const dcg_var_t* header
+
+    @staticmethod
+    cdef inline VarView c_from_header(const dcg_var_t* var)
+
+
 cdef void c_dcg_var_pypack(dcg_var_t* out, object value) except *
 
 cdef object c_dcg_var_pyunpack(const dcg_var_t* var)

@@ -792,9 +792,13 @@ static inline int c_dcg_node_init(dcg_node* node, dcg_node_type ntype, const cha
  * this pair. A type whose entering differs says so with its own callback - the
  * root reserves a single arm instead, and a leaf or a stand-in refuses.
  *
- * The arms go in FALSE-then-TRUE, which is the capi's order; `get_placeholder`
- * hands back the NEWEST one, so the first branch built inside this node takes
- * the TRUE arm exactly as it does there.
+ * The arms go in TRUE-then-FALSE - the order they are READ in - and
+ * `get_placeholder` hands back the FIRST standing one, so the first branch
+ * built inside this node takes the TRUE arm and the pair stays in that order in
+ * the child list. The capi keeps the pair the other way round, FALSE first, and
+ * this layer deliberately does not: here the child order is the reading order,
+ * so a sequential check tests the true branch first and a render shows it above
+ * the fallback.
  *
  * Each arm is a placeholder the node owns for as long as it stands: an arm that
  * gets taken is replaced, and the stand-in it displaced is released here.
@@ -807,21 +811,21 @@ static inline int c_dcg_node_ctx_enter_binary(dcg_node* node, dcg_logic_group_ma
     (void) mgr;
     if (!node) return DCG_ERR_INVALID_ARG;
 
-    dcg_node* false_arm = c_dcg_node_new_placeholder(c_ap_protocol_from_ptr(node));
-    if (!false_arm) return DCG_ERR_OOM;
-
-    int ret = c_dcg_node_append(node, false_arm, DCG_FALSE_CONDITION);
-    if (ret != DCG_OK) {
-        c_dcg_node_free(false_arm);
-        return ret;
-    }
-
     dcg_node* true_arm = c_dcg_node_new_placeholder(c_ap_protocol_from_ptr(node));
     if (!true_arm) return DCG_ERR_OOM;
 
-    ret = c_dcg_node_append(node, true_arm, DCG_TRUE_CONDITION);
+    int ret = c_dcg_node_append(node, true_arm, DCG_TRUE_CONDITION);
     if (ret != DCG_OK) {
         c_dcg_node_free(true_arm);
+        return ret;
+    }
+
+    dcg_node* false_arm = c_dcg_node_new_placeholder(c_ap_protocol_from_ptr(node));
+    if (!false_arm) return DCG_ERR_OOM;
+
+    ret = c_dcg_node_append(node, false_arm, DCG_FALSE_CONDITION);
+    if (ret != DCG_OK) {
+        c_dcg_node_free(false_arm);
         return ret;
     }
     return DCG_OK;
@@ -1509,6 +1513,13 @@ static inline size_t c_dcg_node_consolidate_placeholder(dcg_node* node) {
             if (c_dcg_node_set_repr(child, DCG_DEF_REPR_NOACTION) != DCG_OK) {
                 (void) fprintf(stderr, "c_dcg_node_consolidate_placeholder: no text for the no-action at %p - keeping \"%s\"\n", (void*) child, child->repr ? child->repr : "");
             }
+            /* The conversion is a change to the PARENT's child, so the parent is
+             * told: the edge still holds a node, but it is no longer a
+             * placeholder, and a wrapper of the parent has to rebuild it as what
+             * it now is. The converted node cannot carry that news itself - a
+             * node the C layer grew has no wrapper and no callback to hear a
+             * MODIFIED. */
+            c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CHILD_UPDATED, child, (uint64_t) -1);
             c_dcg_node_invoke_callbacks(child, DCG_NODE_EVENT_MODIFIED, child, (uint64_t) -1);
             replaced++;
         }
@@ -1525,15 +1536,15 @@ static inline size_t c_dcg_node_consolidate_placeholder(dcg_node* node) {
  * placeholder; a slot nothing ever fills becomes a no-action when the graph
  * closes.
  *
- * The rules are the capi's, in its order:
+ * The rules:
  *
- *   - the NEWEST existing placeholder is reused, so a build that descends into
- *     a node fills the slot that was reserved last rather than reserving a
- *     second. Newest and not first, because a node entered by a `with` block
- *     reserves its two arms in the order FALSE then TRUE, and the capi - whose
- *     stack puts the newest at index 0 - fills the TRUE arm first. Taking the
- *     first placeholder here would fill the arms in the opposite order and
- *     build a different graph;
+ *   - the FIRST standing placeholder is reused, so a build that descends into a
+ *     node fills the slot that was reserved first rather than reserving a
+ *     second. First and not last, because a node entered by a `with` block
+ *     reserves its arms in the order they are read - TRUE then FALSE - and the
+ *     arm taken first is the one the evaluator would test first. Taking the
+ *     last one here would fill the fallback first and leave the pair in the
+ *     order the read does not use;
  *   - otherwise a placeholder is appended on the INFERRED edge, which is what
  *     makes this fail exactly when the node has no room left for a branch -
  *     a node with one non-binary child and no free edge, say. A root is no
@@ -1549,11 +1560,14 @@ static inline size_t c_dcg_node_consolidate_placeholder(dcg_node* node) {
 static inline dcg_node* c_dcg_node_get_placeholder(dcg_node* node) {
     if (!node) return NULL;
 
-    dcg_node* newest = NULL;
+    dcg_node* standing = NULL;
     for (dcg_node* child = node->children; child; child = child->next_sibling) {
-        if (child->ntype == DCG_NODE_PLACEHOLDER) newest = child;
+        if (child->ntype == DCG_NODE_PLACEHOLDER) {
+            standing = child;
+            break;
+        }
     }
-    if (newest) return newest;
+    if (standing) return standing;
 
     dcg_node* placeholder = c_dcg_node_new_placeholder(c_ap_protocol_from_ptr(node));
     if (!placeholder) return NULL;

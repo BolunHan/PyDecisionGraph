@@ -152,6 +152,19 @@ cdef class ExpressionNode(LogicNode):
             cdef dcg_expression_node* node = <dcg_expression_node*> self.header
             return node.n_args
 
+    property operands:
+        def __get__(self):
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+
+            cdef dcg_expression_node* node = <dcg_expression_node*> self.header
+            cdef size_t i
+            cdef list held = []
+
+            for i in range(node.n_args):
+                held.append(None if not self.components[i] else <object> self.components[i])
+            return held
+
 
 cdef class UnaryExpression(ExpressionNode):
     def __init__(self, dcg_op_code op, LogicNode src):

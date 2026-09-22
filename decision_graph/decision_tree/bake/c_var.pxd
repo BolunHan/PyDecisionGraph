@@ -46,6 +46,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         VAR_TYPE_DATETIME
         VAR_TYPE_D_VECTOR
         VAR_TYPE_D_MATRIX
+        VAR_TYPE_RESERVED
         VAR_TYPE_RAW_PTR_REF
         VAR_TYPE_STRING_REF
         VAR_TYPE_BOOL_REF
@@ -57,6 +58,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         VAR_TYPE_DATETIME_REF
         VAR_TYPE_D_VECTOR_REF
         VAR_TYPE_D_MATRIX_REF
+        VAR_TYPE_INFERRED
         VAR_TYPE_RAW_PTR_REF_REF
         VAR_TYPE_STRING_REF_REF
         VAR_TYPE_BOOL_REF_REF
@@ -125,6 +127,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     void c_dcg_var_free(dcg_var_t* var) noexcept nogil
 
     int c_dcg_var_init(dcg_var_t* var) noexcept nogil
+    int c_dcg_var_init_reserved(dcg_var_t* var) noexcept nogil
     int c_dcg_var_init_bool(dcg_var_t* var, c_bool value) noexcept nogil
     int c_dcg_var_init_double(dcg_var_t* var, double value) noexcept nogil
     int c_dcg_var_init_int(dcg_var_t* var, ssize_t value) noexcept nogil

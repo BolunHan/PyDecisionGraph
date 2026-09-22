@@ -123,6 +123,7 @@ typedef enum dcg_var_type {
     VAR_TYPE_DATETIME = 8,   // Session datetime payload (as_ptr, or as_datetime).
     VAR_TYPE_D_VECTOR = 9,   // Contiguous double vector (as_dvector).
     VAR_TYPE_D_MATRIX = 10,  // Contiguous double matrix (as_dmatrix).
+    VAR_TYPE_RESERVED = 11,
 
     // One hop: as_ref is the address of the slot holding the value.
     VAR_TYPE_RAW_PTR_REF  = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_RAW_PTR,
@@ -136,6 +137,7 @@ typedef enum dcg_var_type {
     VAR_TYPE_DATETIME_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_DATETIME,
     VAR_TYPE_D_VECTOR_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_VECTOR,
     VAR_TYPE_D_MATRIX_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_MATRIX,
+    VAR_TYPE_INFERRED     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_RESERVED,
 
     // Two hops: as_ref is the address of the slot holding the one-hop reference.
     VAR_TYPE_RAW_PTR_REF_REF  = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_RAW_PTR,
@@ -283,6 +285,7 @@ static inline void            c_dcg_var_free(dcg_var_t* var);
 
 // Population (caller-owned buffer - never allocates)
 static inline int             c_dcg_var_init(dcg_var_t* var);
+static inline int             c_dcg_var_init_reserved(dcg_var_t* var);
 static inline int             c_dcg_var_init_bool(dcg_var_t* var, bool value);
 static inline int             c_dcg_var_init_double(dcg_var_t* var, double value);
 static inline int             c_dcg_var_init_int(dcg_var_t* var, ssize_t value);
@@ -790,6 +793,24 @@ static inline int c_dcg_var_init(dcg_var_t* var) {
 }
 
 /**
+ * @brief Reset a caller-owned value to the RESERVED tag: an entry with no
+ * value and no type yet.
+ *
+ * The state a store creates an entry in when the caller has no type to give it
+ * (see c_dcg_mapping_lgroup_get_create_slot). The slot is there to be written
+ * into, and nothing about it is decided until a value lands.
+ *
+ * @param var  Value to populate.
+ * @return DCG_OK, or DCG_ERR_INVALID_ARG when var is NULL.
+ */
+static inline int c_dcg_var_init_reserved(dcg_var_t* var) {
+    int ret = c_dcg_var_init(var);
+    if (ret != DCG_OK) return ret;
+    var->dtype = VAR_TYPE_RESERVED;
+    return DCG_OK;
+}
+
+/**
  * @brief Populate a caller-owned value with a bool.
  *
  * @param var    Value to populate.
@@ -1136,13 +1157,13 @@ static inline dcg_var_type c_dcg_var_ref_base(dcg_var_type dtype) {
 }
 
 /** Display names of the plain tags, indexed by the tag itself. */
-static const char* const  DCG_VAR_TYPE_NAMES[] = {"raw_ptr", "string", "bool", "double", "int", "offset", "time", "date", "datetime", "d_vector", "d_matrix"};
+static const char* const  DCG_VAR_TYPE_NAMES[] = {"raw_ptr", "string", "bool", "double", "int", "offset", "time", "date", "datetime", "d_vector", "d_matrix", "reserved"};
 
 /** Display names of the one-hop references, indexed by the tag referred to. */
-static const char* const  DCG_VAR_TYPE_REF_NAMES[] = {"raw_ptr_ref", "string_ref", "bool_ref", "double_ref", "int_ref", "offset_ref", "time_ref", "date_ref", "datetime_ref", "d_vector_ref", "d_matrix_ref"};
+static const char* const  DCG_VAR_TYPE_REF_NAMES[] = {"raw_ptr_ref", "string_ref", "bool_ref", "double_ref", "int_ref", "offset_ref", "time_ref", "date_ref", "datetime_ref", "d_vector_ref", "d_matrix_ref", "inferred"};
 
 /** Display names of the two-hop references, indexed by the tag referred to. */
-static const char* const  DCG_VAR_TYPE_REF_REF_NAMES[] = {"raw_ptr_ref_ref", "string_ref_ref", "bool_ref_ref", "double_ref_ref", "int_ref_ref", "offset_ref_ref", "time_ref_ref", "date_ref_ref", "datetime_ref_ref", "d_vector_ref_ref", "d_matrix_ref_ref"};
+static const char* const  DCG_VAR_TYPE_REF_REF_NAMES[] = {"raw_ptr_ref_ref", "string_ref_ref", "bool_ref_ref", "double_ref_ref", "int_ref_ref", "offset_ref_ref", "time_ref_ref", "date_ref_ref", "datetime_ref_ref", "d_vector_ref_ref", "d_matrix_ref_ref", "inferred_ref"};
 
 /**
  * @brief Stable display name of a value tag.
@@ -1210,9 +1231,10 @@ static inline bool c_dcg_var_is_container(const dcg_var_t* var) {
  * @brief Predicate: is the value absent (no payload of any type)?
  *
  * Absent is about the VALUE: a live reference whose slot holds NULL is absent,
- * like a NULL string or a vector with no buffer. A reference that points at
- * nothing is not absent, it is broken - the read refuses, and this predicate
- * refuses with it.
+ * like a NULL string or a vector with no buffer, and so is a RESERVED slot -
+ * an entry created before its value, which holds nothing until one arrives. A
+ * reference that points at nothing is not absent, it is broken - the read
+ * refuses, and this predicate refuses with it.
  *
  * @param var  Value to inspect (NULL-safe).
  * @return true for a NULL value or a NULL payload.
@@ -1223,6 +1245,8 @@ static inline bool c_dcg_var_is_null(const dcg_var_t* var) {
     /* The tag behind any reference, or the tag itself: the readers follow the
      * reference, so asking them answers for the value at the end of it. */
     switch (c_dcg_var_ref_base(var->dtype)) {
+        case VAR_TYPE_RESERVED: /* nothing has landed in it, so it holds nothing */
+            return true;
         case VAR_TYPE_RAW_PTR:
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:
@@ -1728,6 +1752,8 @@ static inline int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_t
      * themselves - so nothing is ever resolved into a value of its own. */
     dcg_var_type base = c_dcg_var_ref_base(var->dtype);
 
+    if (base == VAR_TYPE_RESERVED) return DCG_ERR_TYPE;  // nothing is there to convert yet
+
     if (var->dtype == dtype) {
         converted = *var;  // Same tag: a copy of the value, a reference included.
     }
@@ -1791,6 +1817,9 @@ static inline int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) 
      * reference, so the value at the end of it is what gets rendered. */
     int n = 0;
     switch (c_dcg_var_ref_base(var->dtype)) {
+        case VAR_TYPE_RESERVED:
+            n = snprintf(out, cap, "(reserved)");
+            break;
         case VAR_TYPE_BOOL:
             n = snprintf(out, cap, "%s", c_dcg_var_as_bool(var) ? "true" : "false");
             break;

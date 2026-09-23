@@ -146,6 +146,30 @@ typedef struct dcg_node_label {
 } dcg_node_label;
 
 /**
+ * @brief Compile-time switch: teach each node its own evaluation as it is built.
+ *
+ * A node's built-in value comes from its type, and by default the evaluator
+ * finds it by dispatching on that type - one switch per evaluated node, every
+ * time it is evaluated (see c_dcg_node_eval_default in c_eval.h). Define this to
+ * 1 and each family INSTALLS its own rule as the node's eval hook as the node is
+ * built, so the evaluator calls a function pointer instead: the dispatch happens
+ * once, at bake time, and a hot walk pays only the call.
+ *
+ * It costs one pointer per node (the ctx's type_eval_fn, which a caller's hook
+ * still overrides) and a pointer test per evaluation; what it saves is the
+ * dispatch. Which way that nets out is what tests/bake/bench_c_eval.c measures -
+ * build it both ways and compare.
+ *
+ * This is a BAKE-TIME switch and not a run-time one on purpose: a node that
+ * installs a hook has it installed for good, so the layer it belongs to has to
+ * be built the same way everywhere (a graph built by a TU with the switch off
+ * and evaluated by one with it on still works - it just dispatches).
+ */
+#ifndef DCG_EVAL_DIRECT_HOOKS
+#define DCG_EVAL_DIRECT_HOOKS 0
+#endif
+
+/**
  * @brief Flags describing the state of a running evaluation.
  */
 typedef enum dcg_eval_flag {
@@ -183,14 +207,30 @@ typedef int (*dcg_node_hook_fn)(dcg_node* node, void* user_data);
  * Each node carries its own context: the three eval hooks, the opaque data
  * they share, and the state a running evaluation needs. The evaluator reaches
  * all of it through the node, so a hook needs no context parameter.
+ *
+ * `type_eval_fn` is not one of the three: it is the node's own evaluation, the
+ * rule its type gives it, installed as the node is built when the build asks for
+ * it (DCG_EVAL_DIRECT_HOOKS). A caller's `eval_fn` OVERRIDES it, which is why the
+ * two are separate slots rather than one: the layer's rule and somebody's
+ * callback are different things, and only the second belongs to an installer.
+ *
+ * `stage` records how far the last evaluation of THIS node got, as the bits of
+ * a dcg_eval_stage - the masked progression the protocol walks. `err_code` is
+ * what that evaluation failed with, and `eval_seq_id` is the id of the run
+ * that wrote the value, so a node can be asked which run it last took part in.
+ * All three are written by the protocol and left alone by a dry run.
  */
 typedef struct dcg_node_eval_ctx {
     dcg_node_hook_fn pre_eval_fn;   // Runs before the node is evaluated.
     dcg_node_hook_fn eval_fn;       // Produces the node's value, into node->out.
     dcg_node_hook_fn post_eval_fn;  // Runs after the value is produced.
+    dcg_node_hook_fn type_eval_fn;  // The rule the node's TYPE gives it - see DCG_EVAL_DIRECT_HOOKS.
     void*            user_data;     // Opaque data shared by the three hooks.
     void*            run;           // Per-run state owned by the evaluator.
     uint64_t         flags;         // dcg_eval_flag bits.
+    dcg_ret_code     err_code;      // Outcome of the node's last evaluation.
+    uint32_t         stage;         // dcg_eval_stage bits completed by it.
+    uint64_t         eval_seq_id;   // The run whose value the node holds.
     size_t           depth;         // Depth of this node at its last visit.
     size_t           visits;        // How many times the node was evaluated.
 } dcg_node_eval_ctx;
@@ -349,6 +389,10 @@ static inline void                           c_dcg_node_free(dcg_node* node);
 // Node metadata
 static inline int                            c_dcg_node_set_repr(dcg_node* node, const char* repr);
 static inline int                            c_dcg_node_set_string(dcg_node* node, const char* value);
+
+// Eval hooks
+static inline int                            c_dcg_node_register_eval_hook(dcg_node* node, dcg_node_hook_type hook, dcg_node_hook_fn fn, void* user_data);
+static inline void                           c_dcg_node_unregister_eval_hooks(dcg_node* node);
 
 // Mutation callbacks
 static inline int                            c_dcg_node_register_callback(dcg_node* node, dcg_node_callback_fn fn, void* user_data, uintptr_t* out_id);
@@ -1071,13 +1115,94 @@ static inline int c_dcg_node_set_string(dcg_node* node, const char* value) {
 // ========== Eval Hooks ==========
 
 /**
- * @brief Register (or replace) one eval hook of a node.
+ * @brief Register one eval hook of a node.
  *
- * The three hooks of a node share one `user_data`: it is written on every
- * registration, so the last registration's pointer is the one all three
- * receive.
+ * The three hooks of a node share ONE `user_data` - it is a property of the
+ * node, not of the hook - so the first registration sets it and the rest have
+ * to agree: registering with a different pointer is refused rather than quietly
+ * splitting the three hooks of one node across two owners.
+ *
+ * A hook is never replaced by accident either. A slot that already holds one is
+ * refused with DCG_ERR_BUSY, and a node that wants a different set gives the
+ * three back first (c_dcg_node_unregister_eval_hooks) and registers again. A
+ * hook is a function POINTER, and NULL is a hook that is not there - which is
+ * how the evaluator decides whether to call one at all.
  *
  * @param node       Node to attach the hook to.
+ * @param hook       Which of the three (a dcg_node_hook_type).
+ * @param fn         The hook to install (never NULL - a hook is given back, not
+ *                   blanked, which is what unregistering is for).
+ * @param user_data  Opaque data the node's three hooks share.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG (a NULL node or hook, a hook type that is
+ *         not one of the three - reported, since a switch that says nothing
+ *         would leave a caller believing its hook was installed - or a
+ *         `user_data` that disagrees with the node's), or DCG_ERR_BUSY (a hook
+ *         is already installed there).
+ */
+static inline int c_dcg_node_register_eval_hook(dcg_node* node, dcg_node_hook_type hook, dcg_node_hook_fn fn, void* user_data) {
+    if (!node || !fn) return DCG_ERR_INVALID_ARG;
+
+    dcg_node_hook_fn* slot = NULL;
+    switch (hook) {
+        case DCG_HOOK_PRE_EVAL:
+            slot = &node->eval_ctx.pre_eval_fn;
+            break;
+        case DCG_HOOK_EVAL:
+            slot = &node->eval_ctx.eval_fn;
+            break;
+        case DCG_HOOK_POST_EVAL:
+            slot = &node->eval_ctx.post_eval_fn;
+            break;
+        default:
+            (void) fprintf(stderr, "c_dcg_node_register_eval_hook: no hook %d on node type %s (0x%04x) at %p - nothing registered\n", (int) hook, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+            return DCG_ERR_INVALID_ARG;
+    }
+
+    if (*slot) return DCG_ERR_BUSY; /* one hook, one install - give the set back to change it */
+
+    /* An empty node has no data yet, so this registration is what sets it; one
+     * that already carries a hook has to agree with what is there. The rule the
+     * node's type gives it is not one of the three and holds no data, so it
+     * neither blocks a registration nor disagrees with one. */
+    bool empty = node->eval_ctx.pre_eval_fn == NULL && node->eval_ctx.eval_fn == NULL && node->eval_ctx.post_eval_fn == NULL;
+    if (!empty && node->eval_ctx.user_data != user_data) return DCG_ERR_INVALID_ARG;
+
+    *slot                    = fn;
+    node->eval_ctx.user_data = user_data;
+    return DCG_OK;
+}
+
+/**
+ * @brief Give a node's eval hooks back, and the data they shared.
+ *
+ * The three go together and are released together, because they are one
+ * protocol: a node left carrying a pre hook and no eval hook has lost half of
+ * what it was told to do, and a node left carrying a hook it cannot describe is
+ * worse than one with none. What it is for is changing them - registering is
+ * only allowed where nothing is installed.
+ *
+ * @param node  Node to clear (NULL-safe).
+ */
+static inline void c_dcg_node_unregister_eval_hooks(dcg_node* node) {
+    if (!node) return;
+
+    node->eval_ctx.pre_eval_fn  = NULL;
+    node->eval_ctx.eval_fn      = NULL;
+    node->eval_ctx.post_eval_fn = NULL;
+    node->eval_ctx.user_data    = NULL; /* the type's own rule is the node's, not an installer's: it stays */
+}
+
+// ========== Mutation Callbacks ==========
+
+/**
+ * @brief Register a mutation observer on a node.
+ *
+ * Observers are a LIST, not a slot: any number of them can watch one node, and
+ * each is handed back its own id to unregister with. Unlike an eval hook, a
+ * mutation callback cannot fail and reports nothing - it is fire-and-forget.
+ *
+ * @param node       Node to observe.
+ * @param fn         Callback to invoke on every mutation.
  * @param user_data  Opaque data handed back to the callback.
  * @param out_id     Receives the id for unregistration (may be NULL).
  * @return DCG_OK, or DCG_ERR_INVALID_ARG / DCG_ERR_OOM.

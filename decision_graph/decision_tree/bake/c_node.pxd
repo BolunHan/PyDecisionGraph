@@ -246,7 +246,6 @@ cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
         dcg_var_t*   eval_val
         size_t       capacity
         size_t       n_nodes
-        size_t       dropped
         dcg_ret_code code
         dcg_node*    leaf
         dcg_node*    failed

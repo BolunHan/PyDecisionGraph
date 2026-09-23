@@ -71,6 +71,18 @@ typedef struct dcg_constant_node {
  * group the entry belongs to, and is NOT owned - a group serves any number of
  * variables, so it outlives them all and is the caller's to release.
  *
+ * How the entry is found is the node's OUT slot, and it changes once: a read a
+ * store built is born with the entry's OFFSET in it - `VAR_TYPE_INFERRED`, so
+ * nothing reads it as a value - and its first evaluation replaces that offset
+ * with a reference to the entry itself. An offset rather than a pointer because
+ * a store's `slots` block grows, and growing it moves every entry in it: the
+ * index survives the move, and the evaluation that spends it runs before the
+ * reference it leaves behind can be dangled (see
+ * c_dcg_node_mapping_var_node_eval_hook).
+ *
+ * A variable that reads no store - one bound by hand to another node's slot -
+ * carries no offset at all: its slot is the reference, from the bind on.
+ *
  * The pair is what the capi's AttrExpression carries: the group gives the
  * store, the key gives the entry in it.
  *
@@ -129,6 +141,8 @@ static inline dcg_constant_node* c_dcg_node_new_const(dcg_node_type ntype, const
         c_ap_free_owned(node);
         return NULL;
     }
+#if DCG_EVAL_DIRECT_HOOKS
+#endif
     return node;
 }
 
@@ -303,17 +317,17 @@ static inline int c_dcg_node_const_set(dcg_constant_node* node, dcg_var_t value)
  * while a graph still holds one of its reads: the graph names a block that is
  * gone, and nothing in the node header can tell.
  *
- * @param repr       Display text to copy (may be NULL).
- * @param key        Entry name to copy; NULL leaves the node naming no entry.
- * @param key_len    Length of key. The copy takes exactly this many bytes, so a
- *                   key that came out of a store - where a name is a pointer
- *                   and a length, not a C string - needs no termination.
- * @param value      Value slot to reflect (must outlive the node; NULL leaves
- *                   the node reflecting nothing, for c_dcg_node_var_bind()).
- * @param group      Group the entry belongs to (not owned; may be NULL, and
- *                   owning the node when it is given).
- * @param allocator  Allocator for the block; NULL derives it from the group,
- *                   or falls back to the plain heap when there is none.
+ * @param repr        Display text to copy (may be NULL).
+ * @param key         Entry name to copy; NULL leaves the node naming no entry.
+ * @param key_len     Length of key. The copy takes exactly this many bytes, so a
+ *                    key that came out of a store - where a name is a pointer
+ *                    and a length, not a C string - needs no termination.
+ * @param value       Value slot to reflect (must outlive the node; NULL leaves
+ *                    the node reflecting nothing, for c_dcg_node_var_bind()).
+ * @param group       Group the entry belongs to (not owned; may be NULL, and
+ *                    owning the node when it is given).
+ * @param allocator   Allocator for the block; NULL derives it from the group,
+ *                    or falls back to the plain heap when there is none.
  * @return The node, or NULL on OOM.
  */
 static inline dcg_variable_node* c_dcg_node_new_var(const char* repr, const char* key, size_t key_len, dcg_var_t* value, dcg_logic_group* group, allocator_protocol* allocator) {

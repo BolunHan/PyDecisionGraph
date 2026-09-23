@@ -109,6 +109,16 @@ static inline dcg_action_node*         c_dcg_node_new_action(dcg_node_type actio
     node->auto_connect = false; /* nothing was connected: the callers that do say so */
     node->sig          = sig;
     node->action_data  = action_data;
+
+    /* An action's value is the node itself, and it is written HERE rather than
+     * produced by an evaluation: nothing about running an action changes what it
+     * stands for, so there is nothing for an evaluation to do - and a node whose
+     * slot is the node needs no rule and no dispatch (see c_dcg_node_eval_default).
+     * The Python door hands this slot back as the leaf the walk landed on. */
+    if (c_dcg_var_init_ptr(&node->base.out, &node->base) != DCG_OK) {
+        c_ap_free_owned(node);
+        return NULL;
+    }
     return node;
 }
 

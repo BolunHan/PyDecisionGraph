@@ -61,15 +61,39 @@
  * held when it was left. It is the bake counterpart of the capi's eval path,
  * which is what a caller reads back to see how a decision was reached.
  *
- * Both blocks are nested under the root that owns the path, so freeing the root
- * releases the record with it; the path starts empty and is grown by whatever
- * walks the graph.
+ * The record is DATA - two arrays and the outcome of the walk - and it owns
+ * neither the nodes it names nor the graph they belong to. Where its blocks come
+ * from is the caller's to decide, and the two ways are the two ways a record is
+ * used:
+ *
+ *   - a record of its own, from c_dcg_node_eval_path_new(): one block holding
+ *     the arrays, released with it;
+ *   - the record embedded in a root (dcg_root_node.eval_path), whose blocks are
+ *     nested under the root and released with it - which is why the root's own
+ *     walk appends through a variant of its own.
+ *
+ * The outcome of the walk is part of the record, not something a caller has to
+ * infer from the entries: `code` is what the walk ended with (DCG_OK when it
+ * reached a leaf), `leaf` the node it landed on, `failed` the node that reported
+ * the failure when there was one, and `seq_id` the run the record belongs to.
+ * `node` and `eval_val` are the entries themselves, `capacity` the room the pair
+ * of blocks has and `n_nodes` how much of it is used - and a record that needs
+ * more room takes it, so no walk is ever recorded in part (see
+ * c_dcg_eval_path_append).
+ *
+ * A snapshot is a SHALLOW copy of the slot as it stood: a payload the node owns
+ * is not copied, so the record borrows it - valid for as long as the node is not
+ * evaluated again, which is the whole of the run that wrote it.
  */
 typedef struct dcg_node_eval_path {
-    dcg_node** node;      // eval node
-    dcg_var_t* eval_val;  // eval node value snapshot
-    size_t     capacity;
-    size_t     n_nodes;
+    dcg_node**   node;      // eval node
+    dcg_var_t*   eval_val;  // eval node value snapshot
+    size_t       capacity;  // Entries the blocks have room for.
+    size_t       n_nodes;   // Entries in use.
+    dcg_ret_code code;      // Outcome of the walk: DCG_OK when it reached a leaf.
+    dcg_node*    leaf;      // The node the walk landed on; NULL when it did not land.
+    dcg_node*    failed;    // The node that reported the failure, when one did.
+    uint64_t     seq_id;    // The run this record belongs to.
 } dcg_node_eval_path;
 
 /**
@@ -157,10 +181,17 @@ static inline dcg_root_node*       c_dcg_node_new_root(const char* repr, allocat
     }
     (void) c_dcg_var_init_bool(&node->base.out, true);
 
+    /* The record starts with no room and no blocks: they are nested under this
+     * node the first time a walk records into it, and released with it - see
+     * c_dcg_root_node_eval_path_append in c_eval.h. */
     node->eval_path.node     = NULL;
     node->eval_path.eval_val = NULL;
     node->eval_path.capacity = 0;
     node->eval_path.n_nodes  = 0;
+    node->eval_path.code     = DCG_OK;
+    node->eval_path.leaf     = NULL;
+    node->eval_path.failed   = NULL;
+    node->eval_path.seq_id   = 0;
     return node;
 }
 
@@ -439,6 +470,9 @@ static inline int c_dcg_node_clear_children(dcg_node* node) {
  * flag, the uid, the eval hooks, the mutation callbacks and the
  * user_payload. This is what a builder calls to reuse a node block.
  *
+ * An action's slot is the one value the reset puts BACK, because it is not a
+ * result the node produced: it is what the node IS.
+ *
  * The CLEARED event is announced once: by the child drop when there were
  * children to drop, and by the reset itself when there were none.
  *
@@ -464,6 +498,11 @@ static inline int c_dcg_node_clean(dcg_node* node) {
         c_ap_free_owned((void*) node->out.value.as_string);
     }
     (void) c_dcg_var_init(&node->out);
+
+    /* An action's slot is the node itself, written when it was built rather than
+     * produced by any evaluation - so a clean that empties the slot has to put it
+     * back, or the node stops being its own value for good. */
+    if (c_dcg_node_type_is_action(node->ntype)) (void) c_dcg_var_init_ptr(&node->out, node);
 
     node->eval_ctx.run    = NULL;
     node->eval_ctx.flags  = DCG_EVAL_FLAG_NONE;

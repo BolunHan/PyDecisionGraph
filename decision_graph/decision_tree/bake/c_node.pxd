@@ -72,9 +72,13 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
         dcg_node_hook_fn pre_eval_fn
         dcg_node_hook_fn eval_fn
         dcg_node_hook_fn post_eval_fn
+        dcg_node_hook_fn type_eval_fn
         void* user_data
         void* run
         uint64_t flags
+        dcg_ret_code err_code
+        uint32_t stage
+        uint64_t eval_seq_id
         size_t depth
         size_t visits
 
@@ -166,6 +170,8 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_set_repr(dcg_node* node, const char* repr) noexcept nogil
     int c_dcg_node_set_string(dcg_node* node, const char* value) noexcept nogil
 
+    int c_dcg_node_register_eval_hook(dcg_node* node, dcg_node_hook_type hook, dcg_node_hook_fn fn, void* user_data) noexcept nogil
+    void c_dcg_node_unregister_eval_hooks(dcg_node* node) noexcept nogil
     int c_dcg_node_register_callback(dcg_node* node, dcg_node_callback_fn fn, void* user_data, uintptr_t* out_id) noexcept nogil
     int c_dcg_node_unregister_callback(dcg_node* node, uintptr_t callback_id) noexcept nogil
     void c_dcg_node_invoke_callbacks(dcg_node* node, dcg_node_event event, dcg_node* subject, uint64_t seq_id) noexcept nogil
@@ -235,6 +241,47 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
 cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
     void c_dcg_node_free_generic(dcg_node* node) noexcept nogil
 
+    ctypedef struct dcg_node_eval_path:
+        dcg_node**   node
+        dcg_var_t*   eval_val
+        size_t       capacity
+        size_t       n_nodes
+        size_t       dropped
+        dcg_ret_code code
+        dcg_node*    leaf
+        dcg_node*    failed
+        uint64_t     seq_id
+
+    ctypedef struct dcg_root_node:
+        dcg_node           base
+        dcg_node_eval_path eval_path
+        c_bool             inherit_contexts
+
+
+cdef extern from "decision_graph/decision_tree/bake/c_eval.h":
+    ctypedef enum dcg_eval_stage:
+        DCG_EVAL_STAGE_NONE
+        DCG_EVAL_STAGE_PRE_EVAL
+        DCG_EVAL_STAGE_EVAL
+        DCG_EVAL_STAGE_POST_EVAL
+        DCG_EVAL_STAGE_DONE
+
+    ctypedef struct dcg_eval_run:
+        uint64_t     seq_id
+        dcg_ret_code code
+        dcg_node*    failed
+        dcg_node*    leaf
+        size_t       visited
+        size_t       depth
+        c_bool       inplace
+
+    int c_dcg_node_eval(dcg_node* node, c_bool inplace) noexcept nogil
+    int c_dcg_node_eval_graph(dcg_node* node, dcg_node_eval_path* path) noexcept nogil
+    int c_dcg_root_node_eval(dcg_root_node* root) noexcept nogil
+
+    dcg_node_eval_path* c_dcg_node_eval_path_new(size_t capacity, allocator_protocol* allocator) noexcept nogil
+    void c_dcg_node_eval_path_free(dcg_node_eval_path* path) noexcept nogil
+
 
 cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":
     ctypedef struct dcg_logic_group_manager:
@@ -244,10 +291,17 @@ cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":
     int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
 
 
+cdef enum dcg_eval_override_flag:
+    DCG_EVAL_CDEF_OVERRIDE = 1 << 0  # The Cython hook (c_pre_eval, ...) is overridden.
+    DCG_EVAL_PY_OVERRIDE   = 1 << 3  # The Python hook (pre_eval, ...) is overridden.
+
+
 cdef class LogicNode:
     cdef dcg_node* header
     cdef bint owner
     cdef uintptr_t callback_id
+    cdef uint32_t eval_hook_flags
+    cdef object c_eval_exception
 
     cdef readonly LogicNode parent
     cdef readonly dict children
@@ -265,7 +319,29 @@ cdef class LogicNode:
     @staticmethod
     cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept
 
+    @staticmethod
+    cdef inline int c_pre_eval_callback_adaptor(dcg_node* node, void* user_data) noexcept
+
+    @staticmethod
+    cdef inline int c_eval_fn_callback_adaptor(dcg_node* node, void* user_data) noexcept
+
+    @staticmethod
+    cdef inline int c_post_eval_callback_adaptor(dcg_node* node, void* user_data) noexcept
+
     cdef inline void c_register_node(self)
+
+    cdef int c_pre_eval_fn(self)
+
+    cdef int c_eval_fn(self)
+
+    cdef int c_post_eval_fn(self)
+
+    cdef void c_bind_eval_callback(self)
+
+    @staticmethod
+    cdef str c_eval_stage_names(uint32_t stage)
+
+    cdef void c_check_eval_code(self, int ret_code, dcg_node* subject=?)
 
     cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition)
 
@@ -274,6 +350,8 @@ cdef class LogicNode:
     cdef void c_detach(self)
 
     cdef str c_render(self, int max_depth, bint show_labels, bint show_out, str style)
+
+    cdef void c_eval(self)
 
 
 cdef class PlaceholderNode(LogicNode):

@@ -27,6 +27,47 @@ class LogicNode:
     by the C layer on the way out. A node reached from C - a child the C layer
     grew, a node named by an address - is turned back into a wrapper by
     ``c_reconstruct``, which is the only place a node's class is decided.
+
+    **The evaluation protocol.** Evaluating a graph walks it from the top down,
+    one node at a time, and comes to rest on a single leaf: each node's value is
+    produced (from its type, or from a hook), the value selects which edge the
+    walk follows, and the node that had no edge to follow is where the walk
+    stops. A node off that path keeps the value it had.
+
+    A subclass may take part in that, at any of three points around the value:
+
+    - ``pre_eval_fn`` runs before the node's value is produced. A refusal here
+      stops the node where it stands.
+    - ``eval_fn`` produces the node's value, and is what a subclass overrides to
+      compute rather than to react. A subclass that overrides neither this nor
+      its Cython counterpart evaluates by the rule for its type.
+    - ``post_eval_fn`` runs after the value is produced, so it reacts to a value
+      that is already in the slot.
+
+    Each hook answers with the code the node ends with: return ``None`` to let
+    the evaluation continue, or a negative ``DCG_ERR_*`` code to refuse it. An
+    exception raised inside a hook is reported as that exception rather than as a
+    code - the hook's failure is the hook's to describe.
+
+    Hooks are installed **once, when the node is built**, and only for the hooks
+    a subclass has actually overridden: a node that overrides none carries no
+    hooks at all, so the evaluator has nothing to call. What that means is that a
+    hook cannot be added to a node that is already built, and that a wrapper
+    which does **not own** its node cannot carry one at all - the C node would
+    end up holding a pointer to a Python object nothing keeps alive. A read built
+    by a store is the store's, so it is the one kind of node that cannot hook.
+
+    The same three points exist one level down, as ``cdef`` hooks
+    (``c_pre_eval_fn``, ``c_eval_fn``, ``c_post_eval_fn``), which a subclass
+    written in Cython overrides to keep the hook on the C side of the call. Those
+    answer with a ``DCG_ERR_*`` code too, and a node whose class overrides both
+    runs the Cython one first.
+
+    A hook is an OVERRIDE of what the node would do anyway, and most types have
+    no work to do at all: a literal's value, a read's entry, an action's
+    self-reference and a root's truth are all settled when the node is BUILT, so
+    evaluating one is nothing. What an evaluation actually runs is an operator
+    node's rule - and a hook, where a subclass has one, is reached instead.
     """
 
     def __init__(self, *, repr: str | None = None, uid: Any | None = None, **kwargs: Any) -> None:
@@ -171,6 +212,71 @@ class LogicNode:
         """
         ...
 
+    def pre_eval_fn(self) -> None:
+        """Run before this node's value is produced.
+
+        Override to set a node up, or to refuse it: returning a negative
+        ``DCG_ERR_*`` code stops the node where it stands, and so does raising.
+        The default does nothing.
+
+        Returns:
+            None, so the evaluation goes on to produce the value.
+        """
+        ...
+
+    def eval_fn(self) -> None:
+        """Produce this node's value.
+
+        Override to compute the value rather than to take it from the node's
+        type. A hook written in Python watches the value rather than setting it -
+        the slot is the C layer's to write, which is what the ``c_eval_fn`` hook
+        next to this one is for. The default does nothing, which lets the
+        built-in rule for the node's type produce the value.
+
+        Returns:
+            None, so the evaluation goes on to the post stage.
+        """
+        ...
+
+    def post_eval_fn(self) -> None:
+        """Run after this node's value has been produced.
+
+        Override to react to a value that is already in the slot. The default
+        does nothing.
+
+        Returns:
+            None, so the evaluation goes on to select the next edge.
+        """
+        ...
+
+    def eval(self) -> Any:
+        """Evaluate this node - and only this node - for the value it holds.
+
+        The node's three stages run and the slot keeps what they produced, but
+        nothing else is written and no child is reached: the node's stage bits,
+        error code, run id, depth and visit count are left exactly as they were,
+        so a node can be asked between two walks without disturbing them.
+
+        Whether the value makes sense on its own is the node's own business. A
+        literal answers with itself, an action with the node itself (an action
+        *is* what it decides), a read with what its store entry holds now, and an
+        expression with its operands evaluated and applied - which is why a read
+        of an entry nothing has landed in reports ``UNBOUND`` rather than a
+        value, and an expression over one of those stops at the read.
+
+        Returns:
+            The value the node came to hold, as a Python object.
+
+        Raises:
+            RuntimeError: When the node cannot produce a value - an unevaluable
+                type, an operand outside its operator's domain, a read of an
+                entry with no value in it. The message names the node that
+                refused, the code it refused with, the stages it got through and
+                the run it was part of.
+            Exception: Whatever a hook raised, re-raised as it was.
+        """
+        ...
+
     @property
     def repr(self) -> str:
         """The node's display text."""
@@ -215,6 +321,18 @@ class LogicNode:
         place to take a view from), an evaluated node holds what it last produced,
         and a node that has not run holds nothing. The view reads the slot live
         and keeps it alive only through this node.
+        """
+        ...
+
+    @property
+    def eval_hooks(self) -> tuple[str, ...]:
+        """The eval hooks this node carries, by the name of the method that runs.
+
+        What is installed is decided once, when the node is built: the hooks a
+        subclass overrode, and only those. The names tell the two levels apart -
+        ``'pre_eval_fn'`` is the Python hook and ``'c_pre_eval_fn'`` its
+        Cython counterpart - and an empty tuple means the node has no hooks at all, so
+        the built-in rule for its type is what produces its value.
         """
         ...
 

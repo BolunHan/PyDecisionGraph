@@ -1599,6 +1599,14 @@ static inline dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator
     if (!node) return NULL;
 
     node->autogen = true;
+
+    /* A stand-in is an action like any other, so it stands for itself from the
+     * moment it exists - which is what a branch built over it reads before the
+     * build has put anything there (see c_dcg_node_new_action). */
+    if (c_dcg_var_init_ptr(&node->out, node) != DCG_OK) {
+        c_dcg_node_free(node);
+        return NULL;
+    }
     return node;
 }
 

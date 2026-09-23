@@ -1,11 +1,9 @@
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_AsUTF8AndSize, PyUnicode_FromStringAndSize
-from libc.string cimport strlen
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_const cimport c_dcg_node_new_var
 from .c_logic_group cimport LGM
 from .c_node cimport DCG_NODE_STRING_MAXLEN
-from .c_var cimport c_dcg_var_pypack, c_dcg_var_pyunpack, dcg_ret_code
+from .c_var cimport c_dcg_var_pypack, c_dcg_var_pyunpack, dcg_ret_code, dcg_var_type
 
 
 cdef class LogicMapping(LogicGroup):
@@ -100,18 +98,13 @@ cdef class AttrExpression(VariableNode):
 
         mapping = <LogicMapping> active
 
-        cdef const char* key   = PyUnicode_AsUTF8AndSize(name, &key_len)
-        cdef dcg_var_t*  slot  = mapping.c_get_create_slot(key, key_len, NULL)  # reserved when the key is new: a read names no type
-        cdef str         label = f'{mapping.name}.{name}'
+        cdef const char* key = PyUnicode_AsUTF8AndSize(name, &key_len)
 
-        cdef dcg_variable_node* node = c_dcg_node_new_var(
-            PyUnicode_AsUTF8(label),
-            key,
-            key_len,
-            slot,
-            mapping.header,
-            DCG_DEFAULT_ALLOCATOR,
-        )
+        # A read names its entry, so the entry is created when the name is new -
+        # reserved, since the read names no type of its own.
+        mapping.c_get_create_slot(key, key_len, NULL)
+
+        cdef dcg_variable_node* node = c_dcg_mapping_lgroup_get_node(<dcg_mapping_lgroup*> mapping.header, key, key_len, DCG_DEFAULT_ALLOCATOR)
         if not node:
             raise MemoryError(f'Failed to allocate the {self.__class__.__name__}.')
 
@@ -134,5 +127,13 @@ cdef class AttrExpression(VariableNode):
             if not node.key:
                 return None
 
-            cdef dcg_var_t* slot = (<LogicMapping> self.logic_group).c_get_slot(node.key, strlen(node.key))
+            cdef dcg_mapping_lgroup* lgroup = <dcg_mapping_lgroup*> (<LogicMapping> self.logic_group).header
+            cdef dcg_var_t* slot = &node.base.out
+
+            # The read knows WHERE its entry is: until it has been evaluated that
+            # is an offset in its own slot - no name lookup, and nothing that a
+            # growth of the store can invalidate - and from then on the slot IS
+            # the entry, read through.
+            if slot.dtype == dcg_var_type.VAR_TYPE_INFERRED or slot.dtype == dcg_var_type.VAR_TYPE_OFFSET:
+                return c_dcg_var_pyunpack(&lgroup.slots[slot.value.as_offset])
             return c_dcg_var_pyunpack(slot)

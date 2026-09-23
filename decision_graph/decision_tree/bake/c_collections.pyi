@@ -9,8 +9,8 @@ graph needs.
 
 from typing import Any
 
-from .c_logic_group import LogicGroup
 from .c_const import VariableNode
+from .c_logic_group import LogicGroup
 
 
 class LogicMapping(LogicGroup):
@@ -22,6 +22,9 @@ class LogicMapping(LogicGroup):
     filled in later. An entry's type is decided when a value lands in it, which
     is why a read of one is answered by the store rather than by the read's own
     binding.
+
+    A store's shape is its own to close: ``frozen`` refuses a new entry from then
+    on, and leaves what the store already holds - values, reads, writes - working.
     """
 
     def __init__(self, *, name: str | None = None, capacity: int = 0, parent: LogicGroup | None = None, **kwargs: Any) -> None:
@@ -109,8 +112,13 @@ class AttrExpression(VariableNode):
 
     A variable node that names the group it reads, which is the whole of the
     difference between this and a bare variable: an entry is what it reads, and
-    the store is what answers - so a value (and a type) that arrives after the
-    read was built is what the read reports.
+    the store is what answers.
+
+    A read begins holding WHERE its entry is - the entry's offset in the store,
+    which no growth of the store can invalidate - and is resolved to the entry
+    itself by its FIRST evaluation, which is where its type comes from. From then
+    on the read holds that entry, and the values it reports are the entry's live
+    ones for as long as they keep the type it was resolved to.
     """
 
     def __init__(self, name: str) -> None:
@@ -122,13 +130,18 @@ class AttrExpression(VariableNode):
         Raises:
             RuntimeError: When no group is active.
             TypeError: When the active group is not a store.
-            KeyError: When the store is frozen and the entry is new.
+            KeyError: When the store is sealed and the entry is new.
         """
         ...
 
     @property
     def value(self) -> Any:
-        """The entry's value, read from the store of the moment."""
+        """The entry's value, read from the store of the moment.
+
+        The value is read live either way: through the entry's offset while the
+        read has not been evaluated, and through the entry itself once it has.
+        None when the entry holds nothing yet.
+        """
         ...
 
     @property

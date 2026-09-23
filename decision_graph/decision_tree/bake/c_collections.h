@@ -88,12 +88,66 @@ static inline int                 c_dcg_mapping_lgroup_set_offset(dcg_mapping_lg
 static inline int                 c_dcg_mapping_lgroup_set_bool(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, bool value);
 
 // Getter
-static inline dcg_var_t*          c_dcg_mapping_lgroup_get_var(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len);
-static inline dcg_variable_node*  c_dcg_mapping_lgroup_get_node(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len);
+static inline int                 c_dcg_mapping_lgroup_get_var_idx(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, size_t* out_index);
+static inline dcg_variable_node*  c_dcg_mapping_lgroup_get_node(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, allocator_protocol* allocator);
+
+// Evaluation - what a read of an entry evaluates to (see c_eval.h)
+static inline int                 c_dcg_node_mapping_var_node_eval_hook(dcg_node* header, void* user_data);
 
 // Internal helpers (exposed for reuse and testing - not part of the stable surface)
 static inline dcg_var_t*          c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len);
 static inline int                 c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, const dcg_var_type* var_type, dcg_var_t** out);
+
+// ========== Evaluation ==========
+
+/**
+ * @brief What a read of an entry evaluates to: the store's answer, once.
+ *
+ * The slot says which of the two states the read is in, and the store's promise
+ * is not part of it - a read of a frozen store resolves exactly like a read of a
+ * free one, and for the same reason: an entry either holds a value yet or it does
+ * not, and only the entry can say which:
+ *
+ *   - VAR_TYPE_INFERRED (or VAR_TYPE_OFFSET, the same state in the other tag):
+ *     unresolved. The slot holds the entry's offset, which the store handed out
+ *     and never retires - it has no pop - so the entry is that many slots into the
+ *     block. This is where the offset is spent, and the first evaluation is the
+ *     last one that finds this state;
+ *   - anything else: the reference the read resolved to. It is the fast path, and
+ *     it is where every evaluation after the first lands.
+ *
+ * Called for a read the store BUILT. A variable built by hand, or one reading a
+ * group that is not a mapping, carries none of these states and is answered by
+ * the dispatch instead (see c_dcg_node_eval_default).
+ *
+ * @param header     The read to evaluate.
+ * @param user_data  Unused: the hooks share one signature.
+ * @return DCG_OK when the read is answered, DCG_ERR_UNBOUND when its entry holds
+ *         nothing yet, or a DCG_ERR_* from the mint.
+ */
+static inline int                 c_dcg_node_mapping_var_node_eval_hook(dcg_node* header, void* user_data) {
+    (void) user_data;
+
+    dcg_var_t*   slot = &header->out;
+
+    /* Unresolved, or already the reference the resolution left: the fast path is
+     * every evaluation after the first, and it is one tag test wide. */
+    dcg_var_type dtype = slot->dtype;
+    if (dtype != VAR_TYPE_INFERRED && dtype != VAR_TYPE_OFFSET) return DCG_OK;
+
+    /* The offset is the payload, read as the member it was written as and not
+     * through c_dcg_var_as_offset: that reader follows the base tag, and an
+     * INFERRED base is RESERVED, which no reader resolves - the tag that makes
+     * the slot inert is the same one that keeps the offset out of reach of it. */
+    dcg_mapping_lgroup* mapping = (dcg_mapping_lgroup*) ((dcg_variable_node*) header)->logic_group;
+    dcg_var_t*          entry   = &mapping->slots[slot->value.as_offset];
+    if (entry->dtype == VAR_TYPE_RESERVED) return DCG_ERR_UNBOUND; /* the entry holds nothing yet */
+
+    /* The resolution, and it happens once: the offset becomes a reference to the
+     * entry it named - the reference every later evaluation takes the fast path
+     * on, until the store is written another value into that entry. */
+    return c_dcg_var_init_ref(slot, entry);
+}
 
 // ========== Lifecycle Methods ==========
 
@@ -178,15 +232,40 @@ static inline void c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup) {
  * @param key_len  Length of key.
  * @return The live slot, or NULL.
  */
-static inline dcg_var_t* c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) {
-    if (!lgroup || !key) return NULL;
+/**
+ * @brief Find the entry a key names, as the INDEX of its slot in the store.
+ *
+ * The index, not a pointer to the slot, and the difference is the whole reason
+ * this exists: `slots` is a block that GROWS, and growing it moves every entry
+ * in it. A pointer taken today is wrong the moment the store takes one more
+ * entry; an index is an offset into whatever block the store has now, so it
+ * outlives the growth - which is what lets a read built over an entry keep
+ * reading it after the store has grown around it.
+ *
+ * @param lgroup      Group to read (NULL-safe).
+ * @param key         Entry name.
+ * @param key_len     Length of key.
+ * @param out_index   Receives the index of the entry's slot.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, or DCG_ERR_NOT_FOUND (no such entry).
+ */
+static inline int c_dcg_mapping_lgroup_get_var_idx(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, size_t* out_index) {
+    if (out_index) *out_index = 0;
+    if (!lgroup || !key || !out_index) return DCG_ERR_INVALID_ARG;
 
     void* stored = NULL;
-    if (c_bytemap_get(&lgroup->idx_mapping, key, key_len, &stored) != BYTEMAP_OK) return NULL;
+    if (c_bytemap_get(&lgroup->idx_mapping, key, key_len, &stored) != BYTEMAP_OK) return DCG_ERR_NOT_FOUND;
 
     size_t index = (size_t) (uintptr_t) stored;
-    if (index >= lgroup->n_slots) return NULL;
-    return &lgroup->slots[index];
+    if (index >= lgroup->n_slots) return DCG_ERR_NOT_FOUND;
+
+    *out_index = index;
+    return DCG_OK;
+}
+
+static inline dcg_var_t* c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) {
+    size_t index = 0;
+    if (c_dcg_mapping_lgroup_get_var_idx(lgroup, key, key_len, &index) != DCG_OK) return NULL;
+    return (dcg_var_t*) &lgroup->slots[index]; /* the index came out of the table, so the block holds it */
 }
 
 /**
@@ -225,6 +304,8 @@ static inline dcg_var_t* c_dcg_mapping_lgroup_get_slot(const dcg_mapping_lgroup*
  * @param var_type  Type the caller wants a NEW entry to have (NULL, RESERVED and
  *                  INFERRED all mean "no type named"). Never written to.
  * @param out       Receives the slot: the live slot on DCG_OK, NULL on any failure.
+ *                  WHERE it is, the caller has: the block and the slot are both in
+ *                  front of it, and a subtraction is the index.
  * @return DCG_OK; DCG_ERR_INVALID_ARG for a NULL argument; DCG_ERR_BUSY for a new
  *         key in a frozen group; DCG_ERR_OOM; DCG_ERR_RANGE for an index this
  *         mapping never handed out.
@@ -441,28 +522,27 @@ static inline int c_dcg_mapping_lgroup_set_bool(dcg_mapping_lgroup* lgroup, cons
 // ========== Public APIs - Getters ==========
 
 /**
- * @brief The value slot an entry occupies, or NULL when the key is not held.
- *
- * This is the live slot, not a copy: it is what a caller refers to (see
- * c_dcg_var_init_ref) and what a variable node is built over. It stays valid
- * for as long as the key is held - an entry that is overwritten keeps its slot,
- * and only an entry that is removed retires it.
- *
- * @param lgroup   Group to read (NULL-safe).
- * @param key      Entry name.
- * @param key_len  Length of key.
- * @return The slot, or NULL.
- */
-static inline dcg_var_t* c_dcg_mapping_lgroup_get_var(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) {
-    return c_dcg_mapping_lgroup_get_slot(lgroup, key, key_len);
-}
-
-/**
  * @brief A variable node reading an entry, or NULL when the key is not held.
  *
  * The node is allocated for the caller, which frees it with
- * c_dcg_node_free_var(); its `logic_group` records this group and its `key`
- * the entry, so evaluating the graph reads the entry of the moment.
+ * c_dcg_node_free_var(); its `logic_group` records this group and its `key` the
+ * name - and WHERE the entry is, it names in its own out slot.
+ *
+ * What the node is BORN with there is the same for every store: the entry's
+ * OFFSET, tagged VAR_TYPE_INFERRED - "the entry's type, whatever it is when you
+ * read me". What the read is resolved TO is not decided here and not by the
+ * store's `frozen`: it is decided by the entry, the first time the read is
+ * evaluated (see c_dcg_node_mapping_var_node_eval_hook). An entry a store holds
+ * nothing in, and an entry written after the read was built, are the same
+ * question with the same answer - and holding the read at a pointer into the
+ * block would answer a different one, because `slots` moves when the store
+ * grows, and a frozen store is a store that stops growing, not a store whose
+ * reads are already answered.
+ *
+ * From that resolution on, the slot is a reference INTO the store's block, so
+ * that block has to stay where it is. A store is not grown under a graph that
+ * reads it - the bake pass is what will hold it to that, and `frozen` is what a
+ * caller holds it to now.
  *
  * The repr is the attribute path the capi gives an AttrExpression -
  * `group.key` - so a rendering names the entry the way the build did.
@@ -473,12 +553,13 @@ static inline dcg_var_t* c_dcg_mapping_lgroup_get_var(const dcg_mapping_lgroup* 
  * one out from a group the caller promised not to change would be a promise
  * this call cannot keep on someone else's behalf.
  *
- * @param lgroup   Group to read (NULL-safe).
- * @param key      Entry name.
- * @param key_len  Length of key.
+ * @param lgroup     Group to read (NULL-safe).
+ * @param key        Entry name.
+ * @param key_len    Length of key.
+ * @param allocator  Allocator for the node; NULL derives it from the group.
  * @return The variable node, or NULL when the key is missing / on OOM.
  */
-static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len) {
+static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, allocator_protocol* allocator) {
     dcg_var_t* slot = c_dcg_mapping_lgroup_get_slot(lgroup, key, key_len);
     if (!slot) return NULL;
 
@@ -486,7 +567,24 @@ static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgrou
     if (lgroup->base.name) (void) snprintf(repr, sizeof(repr), "%s.%.*s", lgroup->base.name, (int) key_len, key);
     else (void) snprintf(repr, sizeof(repr), "%.*s", (int) key_len, key);
 
-    return c_dcg_node_new_var(repr, key, key_len, slot, &lgroup->base, NULL); /* the group allocates its own reads */
+    dcg_variable_node* node = c_dcg_node_new_var(repr, key, key_len, NULL, &lgroup->base, allocator);
+    if (!node) return NULL;
+
+    /* The read's beginning, and the same one for every store: where the entry is,
+     * and no type of its own. The offset is the payload, written as the member
+     * the rule reads it from. */
+    node->base.out.dtype           = VAR_TYPE_INFERRED;
+    node->base.out.value.as_offset = (ssize_t) (slot - lgroup->slots);
+
+#if DCG_EVAL_DIRECT_HOOKS
+    /* A read made BY a store carries the store's own rule: what the entry holds
+     * now IS what the node reads, and the store is what knows it. A variable node
+     * built by hand - bound to a slot, with no store to look anything up in -
+     * carries no hook and is evaluated by the dispatch instead (see
+     * c_dcg_node_eval_default). */
+    node->base.eval_ctx.type_eval_fn = c_dcg_node_mapping_var_node_eval_hook;
+#endif
+    return node;
 }
 
 #endif  // C_DCG_BAKE_COLLECTIONS_H

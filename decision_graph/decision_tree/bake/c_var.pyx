@@ -1,6 +1,54 @@
+import enum
+
 from cpython.object cimport PyObject
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString
 from libc.stdint cimport uintptr_t
+
+
+class VarType(enum.IntEnum):
+    raw_ptr = VAR_TYPE_RAW_PTR
+    string = VAR_TYPE_STRING
+    bool = VAR_TYPE_BOOL
+    double = VAR_TYPE_DOUBLE
+    int = VAR_TYPE_INT
+    offset = VAR_TYPE_OFFSET
+    time = VAR_TYPE_TIME
+    date = VAR_TYPE_DATE
+    datetime = VAR_TYPE_DATETIME
+    d_vector = VAR_TYPE_D_VECTOR
+    d_matrix = VAR_TYPE_D_MATRIX
+    reserved = VAR_TYPE_RESERVED
+
+    raw_ptr_ref = VAR_TYPE_RAW_PTR_REF
+    string_ref = VAR_TYPE_STRING_REF
+    bool_ref = VAR_TYPE_BOOL_REF
+    double_ref = VAR_TYPE_DOUBLE_REF
+    int_ref = VAR_TYPE_INT_REF
+    offset_ref = VAR_TYPE_OFFSET_REF
+    time_ref = VAR_TYPE_TIME_REF
+    date_ref = VAR_TYPE_DATE_REF
+    datetime_ref = VAR_TYPE_DATETIME_REF
+    d_vector_ref = VAR_TYPE_D_VECTOR_REF
+    d_matrix_ref = VAR_TYPE_D_MATRIX_REF
+    inferred = VAR_TYPE_INFERRED
+
+    raw_ptr_ref_ref = VAR_TYPE_RAW_PTR_REF_REF
+    string_ref_ref = VAR_TYPE_STRING_REF_REF
+    bool_ref_ref = VAR_TYPE_BOOL_REF_REF
+    double_ref_ref = VAR_TYPE_DOUBLE_REF_REF
+    int_ref_ref = VAR_TYPE_INT_REF_REF
+    offset_ref_ref = VAR_TYPE_OFFSET_REF_REF
+    time_ref_ref = VAR_TYPE_TIME_REF_REF
+    date_ref_ref = VAR_TYPE_DATE_REF_REF
+    datetime_ref_ref = VAR_TYPE_DATETIME_REF_REF
+    d_vector_ref_ref = VAR_TYPE_D_VECTOR_REF_REF
+    d_matrix_ref_ref = VAR_TYPE_D_MATRIX_REF_REF
+
+
+class VarNumeric(enum.IntEnum):
+    none = VAR_NUMERIC_NONE
+    int = VAR_NUMERIC_INT
+    double = VAR_NUMERIC_DOUBLE
 
 
 cdef void c_dcg_var_pypack(dcg_var_t* out, object value) except *:
@@ -78,7 +126,7 @@ cdef class VarView:
         def __get__(self):
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-            return <int> self.header.dtype
+            return VarType(self.header.dtype)
 
     property type_name:
         def __get__(self):
@@ -108,7 +156,13 @@ cdef class VarView:
         def __get__(self):
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-            return <int> c_dcg_var_ref_base(self.header.dtype)
+            return VarType(c_dcg_var_ref_base(self.header.dtype))
+
+    property numeric:
+        def __get__(self):
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            return VarNumeric(c_dcg_var_numeric_of(self.header))
 
     property value:
         def __get__(self):

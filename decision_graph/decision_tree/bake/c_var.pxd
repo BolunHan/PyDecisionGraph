@@ -31,6 +31,11 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         DCG_ERR_MATH
         DCG_ERR_UNBOUND
 
+    ctypedef enum dcg_var_numeric:
+        VAR_NUMERIC_NONE
+        VAR_NUMERIC_INT
+        VAR_NUMERIC_DOUBLE
+
     ctypedef enum dcg_var_type_mask:
         VAR_TYPE_BASE_MASK
         VAR_TYPE_REF_MASK
@@ -150,6 +155,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     const char* c_dcg_ret_code_name(dcg_ret_code code) noexcept nogil
     const char* c_dcg_var_type_name(dcg_var_type dtype) noexcept nogil
     c_bool c_dcg_var_is_numeric(const dcg_var_t* var) noexcept nogil
+    dcg_var_numeric c_dcg_var_numeric_of(const dcg_var_t* var) noexcept nogil
     c_bool c_dcg_var_is_container(const dcg_var_t* var) noexcept nogil
     c_bool c_dcg_var_is_null(const dcg_var_t* var) noexcept nogil
     c_bool c_dcg_var_is_truthy(const dcg_var_t* var) noexcept nogil

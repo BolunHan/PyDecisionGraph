@@ -17,6 +17,75 @@ The two Cython-level bridges are not module attributes either:
 them (``c_const``, ``c_collections``).
 """
 
+from enum import IntEnum
+
+
+class VarType(IntEnum):
+    """The tag of a value: what it is, and whether it is a reference.
+
+    The members are the C enumerators by value, so a tag crosses the boundary as
+    itself and no translation table exists to fall out of step. The reference
+    ones are named as the C ones are - ``double_ref`` refers to a double,
+    ``double_ref_ref`` to a reference to one, one name per rung - and
+    ``inferred`` is a reference to a slot whose type is not known yet.
+
+    Attributes:
+        reserved: A slot holding nothing yet: an entry whose value has not
+            arrived. ``is_null`` is true for one, and reading it refuses.
+        inferred: A reference to a ``reserved`` slot - "the type is the slot's to
+            say". It is what a read of a not-yet-filled store entry is born as.
+    """
+
+    raw_ptr: VarType
+    string: VarType
+    bool: VarType
+    double: VarType
+    int: VarType
+    offset: VarType
+    time: VarType
+    date: VarType
+    datetime: VarType
+    d_vector: VarType
+    d_matrix: VarType
+    reserved: VarType
+    raw_ptr_ref: VarType
+    string_ref: VarType
+    bool_ref: VarType
+    double_ref: VarType
+    int_ref: VarType
+    offset_ref: VarType
+    time_ref: VarType
+    date_ref: VarType
+    datetime_ref: VarType
+    d_vector_ref: VarType
+    d_matrix_ref: VarType
+    inferred: VarType
+    raw_ptr_ref_ref: VarType
+    string_ref_ref: VarType
+    bool_ref_ref: VarType
+    double_ref_ref: VarType
+    int_ref_ref: VarType
+    offset_ref_ref: VarType
+    time_ref_ref: VarType
+    date_ref_ref: VarType
+    datetime_ref_ref: VarType
+    d_vector_ref_ref: VarType
+    d_matrix_ref_ref: VarType
+
+
+class VarNumeric(IntEnum):
+    """How a value reads as a number - the shape of the answer, not the value.
+
+    A value that is not a number at all is ``none``, which is what the numeric
+    operators refuse. The two that ARE numbers are what decides the type of an
+    arithmetic result: an operation with a double in it is a double, and one
+    without is whole.
+    """
+
+    none: VarNumeric
+    int: VarNumeric
+    double: VarNumeric
+
 
 class VarView:
     """A read-only window onto a ``dcg_var_t``: the value layer's Python face.
@@ -94,8 +163,8 @@ class VarView:
         ...
 
     @property
-    def dtype(self) -> int:
-        """The tag, as the enumerator's value (a ``dcg_var_type``)."""
+    def dtype(self) -> VarType:
+        """The value's tag."""
         ...
 
     @property
@@ -124,8 +193,18 @@ class VarView:
         ...
 
     @property
-    def ref_base(self) -> int:
+    def ref_base(self) -> VarType:
         """The tag at the end of the walk - for a plain value, the tag itself."""
+        ...
+
+    @property
+    def numeric(self) -> VarNumeric:
+        """How the value reads as a number.
+
+        The question the arithmetic operators ask about an operand before they
+        apply themselves, and the answer that decides the type of what they
+        produce. A reference answers for what it refers to.
+        """
         ...
 
     @property

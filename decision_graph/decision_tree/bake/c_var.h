@@ -85,6 +85,15 @@ typedef enum dcg_ret_code {
 } dcg_ret_code;
 
 /**
+ * @brief How a value reads as a number - the shape of the answer, not the value.
+ */
+typedef enum dcg_var_numeric {
+    VAR_NUMERIC_NONE   = 0,  // Not a number.
+    VAR_NUMERIC_INT    = 1,  // bool, int or offset: a whole number.
+    VAR_NUMERIC_DOUBLE = 2   // double.
+} dcg_var_numeric;
+
+/**
  * @brief Field layout of a value tag (see dcg_var_type).
  */
 typedef enum dcg_var_type_mask {
@@ -310,6 +319,7 @@ static inline dcg_var_type    c_dcg_var_ref_base(dcg_var_type dtype);
 static inline const char*     c_dcg_ret_code_name(dcg_ret_code code);
 static inline const char*     c_dcg_var_type_name(dcg_var_type dtype);
 static inline bool            c_dcg_var_is_numeric(const dcg_var_t* var);
+static inline dcg_var_numeric c_dcg_var_numeric_of(const dcg_var_t* var);
 static inline bool            c_dcg_var_is_container(const dcg_var_t* var);
 static inline bool            c_dcg_var_is_null(const dcg_var_t* var);
 static inline bool            c_dcg_var_is_truthy(const dcg_var_t* var);
@@ -1225,6 +1235,30 @@ static inline bool c_dcg_var_is_numeric(const dcg_var_t* var) {
     if (!var) return false;
     dcg_var_type base = c_dcg_var_ref_base(var->dtype);  // a reference is as numeric as its target
     return base == VAR_TYPE_INT || base == VAR_TYPE_DOUBLE || base == VAR_TYPE_OFFSET;
+}
+
+/**
+ * @brief How a value reads as a number: as a whole number, as a double, or not
+ *        at all.
+ *
+ * `is_numeric` answers the same question with a yes or a no. This answers it
+ * with the two ways a number can be one, because that is what decides the type
+ * of an arithmetic result: an operation with a double in it is a double, and one
+ * without is a whole number.
+ */
+static inline dcg_var_numeric c_dcg_var_numeric_of(const dcg_var_t* var) {
+    if (!var) return VAR_NUMERIC_NONE;
+
+    switch (c_dcg_var_ref_base(var->dtype)) {
+        case VAR_TYPE_BOOL:
+        case VAR_TYPE_INT:
+        case VAR_TYPE_OFFSET:
+            return VAR_NUMERIC_INT;
+        case VAR_TYPE_DOUBLE:
+            return VAR_NUMERIC_DOUBLE;
+        default:
+            return VAR_NUMERIC_NONE;
+    }
 }
 
 /**

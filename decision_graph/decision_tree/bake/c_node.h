@@ -214,11 +214,11 @@ typedef int (*dcg_node_hook_fn)(dcg_node* node, void* user_data);
  *
  * `type_eval_fn` is not one of the three: it is the node's own evaluation, the
  * rule its type gives it, installed as the node is built when the build asks for
- * it (DCG_EVAL_DIRECT_HOOKS). For an operator node that rule is the operator's
- * own, chosen when the operator is set (see c_expr.h). A caller's `eval_fn`
- * OVERRIDES it, which is why the two are separate slots rather than one: the
- * layer's rule and somebody's callback are different things, and only the second
- * belongs to an installer.
+ * it (DCG_EVAL_DIRECT_HOOKS) - and, for an operator node, the rule its OPERATOR
+ * gives it, installed when the operator is set and in every build (see
+ * c_expr.h). A caller's `eval_fn` OVERRIDES it, which is why the two are
+ * separate slots rather than one: the layer's rule and somebody's callback are
+ * different things, and only the second belongs to an installer.
  *
  * `stage` records how far the last evaluation of THIS node got, as the bits of
  * a dcg_eval_stage - the masked progression the protocol walks. `err_code` is

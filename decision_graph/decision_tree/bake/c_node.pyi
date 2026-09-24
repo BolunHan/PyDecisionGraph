@@ -12,7 +12,7 @@ dict is the graph as Python sees it, keyed by the edge each child hangs by.
 from typing import Any, Self
 from uuid import UUID
 
-from cbase.bytemap.c_bytemap import BoundByteMap
+from cbase.bytemap import BoundByteMap
 
 from .c_edge import NodeEdgeCondition
 from .c_logic_group import LogicGroupManager

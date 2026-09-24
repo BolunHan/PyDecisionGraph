@@ -2,7 +2,7 @@ from libc.stdint cimport uint32_t, uint64_t, uintptr_t
 from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol cimport allocator_protocol
 from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_edge cimport dcg_node_edge_condition, NodeEdgeCondition

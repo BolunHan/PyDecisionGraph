@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from cpython.bytes cimport PyBytes_AsString, PyBytes_FromStringAndSize
 from cpython.dict cimport PyDict_Contains
 from cpython.object cimport PyObject
@@ -5,17 +7,16 @@ from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString, PyUnicode_F
 from libc.stdint cimport uintptr_t
 from libc.stdio cimport fprintf, stderr
 
-from uuid import UUID
-
-from cbase.bytemap.c_bytemap cimport c_bytemap_gen_seq_id
-
-from ..exc import NodeTypeError
+from cbase.bytemap cimport c_bytemap_gen_seq_id
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
+from .c_edge cimport C_AUTO_CONDITION, EDGE_REGISTRY, NO_CONDITION, NodeEdgeCondition, dcg_node_edge_condition
 from .c_var cimport VarView, c_dcg_ret_code_name, c_dcg_var_pyunpack, dcg_ret_code
-from .c_edge cimport EDGE_REGISTRY, NodeEdgeCondition, dcg_node_edge_condition, NO_CONDITION, C_AUTO_CONDITION
+from ..exc import NodeTypeError
+
 
 cdef const size_t DCG_RENDER_BUFSIZE = 1 << 16
+
 
 cdef class LogicNode:
     def __cinit__(self, *args, **kwargs):
@@ -39,7 +40,7 @@ cdef class LogicNode:
             c_dcg_node_free_generic(self.header)
 
     @staticmethod
-    cdef inline LogicNode c_from_header(dcg_node * header, bint owner=False):
+    cdef inline LogicNode c_from_header(dcg_node* header, bint owner=False):
         cdef LogicNode instance = LogicNode.__new__(LogicNode)
         instance.header = header
         instance.owner = owner
@@ -56,16 +57,16 @@ cdef class LogicNode:
         return instance
 
     @staticmethod
-    cdef inline dcg_logic_group_manager * c_get_manager():
+    cdef inline dcg_logic_group_manager* c_get_manager():
         if not C_LGM:
             from .c_logic_group import LGM as _LGM
             global C_LGM, LGM
-            C_LGM = <dcg_logic_group_manager *> <uintptr_t> _LGM.address
+            C_LGM = <dcg_logic_group_manager*> <uintptr_t> _LGM.address
             LGM = _LGM
         return C_LGM
 
     @staticmethod
-    cdef LogicNode c_dcg_node_reconstruct(dcg_node * header, bint owner=False):
+    cdef LogicNode c_dcg_node_reconstruct(dcg_node* header, bint owner=False):
         from .c_reconstruct import c_dcg_node_reconstruct_from_address
         return c_dcg_node_reconstruct_from_address(<uintptr_t> header, owner)
 
@@ -78,7 +79,7 @@ cdef class LogicNode:
     cdef inline void c_register_node(self):
         NODE_REGISTRY[<uintptr_t> self.header] = self
 
-        cdef int ret_code = c_dcg_node_register_callback(self.header, LogicNode.c_node_callback_event_adaptor, <void *> <PyObject *> self, &self.callback_id)
+        cdef int ret_code = c_dcg_node_register_callback(self.header, LogicNode.c_node_callback_event_adaptor, <void*> <PyObject*> self, &self.callback_id)
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_register_callback failed with err code: {ret_code}')
 
@@ -87,8 +88,8 @@ cdef class LogicNode:
     # === Cython Internal Eval Binding ===
 
     @staticmethod
-    cdef inline int c_pre_eval_callback_adaptor(dcg_node * node, void * user_data) noexcept:
-        cdef LogicNode wrapper = <LogicNode> <PyObject *> user_data
+    cdef inline int c_pre_eval_callback_adaptor(dcg_node* node, void* user_data) noexcept:
+        cdef LogicNode wrapper = <LogicNode> <PyObject*> user_data
         cdef uint32_t flags = wrapper.eval_hook_flags
         cdef int ret_code = dcg_ret_code.DCG_OK
         cdef object result = None
@@ -111,8 +112,8 @@ cdef class LogicNode:
         return dcg_ret_code.DCG_OK
 
     @staticmethod
-    cdef inline int c_eval_fn_callback_adaptor(dcg_node * node, void * user_data) noexcept:
-        cdef LogicNode wrapper = <LogicNode> <PyObject *> user_data
+    cdef inline int c_eval_fn_callback_adaptor(dcg_node* node, void* user_data) noexcept:
+        cdef LogicNode wrapper = <LogicNode> <PyObject*> user_data
         cdef uint32_t flags = wrapper.eval_hook_flags
         cdef int ret_code = dcg_ret_code.DCG_OK
         cdef object result = None
@@ -135,8 +136,8 @@ cdef class LogicNode:
         return dcg_ret_code.DCG_OK
 
     @staticmethod
-    cdef inline int c_post_eval_callback_adaptor(dcg_node * node, void * user_data) noexcept:
-        cdef LogicNode wrapper = <LogicNode> <PyObject *> user_data
+    cdef inline int c_post_eval_callback_adaptor(dcg_node* node, void* user_data) noexcept:
+        cdef LogicNode wrapper = <LogicNode> <PyObject*> user_data
         cdef uint32_t flags = wrapper.eval_hook_flags
         cdef int ret_code = dcg_ret_code.DCG_OK
         cdef object result = None
@@ -173,11 +174,11 @@ cdef class LogicNode:
 
         cdef bytes class_name = type(self).__name__.encode()
         cdef uint32_t flags = 0
-        if <void *> self.c_pre_eval_fn != <void *> LogicNode.c_pre_eval_fn:
+        if <void*> self.c_pre_eval_fn != <void*> LogicNode.c_pre_eval_fn:
             flags |= dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE << dcg_node_hook_type.DCG_HOOK_PRE_EVAL
-        if <void *> self.c_eval_fn != <void *> LogicNode.c_eval_fn:
+        if <void*> self.c_eval_fn != <void*> LogicNode.c_eval_fn:
             flags |= dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE << dcg_node_hook_type.DCG_HOOK_EVAL
-        if <void *> self.c_post_eval_fn != <void *> LogicNode.c_post_eval_fn:
+        if <void*> self.c_post_eval_fn != <void*> LogicNode.c_post_eval_fn:
             flags |= dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE << dcg_node_hook_type.DCG_HOOK_POST_EVAL
 
         if type(self).pre_eval_fn is not getattr(LogicNode, 'pre_eval_fn'):
@@ -191,22 +192,22 @@ cdef class LogicNode:
             return
 
         if not self.owner:
-            fprintf(stderr, 'c_bind_eval_callback: %s at %p overrides an eval hook but does not own its node - the hook is not installed\n', <const char *> class_name, <const void *> self.header)
+            fprintf(stderr, 'c_bind_eval_callback: %s at %p overrides an eval hook but does not own its node - the hook is not installed\n', <const char*> class_name, <const void*> self.header)
             return
 
         self.eval_hook_flags = flags
         cdef int ret_code = 0
 
         if flags & ((dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE | dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE) << dcg_node_hook_type.DCG_HOOK_PRE_EVAL):
-            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_PRE_EVAL, LogicNode.c_pre_eval_callback_adaptor, <void *> <PyObject *> self)
+            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_PRE_EVAL, LogicNode.c_pre_eval_callback_adaptor, <void*> <PyObject*> self)
             if ret_code != dcg_ret_code.DCG_OK:
                 raise RuntimeError(f'c_dcg_node_register_eval_hook failed with err code: {ret_code}')
         if flags & ((dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE | dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE) << dcg_node_hook_type.DCG_HOOK_EVAL):
-            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_EVAL, LogicNode.c_eval_fn_callback_adaptor, <void *> <PyObject *> self)
+            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_EVAL, LogicNode.c_eval_fn_callback_adaptor, <void*> <PyObject*> self)
             if ret_code != dcg_ret_code.DCG_OK:
                 raise RuntimeError(f'c_dcg_node_register_eval_hook failed with err code: {ret_code}')
         if flags & ((dcg_eval_override_flag.DCG_EVAL_CDEF_OVERRIDE | dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE) << dcg_node_hook_type.DCG_HOOK_POST_EVAL):
-            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_POST_EVAL, LogicNode.c_post_eval_callback_adaptor, <void *> <PyObject *> self)
+            ret_code = c_dcg_node_register_eval_hook(self.header, dcg_node_hook_type.DCG_HOOK_POST_EVAL, LogicNode.c_post_eval_callback_adaptor, <void*> <PyObject*> self)
             if ret_code != dcg_ret_code.DCG_OK:
                 raise RuntimeError(f'c_dcg_node_register_eval_hook failed with err code: {ret_code}')
 
@@ -223,7 +224,7 @@ cdef class LogicNode:
             names.append('done')
         return ', '.join(names) if names else 'none'
 
-    cdef void c_check_eval_code(self, int ret_code, dcg_node * subject=NULL):
+    cdef void c_check_eval_code(self, int ret_code, dcg_node* subject=NULL):
         if ret_code == dcg_ret_code.DCG_OK:
             return
 
@@ -235,8 +236,8 @@ cdef class LogicNode:
         # WHERE it stopped is the failing node's own state, not this wrapper's:
         # in a walk the node that reported the code is the one whose stages say
         # how far it got, and a root that reached it is not the node that refused.
-        cdef dcg_node *          failed = subject if subject else self.header
-        cdef dcg_node_eval_ctx * ctx = &failed.eval_ctx
+        cdef dcg_node*          failed = subject if subject else self.header
+        cdef dcg_node_eval_ctx* ctx = &failed.eval_ctx
         cdef str                run = f'run {ctx.eval_seq_id:#0x}' if ctx.eval_seq_id else 'no run'
         cdef str                text = PyUnicode_FromString(failed.repr) if failed.repr else 'unrepr'
         raise RuntimeError(
@@ -248,11 +249,11 @@ cdef class LogicNode:
     # === Cython Internal Binding ===
 
     @staticmethod
-    cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node * node, dcg_node * subject, uint64_t seq_id, void * user_data) noexcept:
+    cdef void c_node_callback_event_adaptor(dcg_node_event event, dcg_node* node, dcg_node* subject, uint64_t seq_id, void* user_data) noexcept:
         if not node or not user_data:
             return
 
-        cdef LogicNode wrapper = <LogicNode> <PyObject *> user_data
+        cdef LogicNode wrapper = <LogicNode> <PyObject*> user_data
         cdef LogicNode child
         cdef NodeEdgeCondition condition
 
@@ -275,12 +276,12 @@ cdef class LogicNode:
         elif event == DCG_NODE_EVENT_CHILD_CLEARED:
             wrapper.children.clear()
 
-    cdef void c_append(self, dcg_node * child, dcg_node_edge_condition * condition):
+    cdef void c_append(self, dcg_node* child, dcg_node_edge_condition* condition):
         cdef int ret_code = c_dcg_node_append(self.header, child, condition)
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_append failed with err code: {ret_code}')
 
-    cdef void c_replace(self, dcg_node * old_node, dcg_node * new_node):
+    cdef void c_replace(self, dcg_node* old_node, dcg_node* new_node):
         cdef int ret_code = c_dcg_node_replace(old_node, new_node)
         if ret_code != dcg_ret_code.DCG_OK:
             raise RuntimeError(f'c_dcg_node_replace failed with err code: {ret_code}')
@@ -295,7 +296,7 @@ cdef class LogicNode:
         cdef size_t cap = DCG_RENDER_BUFSIZE
         cdef size_t used
         cdef bytes buffer
-        cdef char * out
+        cdef char* out
 
         c_dcg_render_opts_default(&opts)
         opts.max_depth = max_depth
@@ -455,7 +456,7 @@ cdef class LogicNode:
             cdef list out = []
             if not self.header:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-            cdef dcg_node_label * entry = self.header.labels
+            cdef dcg_node_label* entry = self.header.labels
             while entry != NULL:
                 if entry.label != NULL:
                     out.append(PyUnicode_FromString(entry.label))
@@ -480,9 +481,10 @@ cdef class LogicNode:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             return <uintptr_t> self.header
 
+
 cdef class PlaceholderNode(LogicNode):
     def __init__(self, **kwargs):
-        cdef dcg_node * node = c_dcg_node_new_placeholder(DCG_DEFAULT_ALLOCATOR)
+        cdef dcg_node* node = c_dcg_node_new_placeholder(DCG_DEFAULT_ALLOCATOR)
         if not node:
             raise MemoryError('Failed to allocate a PlaceholderNode.')
 
@@ -490,47 +492,48 @@ cdef class PlaceholderNode(LogicNode):
         self.owner = True
         self.c_register_node()
 
+
 cdef class LogicNodeRegistry(BoundByteMap):
     @staticmethod
-    cdef LogicNodeRegistry c_from_header(bytemap * header, bint owner=False):
+    cdef LogicNodeRegistry c_from_header(bytemap* header, bint owner=False):
         cdef LogicNodeRegistry instance = LogicNodeRegistry.__new__(LogicNodeRegistry)
         instance.owner = owner
-        instance.seq_id = c_bytemap_gen_seq_id(<void *> instance)
+        instance.seq_id = c_bytemap_gen_seq_id(<void*> instance)
         instance.c_bind(header)
         return instance
 
-    cdef const char * c_serialize_key(self, object obj, size_t * key_len):
+    cdef const char* c_serialize_key(self, object obj, size_t* key_len):
         # A header address is provided in format of int (uintptr_t)
         if isinstance(obj, int):
-            self._ws_key_buf = <void *> <uintptr_t> obj
+            self._ws_key_buf = <void*> <uintptr_t> obj
             if key_len:
-                key_len[0] = sizeof(void *)
-            return <const char *> &self._ws_key_buf
+                key_len[0] = sizeof(void*)
+            return <const char*> &self._ws_key_buf
         return BoundByteMap.c_serialize_key(self, obj, key_len)
 
-    cdef object c_deserialize_key(self, const char * key, size_t key_len):
-        return <uintptr_t> <void *> key
+    cdef object c_deserialize_key(self, const char* key, size_t key_len):
+        return <uintptr_t> <void*> key
 
-    cdef const char * c_serialize_value(self, object obj, size_t * value_len):
+    cdef const char* c_serialize_value(self, object obj, size_t* value_len):
         cdef LogicNode node = <LogicNode> obj
-        self._ws_ptr = <void *> node.header
+        self._ws_ptr = <void*> node.header
         if value_len:
-            value_len[0] = sizeof(void *)
-        return <const char *> &self._ws_ptr
+            value_len[0] = sizeof(void*)
+        return <const char*> &self._ws_ptr
 
-    cdef object c_deserialize_value(self, const char * value, size_t value_len):
+    cdef object c_deserialize_value(self, const char* value, size_t value_len):
         cdef void** vp = <void**> value
-        cdef dcg_node * node = <dcg_node *> vp[0]
+        cdef dcg_node* node = <dcg_node*> vp[0]
         return LogicNode.c_dcg_node_reconstruct(node)
 
     def __getitem__(self, object key):
         cdef int ret_code = PyDict_Contains(<dict> self, key)
         if ret_code == 0:
-            return LogicNode.c_dcg_node_reconstruct(<dcg_node *> <uintptr_t> key)
+            return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
         return super().__getitem__(key)
 
 # Local Cached LGM Pointer
-cdef dcg_logic_group_manager * C_LGM = NULL
+cdef dcg_logic_group_manager* C_LGM = NULL
 cdef object LGM = None
 
 cdef LogicNodeRegistry NODE_REGISTRY = LogicNodeRegistry()

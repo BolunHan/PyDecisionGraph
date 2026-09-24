@@ -1,6 +1,6 @@
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol cimport allocator_protocol
 
 from .c_node cimport LogicNode, dcg_node, dcg_node_type
 

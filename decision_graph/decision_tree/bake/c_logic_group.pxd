@@ -1,7 +1,7 @@
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
-from cbase.bytemap.c_bytemap cimport BoundByteMap, bytemap
+from cbase.allocator_protocol cimport allocator_protocol
+from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_hierarchy cimport dcg_breakpoint_node, dcg_root_node
 from .c_node cimport LogicNode, dcg_node

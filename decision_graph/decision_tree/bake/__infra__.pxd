@@ -144,7 +144,6 @@ from .c_node cimport (
     dcg_node_hook_fn,
     dcg_node_eval_ctx,
     dcg_eval_stage,
-    dcg_eval_run,
     dcg_node_event,
     dcg_node_callback_fn,
     dcg_node_callback_ctx,
@@ -229,12 +228,31 @@ from .c_node cimport (
     c_dcg_node_format_line,
     c_dcg_node_render_walk,
     c_dcg_node_collect_leaves_walk,
-    c_dcg_node_collect_descendants_walk,
-    c_dcg_node_eval,
-    c_dcg_node_dryrun,
-    c_dcg_node_eval_graph,
+    c_dcg_node_collect_descendants_walk
+)
+
+from .c_eval cimport (
+    DCG_EVAL_PATH_INITIAL_CAPACITY,
+    dcg_eval_run,
+
     c_dcg_node_eval_path_new,
     c_dcg_node_eval_path_free,
+    c_dcg_eval_path_reset,
+    c_dcg_eval_path_append,
+    c_dcg_root_node_eval_path_reserve,
+    c_dcg_root_node_eval_path_append,
+
+    c_dcg_node_eval_default,
+    c_dcg_node_eval_hooks,
+    c_dcg_node_eval,
+    c_dcg_node_dryrun,
+
+    c_dcg_eval_gen_seq_id,
+    c_dcg_eval_select_child,
+    c_dcg_node_eval_visit,
+    c_dcg_eval_path_outcome,
+    c_dcg_eval_walk,
+    c_dcg_node_eval_graph,
     c_dcg_root_node_eval
 )
 
@@ -456,4 +474,25 @@ from .c_reconstruct cimport (
     c_dcg_node_reconstruct_breakpoint,
     c_dcg_node_reconstruct_from_address,
     c_dcg_node_root_from_address
+)
+
+from .c_bake cimport (
+    dcg_bake_flag,
+    dcg_bake_input,
+    dcg_bake_report,
+
+    c_dcg_bake_input_init,
+    c_dcg_bake_report_new,
+    c_dcg_bake_report_free,
+    c_dcg_bake_fail,
+    c_dcg_bake_node_check,
+    c_dcg_bake_node_lock,
+    c_dcg_bake_walk,
+    c_dcg_bake_lock_walk,
+    c_dcg_bake_unmark_walk,
+    c_dcg_bake_prepare_record,
+    c_dcg_root_node_bake,
+
+    BakeReport,
+    c_dcg_bake_root
 )

@@ -132,6 +132,7 @@ static inline dcg_node_eval_path* c_dcg_node_eval_path_new(size_t capacity, allo
 static inline void                c_dcg_node_eval_path_free(dcg_node_eval_path* path);
 static inline void                c_dcg_eval_path_reset(dcg_node_eval_path* path);
 static inline int                 c_dcg_eval_path_append(dcg_node_eval_path* path, dcg_node* node);
+static inline int                 c_dcg_root_node_eval_path_reserve(dcg_root_node* root, size_t capacity);
 static inline int                 c_dcg_root_node_eval_path_append(dcg_root_node* root, dcg_node* node);
 
 // The built-in evaluation
@@ -276,13 +277,53 @@ static inline int c_dcg_eval_path_append(dcg_node_eval_path* path, dcg_node* nod
 }
 
 /**
+ * @brief Make the room a root's own record needs, once, before anything is in it.
+ *
+ * A root's record is EMBEDDED in the root, not a block of its own, so its
+ * arrays are nested under the root and released with it. The room is made once -
+ * a record that has room is left as it is - and sized for what a walk can need:
+ * one node per LEVEL, and no walk goes deeper than the graph it starts from, so
+ * the graph's height plus the node the walk starts from is the most entries any
+ * walk from this root can use.
+ *
+ * Making it is a thing of its own because a walk is not the only caller: a walk
+ * makes it on the way in (a record with no room is one it would have to grow),
+ * and a bake makes it ahead of the walk, so that the evaluation a hot loop runs
+ * allocates nothing at all (see c_bake.h).
+ *
+ * @param root      Root whose record to make room for.
+ * @param capacity  Entries to make room for; 0 asks for the graph's own height,
+ *                  plus the node a walk from it starts at.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, or DCG_ERR_OOM when the room could not be
+ *         made.
+ */
+static inline int c_dcg_root_node_eval_path_reserve(dcg_root_node* root, size_t capacity) {
+    if (!root) return DCG_ERR_INVALID_ARG;
+
+    dcg_node_eval_path* path = &root->eval_path;
+    if (path->node && path->eval_val) return DCG_OK; /* it already has room */
+
+    if (capacity == 0) capacity = c_dcg_node_height(&root->base) + 1;
+
+    allocator_protocol* allocator = c_ap_protocol_from_ptr(root);
+    path->node                    = (dcg_node**) c_ap_alloc_child(capacity * sizeof(dcg_node*), allocator, root);
+    path->eval_val                = (dcg_var_t*) c_ap_alloc_child(capacity * sizeof(dcg_var_t), allocator, root);
+    if (!path->node || !path->eval_val) {
+        if (path->node) c_ap_free_owned(path->node); /* the root outlives this: release what was made */
+        path->node     = NULL;
+        path->eval_val = NULL;
+        return DCG_ERR_OOM;
+    }
+    path->capacity = capacity;
+    return DCG_OK;
+}
+
+/**
  * @brief Record one visited node into a root's own record - its blocks, its room.
  *
- * The variant a root's walk appends through, and the reason it exists: a root's
- * record is EMBEDDED in the root, not a block of its own, so its arrays are
- * nested under the root and released with it. The room is made once, the first
- * time a walk records anything, and sized for what a walk can need - the height
- * of the graph, plus the node the walk starts from.
+ * The variant a root's walk appends through: the room is made if the record has
+ * none, and the node is then added to it (c_dcg_root_node_eval_path_reserve,
+ * c_dcg_eval_path_append).
  *
  * @param root  Root whose record to add to.
  * @param node  Node that was visited.
@@ -292,23 +333,10 @@ static inline int c_dcg_eval_path_append(dcg_node_eval_path* path, dcg_node* nod
 static inline int c_dcg_root_node_eval_path_append(dcg_root_node* root, dcg_node* node) {
     if (!root || !node) return DCG_ERR_INVALID_ARG;
 
-    dcg_node_eval_path* path = &root->eval_path;
-    if (!path->node) {
-        allocator_protocol* allocator = c_ap_protocol_from_ptr(root);
-        size_t              capacity  = c_dcg_node_height(&root->base) + 1; /* one node per level, at most */
+    int ret_code = c_dcg_root_node_eval_path_reserve(root, 0);
+    if (ret_code != DCG_OK) return ret_code;
 
-        path->node     = (dcg_node**) c_ap_alloc_child(capacity * sizeof(dcg_node*), allocator, root);
-        path->eval_val = (dcg_var_t*) c_ap_alloc_child(capacity * sizeof(dcg_var_t), allocator, root);
-        if (!path->node || !path->eval_val) {
-            if (path->node) c_ap_free_owned(path->node); /* the root outlives this: release what was made */
-            path->node     = NULL;
-            path->eval_val = NULL;
-            return DCG_ERR_OOM;
-        }
-        path->capacity = capacity;
-    }
-
-    return c_dcg_eval_path_append(path, node);
+    return c_dcg_eval_path_append(&root->eval_path, node);
 }
 
 // ========== The Built-in Evaluation ==========

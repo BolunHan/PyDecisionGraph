@@ -39,6 +39,26 @@
 #define DCG_MAPPING_DEFAULT_CAPACITY 8U
 #endif
 
+/**
+ * @brief Compile-time switch: an entry keeps the type it was given.
+ *
+ * A store's reads are resolved ONCE - to the type the entry had when the read was
+ * first evaluated - and from then on they hold a reference that PROMISES that
+ * type. Retyping the entry under such a reference breaks the promise: a string
+ * reference over a double hands a pointer nothing allocated to whoever
+ * dereferences it.
+ *
+ * With this on (the default, and what a baked graph wants) a write of another
+ * type into an entry that already holds one is REFUSED, so no promise can be
+ * broken and the read's fast path needs no check of its own. Define it to 0 and
+ * a store is a pool a caller may retype freely - the behavior a store had before
+ * this switch - and the read rule pays for a check that resolves an entry which
+ * has changed type all over again.
+ */
+#ifndef DCG_MAPPING_IMMUTABLE_DTYPE
+#define DCG_MAPPING_IMMUTABLE_DTYPE 1
+#endif
+
 // ========== Structs ==========
 
 /**
@@ -114,7 +134,10 @@ static inline int                 c_dcg_mapping_lgroup_get_create_slot(dcg_mappi
  *     block. This is where the offset is spent, and the first evaluation is the
  *     last one that finds this state;
  *   - anything else: the reference the read resolved to. It is the fast path, and
- *     it is where every evaluation after the first lands.
+ *     it is where every evaluation after the first lands. The promise that
+ *     reference makes is kept by the STORE rather than checked here: an entry
+ *     keeps its type (see DCG_MAPPING_IMMUTABLE_DTYPE), and only a store built
+ *     with that guard off is one whose reads must resolve again.
  *
  * Called for a read the store BUILT. A variable built by hand, or one reading a
  * group that is not a mapping, carries none of these states and is answered by
@@ -133,7 +156,21 @@ static inline int                 c_dcg_node_mapping_var_node_eval_hook(dcg_node
     /* Unresolved, or already the reference the resolution left: the fast path is
      * every evaluation after the first, and it is one tag test wide. */
     dcg_var_type dtype = slot->dtype;
-    if (dtype != VAR_TYPE_INFERRED && dtype != VAR_TYPE_OFFSET) return DCG_OK;
+    if (dtype != VAR_TYPE_INFERRED && dtype != VAR_TYPE_OFFSET) {
+#if !DCG_MAPPING_IMMUTABLE_DTYPE
+        /* A store a caller may retype can break the promise its reads hold (see
+         * DCG_MAPPING_IMMUTABLE_DTYPE), so where that is allowed the promise is
+         * checked here - in the one place that knows the reference was taken to an
+         * entry of this store's block, one member back from the address it holds
+         * (see dcg_var_variant). An entry that is no longer what the tag names is
+         * resolved AGAIN, so the read follows the entry it names whatever type it
+         * has become. With the entry's type immutable there is nothing to check,
+         * and the fast path stays one test wide. */
+        dcg_var_t* entry = (dcg_var_t*) ((char*) slot->value.as_ref - offsetof(dcg_var_t, value));
+        if (c_dcg_var_ref_base(entry->dtype) != c_dcg_var_ref_base(dtype)) return c_dcg_var_init_ref(slot, entry);
+#endif
+        return DCG_OK;
+    }
 
     /* The offset is the payload, read as the member it was written as and not
      * through c_dcg_var_as_offset: that reader follows the base tag, and an
@@ -398,6 +435,24 @@ static inline int c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const cha
     int        ret_code = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len, NULL, &slot);
     if (ret_code != DCG_OK) return ret_code;
 
+#if DCG_MAPPING_IMMUTABLE_DTYPE
+    /* An entry keeps the type it was given (see DCG_MAPPING_IMMUTABLE_DTYPE): the
+     * reads of a graph resolve to it once and hold a reference that promises it,
+     * so a write of another type is refused rather than taken. A reference counts
+     * as the type it points at, so a slot holding a value may be pointed at
+     * another slot holding the same one. */
+    if (slot->dtype != VAR_TYPE_RESERVED && c_dcg_var_ref_base(slot->dtype) != c_dcg_var_ref_base(value->dtype)) {
+#if DCG_VIGILANT
+        (void) fprintf(
+            stderr, "[DCG] c_dcg_mapping_lgroup_set: entry \"%.*s\" holds a %s; a %s is not what it is - the entry keeps what it holds\n", (int) key_len, key,
+            c_dcg_var_type_name(slot->dtype), c_dcg_var_type_name(value->dtype)
+        );
+        (void) fflush(stderr);
+#endif
+        return DCG_ERR_TYPE;
+    }
+#endif
+
     /* What the slot held goes first: a string value is a nested block of this
      * group, and it is about to be replaced. */
     if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) {
@@ -439,6 +494,24 @@ static inline int c_dcg_mapping_lgroup_set_ref(dcg_mapping_lgroup* lgroup, const
     dcg_var_t* slot     = NULL;
     int        ret_code = c_dcg_mapping_lgroup_get_create_slot(lgroup, key, key_len, NULL, &slot);
     if (ret_code != DCG_OK) return ret_code;
+
+#if DCG_MAPPING_IMMUTABLE_DTYPE
+    /* An entry keeps the type it was given (see DCG_MAPPING_IMMUTABLE_DTYPE): the
+     * reads of a graph resolve to it once and hold a reference that promises it,
+     * so a write of another type is refused rather than taken. A reference counts
+     * as the type it points at, so a slot holding a value may be pointed at
+     * another slot holding the same one. */
+    if (slot->dtype != VAR_TYPE_RESERVED && c_dcg_var_ref_base(slot->dtype) != c_dcg_var_ref_base(value->dtype)) {
+#if DCG_VIGILANT
+        (void) fprintf(
+            stderr, "[DCG] c_dcg_mapping_lgroup_set_ref: entry \"%.*s\" holds a %s; a %s is not what it is - the entry keeps what it holds\n", (int) key_len, key,
+            c_dcg_var_type_name(slot->dtype), c_dcg_var_type_name(value->dtype)
+        );
+        (void) fflush(stderr);
+#endif
+        return DCG_ERR_TYPE;
+    }
+#endif
 
     if (slot->dtype == VAR_TYPE_STRING && slot->value.as_string) c_ap_free_owned((void*) slot->value.as_string);
     return c_dcg_var_init_ref(slot, value);

@@ -274,7 +274,8 @@ cdef extern from "decision_graph/decision_tree/bake/c_eval.h":
         size_t       depth
         c_bool       inplace
 
-    int c_dcg_node_eval(dcg_node* node, c_bool inplace) noexcept nogil
+    int c_dcg_node_eval(dcg_node* node) noexcept nogil
+    int c_dcg_node_dryrun(dcg_node* node, dcg_var_t* out) noexcept nogil
     int c_dcg_node_eval_graph(dcg_node* node, dcg_node_eval_path* path) noexcept nogil
     int c_dcg_root_node_eval(dcg_root_node* root) noexcept nogil
 

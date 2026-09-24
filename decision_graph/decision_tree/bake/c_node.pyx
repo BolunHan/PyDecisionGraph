@@ -389,7 +389,7 @@ cdef class LogicNode:
     cdef void c_eval(self):
         if not self.header:
             raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
-        self.c_check_eval_code(c_dcg_node_eval(self.header, True))
+        self.c_check_eval_code(c_dcg_node_eval(self.header))
 
     def eval(self):
         self.c_eval()

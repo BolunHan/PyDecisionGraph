@@ -2,7 +2,7 @@ from libc.stdint cimport uint64_t
 from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol cimport allocator_protocol
 
 
 cdef extern from "decision_graph/decision_tree/bake/c_var.h":

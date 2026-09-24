@@ -41,6 +41,15 @@ cdef class RootLogicNode(LogicNode):
 
         return c_dcg_var_pyunpack(&leaf.out)
 
+    # === Bake Protocol ===
+
+    cpdef object bake(self, bint validate_only=False):
+        # The protocol lives in a module above this one - the bake pass is asked
+        # of a root and reads every family to answer - so the reach is the
+        # module's Python door at call time, never a cimport (DEPENDENCY.md 4.3).
+        from .c_bake import c_dcg_bake_root
+        return c_dcg_bake_root(self, validate_only)
+
 
 cdef class NodeEvalPathView:
     def __init__(self, RootLogicNode node):

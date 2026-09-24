@@ -60,6 +60,8 @@ cdef class RootLogicNode(LogicNode):
     cdef readonly str name
     cdef readonly NodeEvalPathView eval_path
 
+    cpdef object bake(self, bint validate_only=?)
+
 
 cdef class BreakpointNode(LogicNode):
     cdef readonly object break_from

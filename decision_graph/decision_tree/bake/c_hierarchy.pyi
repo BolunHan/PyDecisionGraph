@@ -10,6 +10,7 @@ next node entered outside it.
 from collections.abc import Iterator
 from typing import Any
 
+from .c_bake import BakeReport
 from .c_logic_group import LogicGroup
 from .c_node import LogicNode
 
@@ -71,6 +72,56 @@ class RootLogicNode(LogicNode):
                 (``node`` is the node the record reports as ``failed``), and a
                 hook's own exception travels as its cause. The record still holds
                 the nodes reached before it stopped.
+        """
+        ...
+
+    def bake(self, validate_only: bool = False) -> BakeReport:
+        """Bake the graph: verify what an evaluation assumes, lock it, prepare it.
+
+        The last thing done to a graph before it is walked, and the pass every
+        evaluation is written assuming has run. What an evaluation assumes is
+        established here and nowhere else, because the hot path carries no check
+        for a malformed node:
+
+        - the graph's STRUCTURE - one parentless root, the arms in reading order,
+          an else last, an action below nothing, no cycles;
+        - every operand an operator takes has a component bound to it, and its
+          operand array is exactly as long as its arity - the rules run their
+          operands and read the workspace they filled with nothing checked in
+          between;
+        - every operator belongs to its node's arity, and no node in the graph is
+          one that has no evaluation at all (a call).
+
+        What the pass then does is hold the graph to what it verified: every node
+        it walked is frozen, so the structure is what it was, and every store the
+        graph reads is sealed, so no entry can appear in it afterwards. That
+        second half is the one an evaluation depends on - a resolved read holds a
+        reference into its store's block, and a block moves only when the store
+        grows. A store is sealed in SHAPE and not in contents: the entries it has
+        are the entries it will have, and a caller goes on writing values into
+        them, because a graph is baked once and fed many times.
+
+        Finally the record a walk fills has its room made in advance, sized for
+        what a walk from this root can need, so evaluating a baked graph
+        allocates nothing.
+
+        A bake is all or nothing: a graph that fails is not locked and not
+        prepared, so nothing about it changes. A bake that succeeds is
+        idempotent - asked again it locks nothing and seals nothing, which the
+        report says.
+
+        Args:
+            validate_only: Whether to verify the graph and report without
+                locking or preparing it - the question "would this bake?" asked
+                without the commitment. Nothing about the graph changes.
+
+        Returns:
+            The report: what the pass found, and what it affected.
+
+        Raises:
+            BakeFailureError: When the graph cannot be baked - the code, the node
+                that produced it and the problems found are in the report the
+                failure carries, and nothing was locked or prepared.
         """
         ...
 

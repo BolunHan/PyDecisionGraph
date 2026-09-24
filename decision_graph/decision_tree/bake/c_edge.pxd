@@ -1,7 +1,7 @@
 from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol cimport allocator_protocol
 from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_var cimport dcg_var_t

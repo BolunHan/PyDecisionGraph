@@ -2,7 +2,7 @@ from cpython.dict cimport PyDict_Contains
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString
 from libc.stdint cimport uintptr_t
 
-from cbase.bytemap.c_bytemap cimport c_bytemap_gen_seq_id
+from cbase.bytemap cimport c_bytemap_gen_seq_id
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_var cimport c_dcg_var_pypack

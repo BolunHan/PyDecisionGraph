@@ -78,7 +78,6 @@ cdef extern from "decision_graph/decision_tree/bake/c_expr.h":
     int c_dcg_node_expr_apply_and(dcg_var_t* out, const dcg_var_t* a, const dcg_var_t* b) noexcept nogil
     int c_dcg_node_expr_apply_or(dcg_var_t* out, const dcg_var_t* a, const dcg_var_t* b) noexcept nogil
     int c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t index) noexcept nogil
-    int c_dcg_node_expr_eval_operands(dcg_expression_node* node) noexcept nogil
 
     int c_dcg_node_expr_eval(dcg_node* node, void* user_data) noexcept nogil
     int c_dcg_node_expr_eval_refuse(dcg_node* node, void* user_data) noexcept nogil

@@ -220,7 +220,6 @@ static inline int                  c_dcg_node_eval(dcg_node* node);
 
 // Operands at run time - the workspace, filled from this node's own components
 static inline int                  c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t index);
-static inline int                  c_dcg_node_expr_eval_operands(dcg_expression_node* node);
 
 // Applying - the arithmetic of ONE operator, one kernel each
 static inline int                  c_dcg_node_expr_apply_refuse(dcg_var_t* out, const dcg_var_t* a, const dcg_var_t* b);
@@ -984,11 +983,12 @@ static inline int c_dcg_node_expr_apply_or(dcg_var_t* out, const dcg_var_t* a, c
  *
  * A rule BEGINS by producing its own operands: the components are the node's own
  * fields, so the rule runs them and writes what they are worth into the
- * workspace itself (c_dcg_node_expr_eval_operands), and only then applies its
- * kernel to the slots. So a rule is a pass-through - operands produced, one
- * kernel, the value into the node's own out slot - with nothing to check, nothing
- * to copy and nothing to follow: what an operand refers to has been settled by
- * the time the kernel sees it.
+ * workspace itself (c_dcg_node_expr_eval_operand, one slot at a time, as many as
+ * its operator takes), and only then applies its kernel to the slots. So a rule
+ * is a pass-through - operands produced, one kernel, the value into the node's own
+ * out slot - with nothing to check, nothing to count, nothing to copy and nothing
+ * to follow: what an operand refers to has been settled by the time the kernel
+ * sees it.
  *
  * WHICH rule runs is settled once, from the flat list (DCG_EXPR_EVAL_FNS), when
  * the node's operator is set - and where that answer is KEPT is what
@@ -1093,7 +1093,7 @@ static inline int c_dcg_node_expr_eval_neg(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operand, first */
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_neg(&node->out, &expr->args[0], NULL);
 }
@@ -1109,7 +1109,7 @@ static inline int c_dcg_node_expr_eval_not(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operand, first */
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_not(&node->out, &expr->args[0], NULL);
 }
@@ -1125,7 +1125,8 @@ static inline int c_dcg_node_expr_eval_add(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_add(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1141,7 +1142,8 @@ static inline int c_dcg_node_expr_eval_sub(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_sub(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1157,7 +1159,8 @@ static inline int c_dcg_node_expr_eval_mul(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_mul(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1173,7 +1176,8 @@ static inline int c_dcg_node_expr_eval_div(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_div(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1189,7 +1193,8 @@ static inline int c_dcg_node_expr_eval_floordiv(dcg_node* node, void* user_data)
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_floordiv(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1205,7 +1210,8 @@ static inline int c_dcg_node_expr_eval_pow(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_pow(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1221,7 +1227,8 @@ static inline int c_dcg_node_expr_eval_eq(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_eq(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1237,7 +1244,8 @@ static inline int c_dcg_node_expr_eval_ne(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_ne(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1253,7 +1261,8 @@ static inline int c_dcg_node_expr_eval_gt(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_gt(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1269,7 +1278,8 @@ static inline int c_dcg_node_expr_eval_ge(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_ge(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1285,7 +1295,8 @@ static inline int c_dcg_node_expr_eval_lt(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_lt(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1301,7 +1312,8 @@ static inline int c_dcg_node_expr_eval_le(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_le(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1318,7 +1330,8 @@ static inline int c_dcg_node_expr_eval_and(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_and(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1335,7 +1348,8 @@ static inline int c_dcg_node_expr_eval_or(dcg_node* node, void* user_data) {
     (void) user_data;
 
     dcg_expression_node* expr     = (dcg_expression_node*) node;
-    int                  ret_code = c_dcg_node_expr_eval_operands(expr); /* this node's own operands, first */
+    int                  ret_code = c_dcg_node_expr_eval_operand(expr, 0); /* the operands, left first */
+    if (ret_code == DCG_OK) ret_code = c_dcg_node_expr_eval_operand(expr, 1);
     if (ret_code != DCG_OK) return ret_code;
     return c_dcg_node_expr_apply_or(&node->out, &expr->args[0], &expr->args[1]);
 }
@@ -1624,65 +1638,44 @@ static inline int c_dcg_node_expr_apply_binary(dcg_var_t* out, dcg_op_code op, c
  * afterwards finds plain values and never has to ask where an operand came from
  * or follow anything.
  *
- * The loop is the FAMILY's, over its own fields: `components` and `args` are the
- * expression node's, so producing one from the other is this header's business,
- * and the rule that needs its operands asks for them itself. What running a node
- * MEANS is still the protocol's - the entry is c_dcg_node_eval, declared above -
- * and the walk knows nothing about operands at all.
+ * Producing them is the FAMILY's business, over its own fields: `components` and
+ * `args` are the expression node's, and the rule that needs its operands asks for
+ * them itself, slot by slot - it knows how many its operator takes, so nothing
+ * counts anything at run time. What running a node MEANS is still the protocol's
+ * - the entry is c_dcg_node_eval, declared above - and the walk knows nothing
+ * about operands at all.
  *
  * ONE SLOT AT A TIME, and that is the contract's shape rather than a convenience:
  * a component is run and its slot filled before the next one is touched, because
  * two operands may share storage and what one evaluation writes may be what the
  * other reads.
+ *
+ * What a rule does NOT do here is check its node over: a slot with no component
+ * bound is a malformed node, refused by c_dcg_node_eval() itself, and holding
+ * every rule to a shape that the bake pass is what establishes would be a test
+ * paid on every evaluation.
  */
 
 /**
  * @brief Run ONE component and write what it is worth into its operand slot.
  *
- * A slot that was never bound has no component to run and is left as it stands:
- * the node has nothing to read there, which is the state
- * c_dcg_node_expr_bind() left it in.
+ * The operand's value of the moment, fully dereferenced: the component's own
+ * evaluation produces its value into its out slot, and what lands here is that
+ * value as a literal - not a way back to it.
  *
  * @param node   Expression node whose operand to produce.
  * @param index  Which operand.
- * @return DCG_OK, or the code the component's own evaluation stopped with.
- */
-/**
- * @brief Run ONE component and write what it is worth into its operand slot.
- *
- * A slot that was never bound has no component to run and is left as it stands:
- * the node has nothing to read there, which is the state
- * c_dcg_node_expr_bind() left it in.
- *
- * @param node   Expression node whose operand to produce.
- * @param index  Which operand.
- * @return DCG_OK, or the code the component's own evaluation stopped with.
+ * @return DCG_OK, or the code the component's own evaluation stopped with
+ *         (DCG_ERR_INVALID_ARG included: a slot with no component bound has
+ *         nothing to run).
  */
 static inline int c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t index) {
     dcg_node* component = node->components[index];
-    if (!component) return DCG_OK;
 
     int ret_code = c_dcg_node_eval(component);
     if (ret_code != DCG_OK) return ret_code;
 
     c_dcg_var_snapshot(&node->args[index], &component->out);
-    return DCG_OK;
-}
-
-/**
- * @brief Run every component of a node, and fill the workspace with their values.
- *
- * What an operator rule calls before it applies anything: after this, `args[i]`
- * holds what `components[i]` is worth NOW, fully dereferenced.
- *
- * @param node  Expression node whose operands to produce.
- * @return DCG_OK, or the first failure a component raised.
- */
-static inline int c_dcg_node_expr_eval_operands(dcg_expression_node* node) {
-    for (size_t i = 0; i < node->n_args; i++) {
-        int ret_code = c_dcg_node_expr_eval_operand(node, i);
-        if (ret_code != DCG_OK) return ret_code;
-    }
     return DCG_OK;
 }
 
@@ -1840,7 +1833,7 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
  *
  * What is written here is the graph AS BUILT, and an evaluation overwrites it:
  * before the operator runs, the node's own rule re-fills every slot with the
- * value of the moment (see c_dcg_node_expr_eval_operands). So a populated slot is
+ * value of the moment (see c_dcg_node_expr_eval_operand). So a populated slot is
  * a starting point for reading the graph without running it - which is what
  * static analysis and the bake pass want - and never a promise about what an
  * evaluation will use. The components array is the record that stays true.

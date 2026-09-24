@@ -50,9 +50,10 @@
  * installed - there is no dummy to dispatch on.
  *
  * THE BOOKKEEPING, on the node's own context, once the three stages are done:
- * which stages completed (dcg_eval_stage bits), what the node ended with
- * (err_code), the run that wrote the value (eval_seq_id), how deep the node sat
- * (depth) and how many times it has been evaluated (visits). The node is then
+ * which stages completed and WHAT produced the value (dcg_eval_stage bits, the
+ * producer among them), what the node ended with (err_code), the run that wrote
+ * the value (eval_seq_id), how deep the node sat (depth) and how many times it
+ * has been evaluated (visits). The node is then
  * announced with DCG_NODE_EVENT_EVALUATED, carrying the run's id - so a
  * listener hears which run produced the value it is looking at.
  *
@@ -99,21 +100,9 @@
 
 // ========== Constants ==========
 
-/**
- * @brief How far a node's own evaluation got, as the bits it completed.
- *
- * The stages are a mask rather than a position because a node that failed in
- * the middle has genuinely completed the ones before it, and a caller asking
- * "did the value get produced?" wants an answer that does not depend on where
- * the failure happened to land.
- */
-typedef enum dcg_eval_stage {
-    DCG_EVAL_STAGE_NONE      = 0,       // Nothing ran.
-    DCG_EVAL_STAGE_PRE_EVAL  = 1 << 0,  // The pre hook ran and returned OK.
-    DCG_EVAL_STAGE_EVAL      = 1 << 1,  // The value is in the node's out slot.
-    DCG_EVAL_STAGE_POST_EVAL = 1 << 2,  // The post hook ran and returned OK.
-    DCG_EVAL_STAGE_DONE      = 1 << 3   // The node's own evaluation completed.
-} dcg_eval_stage;
+/* The stage mask a node records its evaluation in - and the producer bits that
+ * ride in it - are declared in c_node.h, where the context that carries them is:
+ * this header is above that one and fills the mask (see c_dcg_node_eval_hooks). */
 
 // ========== Structs ==========
 
@@ -149,7 +138,7 @@ static inline int                 c_dcg_root_node_eval_path_append(dcg_root_node
 static inline int                 c_dcg_node_eval_default(dcg_node* node);
 
 // The node's own evaluation
-static inline int                 c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage);
+static inline int                 c_dcg_node_eval_hooks(dcg_node* node);
 static inline int                 c_dcg_node_eval(dcg_node* node);
 static inline int                 c_dcg_node_dryrun(dcg_node* node, dcg_var_t* out);
 
@@ -398,26 +387,30 @@ static inline int c_dcg_node_eval_default(dcg_node* node) {
 // ========== The Node's Own Evaluation ==========
 
 /**
- * @brief Run a node's three stages, reporting how far they got.
+ * @brief Run a node's three stages, recording on the node how far they got.
  *
  * This is the protocol body: the pre hook, then the eval hook or the built-in
  * rule, then the post hook, each one skipped when the node carries no hook of
- * that kind. It writes nothing onto the node's context - the stages it completed
- * go out through `stage`, and the caller decides what to do with them, which is
- * what lets c_dcg_node_dryrun() leave a node as it found it.
+ * that kind. What it completed - and which of the three producers got the value
+ * there - is written onto the node's own context as it goes, because that record
+ * is about the node and belongs on it: a caller asking why a node failed reads
+ * the stage it stopped at off the node, not off a return it had to keep.
  *
- * @param node   Node to evaluate.
- * @param stage  Receives the bits of the stages that completed (may be NULL).
- *               A stage that FAILED is not among them: the mask says what the
- *               node got through, not where it stopped.
+ * @param node  Node to evaluate.
  * @return DCG_OK, or the code that stopped it.
  */
-static inline int c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage) {
+static inline int c_dcg_node_eval_hooks(dcg_node* node) {
     if (!node) return DCG_ERR_INVALID_ARG;
 
     dcg_node_eval_ctx* ctx  = &node->eval_ctx;
-    uint32_t           done = DCG_EVAL_STAGE_NONE;
+    uint32_t           done = DCG_EVAL_STAGE_NONE; /* the mask as it is built, before it is recorded */
     int                ret_code;
+
+    /* The record of this evaluation starts empty, and is written onto the node as
+     * it progresses rather than handed back to a caller: what ran, and what
+     * produced the value, is state about the node - and a failure leaves the
+     * stage it stopped at where anyone asking about the node can read it. */
+    ctx->stage = DCG_EVAL_STAGE_NONE;
 
     if (ctx->pre_eval_fn) {
         ret_code = ctx->pre_eval_fn(node, ctx->user_data);
@@ -425,7 +418,7 @@ static inline int c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage) {
             (void) fprintf(stderr, "[eval] pre  %s (0x%04x) %p -> %s\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node, c_dcg_ret_code_name(ret_code));
         }
         if (ret_code != DCG_OK) {
-            if (stage) *stage = done;
+            ctx->stage = done;
             return ret_code;
         }
     }
@@ -436,12 +429,13 @@ static inline int c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage) {
          * it is and the eval hook is not called. */
     }
     else if (ctx->eval_fn) {
+        done |= DCG_EVAL_STAGE_HOOK;
         ret_code = ctx->eval_fn(node, ctx->user_data);
         if (ctx->flags & DCG_EVAL_FLAG_TRACE) {
             (void) fprintf(stderr, "[eval] eval %s (0x%04x) %p -> %s\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node, c_dcg_ret_code_name(ret_code));
         }
         if (ret_code != DCG_OK) {
-            if (stage) *stage = done;
+            ctx->stage = done;
             return ret_code;
         }
     }
@@ -449,22 +443,24 @@ static inline int c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage) {
         /* The rule the node's type gave it, installed as the node was built: a
          * caller's hook is an override of it, so this is only reached when there
          * is none (see DCG_EVAL_DIRECT_HOOKS). */
+        done |= DCG_EVAL_STAGE_TYPE_RULE;
         ret_code = ctx->type_eval_fn(node, NULL);
         if (ctx->flags & DCG_EVAL_FLAG_TRACE) {
             (void) fprintf(stderr, "[eval] type %s (0x%04x) %p -> %s\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node, c_dcg_ret_code_name(ret_code));
         }
         if (ret_code != DCG_OK) {
-            if (stage) *stage = done;
+            ctx->stage = done;
             return ret_code;
         }
     }
     else {
+        done |= DCG_EVAL_STAGE_BUILTIN;
         ret_code = c_dcg_node_eval_default(node);
         if (ctx->flags & DCG_EVAL_FLAG_TRACE) {
             (void) fprintf(stderr, "[eval] def  %s (0x%04x) %p -> %s\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node, c_dcg_ret_code_name(ret_code));
         }
         if (ret_code != DCG_OK) {
-            if (stage) *stage = done;
+            ctx->stage = done;
             return ret_code;
         }
     }
@@ -476,13 +472,13 @@ static inline int c_dcg_node_eval_hooks(dcg_node* node, uint32_t* stage) {
             (void) fprintf(stderr, "[eval] post %s (0x%04x) %p -> %s\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node, c_dcg_ret_code_name(ret_code));
         }
         if (ret_code != DCG_OK) {
-            if (stage) *stage = done;
+            ctx->stage = done;
             return ret_code;
         }
     }
     done |= DCG_EVAL_STAGE_POST_EVAL | DCG_EVAL_STAGE_DONE;
 
-    if (stage) *stage = done;
+    ctx->stage = done;
     return DCG_OK;
 }
 
@@ -514,19 +510,18 @@ static inline int c_dcg_node_eval(dcg_node* node) {
 
     dcg_node_eval_ctx* ctx          = &node->eval_ctx;
     void*              previous_run = ctx->run;
-    uint32_t           stage        = DCG_EVAL_STAGE_NONE;
 
     ctx->run     = &lent;
-    int ret_code = c_dcg_node_eval_hooks(node, &stage);
+    int ret_code = c_dcg_node_eval_hooks(node);
     ctx->run     = previous_run;
 
-    /* What the node's OWN evaluation did is written onto it - what it ended with
-     * and how far it got - because those two are about this evaluation, and a
-     * caller that is told "it failed" is owed the stage it failed at. The state
-     * that belongs to a RUN stays as it was: this is not one, so it neither
-     * counts a visit, nor claims the depth, nor stamps a run id on the node. */
+    /* What the node's OWN evaluation did is written onto it by the protocol
+     * itself - the stage it got through and the code it ended with, stage
+     * included - because those are about this evaluation, and a caller that is
+     * told "it failed" is owed the stage it failed at. The state that belongs to
+     * a RUN stays as it was: this is not one, so it neither counts a visit, nor
+     * claims the depth, nor stamps a run id on the node. */
     ctx->err_code = ret_code;
-    ctx->stage    = stage;
 
     return ret_code;
 }
@@ -571,14 +566,12 @@ static inline int c_dcg_node_dryrun(dcg_node* node, dcg_var_t* out) {
     dcg_node_eval_ctx* ctx            = &node->eval_ctx;
     void*              previous_run   = ctx->run;
     dcg_var_t          previous_value = node->out;
-    uint32_t           stage          = DCG_EVAL_STAGE_NONE;
 
     ctx->run     = &lent;
-    int ret_code = c_dcg_node_eval_hooks(node, &stage);
+    int ret_code = c_dcg_node_eval_hooks(node);
     ctx->run     = previous_run;
 
     ctx->err_code = ret_code;
-    ctx->stage    = stage;
 
     if (out) *out = node->out; /* the answer goes to the caller ... */
     else c_dcg_var_dealloc(&node->out);
@@ -663,11 +656,9 @@ static inline int c_dcg_node_eval_visit(dcg_node* node, dcg_eval_run* run, size_
     void*              previous_run = ctx->run;
 
     ctx->run = run;
-    uint32_t stage;
-    int      ret_code = c_dcg_node_eval_hooks(node, &stage);
+    int      ret_code = c_dcg_node_eval_hooks(node);
     ctx->run          = previous_run;
 
-    ctx->stage       = stage;
     ctx->err_code    = ret_code;
     ctx->eval_seq_id = run->seq_id;
     ctx->depth       = depth;

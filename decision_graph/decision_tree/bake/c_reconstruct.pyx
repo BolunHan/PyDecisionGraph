@@ -3,9 +3,9 @@ from libc.stdio cimport fflush, fprintf, stderr
 from .c_const cimport dcg_variable_node
 from .c_edge cimport EDGE_REGISTRY, NodeEdgeCondition
 from .c_expr cimport dcg_expression_node
-from .c_hierarchy cimport dcg_breakpoint_node
+from .c_hierarchy cimport NodeEvalPathView, dcg_breakpoint_node, dcg_root_node
 from .c_logic_group cimport GROUP_REGISTRY, dcg_logic_group
-from .c_node cimport NODE_REGISTRY, c_dcg_node_root, dcg_node_type
+from .c_node cimport c_dcg_node_root, dcg_node_type
 from .c_var cimport c_dcg_var_pyunpack
 
 
@@ -134,8 +134,10 @@ cdef PlaceholderNode c_dcg_node_reconstruct_placeholder(dcg_node* header, bint o
 
 
 cdef RootLogicNode c_dcg_node_reconstruct_root(dcg_node* header, bint owner=False):
-    cdef RootLogicNode node = RootLogicNode.__new__(RootLogicNode)
+    cdef RootLogicNode  node = RootLogicNode.__new__(RootLogicNode)
+    cdef dcg_root_node* root = <dcg_root_node*> header
     c_dcg_node_attach_header(node, header, owner)
+    node.eval_path = NodeEvalPathView.c_from_header(&root.eval_path)
     node.c_register_node()
     return node
 

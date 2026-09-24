@@ -5,7 +5,7 @@ from cpython.ref cimport Py_XDECREF, Py_XINCREF
 from cpython.unicode cimport PyUnicode_AsUTF8
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_node cimport c_dcg_node_pypack
+from .c_const cimport c_dcg_node_pypack
 from .c_var cimport dcg_ret_code
 
 

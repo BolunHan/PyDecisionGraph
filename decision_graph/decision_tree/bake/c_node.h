@@ -186,13 +186,42 @@ typedef enum dcg_eval_flag {
 } dcg_eval_flag;
 
 /**
+ * @brief How far a node's own evaluation got, as the bits it completed.
+ *
+ * The stages are a mask rather than a position because a node that failed in
+ * the middle has genuinely completed the ones before it, and a caller asking
+ * "did the value get produced?" wants an answer that does not depend on where
+ * the failure happened to land. The producer bits ride in the same word for the
+ * same reason: which stage ran and what ran it are one answer about one
+ * evaluation, and splitting them across two fields would let them disagree.
+ *
+ * It lives in the NODE layer rather than with the protocol that fills it, because
+ * the node's own context records it (see dcg_node_eval_ctx.stage) and a context
+ * cannot name a type from a header above it.
+ */
+typedef enum dcg_eval_stage {
+    DCG_EVAL_STAGE_NONE      = 0,       // Nothing ran.
+    DCG_EVAL_STAGE_PRE_EVAL  = 1 << 0,  // The pre hook ran and returned OK.
+    DCG_EVAL_STAGE_EVAL      = 1 << 1,  // The value is in the node's out slot.
+    DCG_EVAL_STAGE_POST_EVAL = 1 << 2,  // The post hook ran and returned OK.
+    DCG_EVAL_STAGE_DONE      = 1 << 3,  // The node's own evaluation completed.
+
+    /* WHO produced the value, in the same word rather than in a field of its own:
+     * exactly one of these accompanies DCG_EVAL_STAGE_EVAL, so the mask says both
+     * how far the node got and what got it there - and a failure names the
+     * producer as readily as the stage it stopped at. */
+    DCG_EVAL_STAGE_HOOK      = 1 << 4,  // ... from the caller's eval hook.
+    DCG_EVAL_STAGE_TYPE_RULE = 1 << 5,  // ... from the rule the node's type gave it.
+    DCG_EVAL_STAGE_BUILTIN   = 1 << 6   // ... from the built-in evaluation, found from the type.
+} dcg_eval_stage;
+
+/**
  * @brief Which of the three eval hooks of a node.
  */
 typedef enum dcg_node_hook_type {
     DCG_HOOK_PRE_EVAL  = 0,  // Runs before the node is evaluated.
     DCG_HOOK_EVAL      = 1,  // Produces the node's value, into node->out.
-    DCG_HOOK_POST_EVAL = 2,  // Runs after the value is produced.
-    DCG_HOOK_COUNT     = 3   // Number of hook types (array bound).
+    DCG_HOOK_POST_EVAL = 2  // Runs after the value is produced.
 } dcg_node_hook_type;
 
 /**
@@ -221,11 +250,14 @@ typedef int (*dcg_node_hook_fn)(dcg_node* node, void* user_data);
  * separate slots rather than one: the layer's rule and somebody's callback are
  * different things, and only the second belongs to an installer.
  *
- * `stage` records how far the last evaluation of THIS node got, as the bits of
- * a dcg_eval_stage - the masked progression the protocol walks. `err_code` is
- * what that evaluation failed with, and `eval_seq_id` is the id of the run
- * that wrote the value, so a node can be asked which run it last took part in.
- * All three are written by the protocol and left alone by a dry run.
+ * `stage` records the last evaluation of THIS node twice over, in one word: how
+ * far it got (the progression the protocol walks) and WHAT produced its value -
+ * the caller's hook, the rule the node's type gave it, or the built-in
+ * evaluation (see dcg_eval_stage). `err_code` is what that evaluation failed
+ * with, and `eval_seq_id` is the id of the run that wrote the value, so a node
+ * can be asked which run it last took part in. All of them are written by the
+ * protocol; a dry run restores the node's VALUE, not this record, because what
+ * the record says is about the evaluation that just happened.
  */
 typedef struct dcg_node_eval_ctx {
     dcg_node_hook_fn pre_eval_fn;   // Runs before the node is evaluated.
@@ -236,7 +268,7 @@ typedef struct dcg_node_eval_ctx {
     void*            run;           // Per-run state owned by the evaluator.
     uint64_t         flags;         // dcg_eval_flag bits.
     dcg_ret_code     err_code;      // Outcome of the node's last evaluation.
-    uint32_t         stage;         // dcg_eval_stage bits completed by it.
+    dcg_eval_stage   stage;         // What ran, and what produced the value - see dcg_eval_stage.
     uint64_t         eval_seq_id;   // The run whose value the node holds.
     size_t           depth;         // Depth of this node at its last visit.
     size_t           visits;        // How many times the node was evaluated.
@@ -1610,7 +1642,7 @@ static inline dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator
     /* A stand-in is an action like any other, so it stands for itself from the
      * moment it exists - which is what a branch built over it reads before the
      * build has put anything there (see c_dcg_node_new_action). */
-    if (c_dcg_var_init_ptr(&node->out, node) != DCG_OK) {
+    if (c_dcg_var_init_node(&node->out, node) != DCG_OK) {
         c_dcg_node_free(node);
         return NULL;
     }

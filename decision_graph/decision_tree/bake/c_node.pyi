@@ -268,12 +268,39 @@ class LogicNode:
             The value the node came to hold, as a Python object.
 
         Raises:
-            RuntimeError: When the node cannot produce a value - an unevaluable
-                type, an operand outside its operator's domain, a read of an
-                entry with no value in it. The message names the node that
-                refused, the code it refused with, the stages it got through and
-                the run it was part of.
-            Exception: Whatever a hook raised, re-raised as it was.
+            EvalFailureError: When the node cannot produce a value - an
+                unevaluable type, an operand outside its operator's domain, a
+                read of an entry with no value in it, or a hook that refused the
+                node. It carries the node that refused, the code it ended with,
+                the stage that failed, what was running then and the run it
+                happened in, and a hook's own exception travels as its cause.
+        """
+        ...
+
+    def dryrun(self) -> Any:
+        """Ask this node what it WOULD evaluate to, and leave it as it was.
+
+        The same three stages run as in ``eval``, and then the node is put back
+        the way it was found: the value the evaluation produced comes back to the
+        caller instead of staying in the slot, and the slot keeps what it held.
+        The node's own outcome is still written - how far it got and what it
+        ended with - since that is about this evaluation; nothing about a run is,
+        because this is not one.
+
+        This is the question a build asks about a node it does not want to
+        disturb: what a branch says before a subtree under it is walked, and what
+        a node a walk has already valued says now.
+
+        It is ONE node, like ``eval`` on every node but a root: asking a root this
+        way asks for the root's own value, not for the decision its graph reaches.
+        A walk is ``RootLogicNode.eval``.
+
+        Returns:
+            The value the node would come to hold, as a Python object.
+
+        Raises:
+            EvalFailureError: When the node cannot produce a value, with the
+                fields and the message ``eval`` reports.
         """
         ...
 

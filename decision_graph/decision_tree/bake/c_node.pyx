@@ -11,8 +11,21 @@ from cbase.bytemap cimport c_bytemap_gen_seq_id
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_edge cimport C_AUTO_CONDITION, EDGE_REGISTRY, NO_CONDITION, NodeEdgeCondition, dcg_node_edge_condition
-from .c_var cimport VarView, c_dcg_ret_code_name, c_dcg_var_pyunpack, dcg_ret_code
-from ..exc import NodeTypeError
+from .c_var cimport VarView, c_dcg_ret_code_name, c_dcg_var_dealloc, c_dcg_var_init, c_dcg_var_pyunpack, dcg_ret_code
+from ..exc import EvalFailureError, NodeTypeError
+
+
+cdef inline int c_eval_hook_code(object exc):
+    """The code a raised hook ends its node with: the one it carries, or the hook's own error.
+
+    A hook hands the protocol a code two ways - returning it (a Cython hook, and a
+    Python one that returns an int) or raising an EvalFailureError that carries it.
+    Raising anything else is the generic hook failure, and the exception itself
+    travels as the cause of what the evaluation reports.
+    """
+    if isinstance(exc, EvalFailureError) and exc.code:
+        return <int> exc.code
+    return dcg_ret_code.DCG_ERR_HOOK
 
 
 cdef const size_t DCG_RENDER_BUFSIZE = 1 << 16
@@ -99,7 +112,7 @@ cdef class LogicNode:
                 ret_code = wrapper.c_pre_eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             if ret_code != dcg_ret_code.DCG_OK:
                 return ret_code
         if flags & (dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE << dcg_node_hook_type.DCG_HOOK_PRE_EVAL):
@@ -107,7 +120,7 @@ cdef class LogicNode:
                 result = wrapper.pre_eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             return dcg_ret_code.DCG_OK if result is None else <int> result
         return dcg_ret_code.DCG_OK
 
@@ -123,7 +136,7 @@ cdef class LogicNode:
                 ret_code = wrapper.c_eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             if ret_code != dcg_ret_code.DCG_OK:
                 return ret_code
         if flags & (dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE << dcg_node_hook_type.DCG_HOOK_EVAL):
@@ -131,7 +144,7 @@ cdef class LogicNode:
                 result = wrapper.eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             return dcg_ret_code.DCG_OK if result is None else <int> result
         return dcg_ret_code.DCG_OK
 
@@ -147,7 +160,7 @@ cdef class LogicNode:
                 ret_code = wrapper.c_post_eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             if ret_code != dcg_ret_code.DCG_OK:
                 return ret_code
         if flags & (dcg_eval_override_flag.DCG_EVAL_PY_OVERRIDE << dcg_node_hook_type.DCG_HOOK_POST_EVAL):
@@ -155,7 +168,7 @@ cdef class LogicNode:
                 result = wrapper.post_eval_fn()
             except BaseException as exc:
                 wrapper.c_eval_exception = exc
-                return dcg_ret_code.DCG_ERR_HOOK
+                return c_eval_hook_code(exc)
             return dcg_ret_code.DCG_OK if result is None else <int> result
         return dcg_ret_code.DCG_OK
 
@@ -212,7 +225,7 @@ cdef class LogicNode:
                 raise RuntimeError(f'c_dcg_node_register_eval_hook failed with err code: {ret_code}')
 
     @staticmethod
-    cdef str c_eval_stage_names(uint32_t stage):
+    cdef list c_eval_stage_name_list(dcg_eval_stage stage):
         cdef list names = []
         if stage & dcg_eval_stage.DCG_EVAL_STAGE_PRE_EVAL:
             names.append('pre')
@@ -222,29 +235,98 @@ cdef class LogicNode:
             names.append('post')
         if stage & dcg_eval_stage.DCG_EVAL_STAGE_DONE:
             names.append('done')
+        return names
+
+    @staticmethod
+    cdef str c_eval_stage_names(dcg_eval_stage stage):
+        cdef list names = LogicNode.c_eval_stage_name_list(stage)
         return ', '.join(names) if names else 'none'
 
+    @staticmethod
+    cdef str c_eval_failed_stage_name(dcg_eval_stage stage):
+        """The stage a failure stopped at, read off the mask of what completed.
+
+        A failure that happened AT a stage is a stage that did not complete, and
+        the protocol walks them in order - so the first one missing from the mask
+        is where it stopped. None when the mask says the node got through all of
+        them, which is not a failure a node reports.
+        """
+        if not (stage & dcg_eval_stage.DCG_EVAL_STAGE_PRE_EVAL):
+            return 'pre'
+        if not (stage & dcg_eval_stage.DCG_EVAL_STAGE_EVAL):
+            return 'eval'
+        if not (stage & dcg_eval_stage.DCG_EVAL_STAGE_POST_EVAL):
+            return 'post'
+        return None
+
+    @staticmethod
+    cdef str c_eval_source_name(dcg_eval_stage stage):
+        """What was running, read off the same mask that says how far it got.
+
+        The two questions a failure asks - which stage, and what was running - are
+        read from one word: the producer bits are the eval stage's own, and a node
+        that never got that far has the stage itself for an answer, because the pre
+        and post hooks produce no value - what ran there IS the hook.
+        """
+        cdef str failed_at = LogicNode.c_eval_failed_stage_name(stage)
+        if failed_at == 'pre':
+            return 'pre_hook'
+        if failed_at == 'post':
+            return 'post_hook'
+        if stage & dcg_eval_stage.DCG_EVAL_STAGE_HOOK:
+            return 'hook'
+        if stage & dcg_eval_stage.DCG_EVAL_STAGE_TYPE_RULE:
+            return 'type_rule'
+        if stage & dcg_eval_stage.DCG_EVAL_STAGE_BUILTIN:
+            return 'builtin'
+        return None
+
     cdef void c_check_eval_code(self, int ret_code, dcg_node* subject=NULL):
+        """Report a failed evaluation as an EvalFailureError - the one place it is built.
+
+        Every door that evaluates a node comes through here, so a failure reports
+        the same things whichever one asked: the node that refused, the code it
+        ended with, the stage that failed, what was running (the built-in rule, the
+        rule the node's type installed, or a hook), and the run it happened in.
+
+        WHERE it stopped is the failing node's own state, not this wrapper's: in a
+        walk the node that reported the code is the one whose stages say how far it
+        got, and a root that reached it is not the node that refused.
+
+        A hook's own exception - kept by the adapter that caught it - becomes the
+        CAUSE of this one, so nothing the hook said is lost and the code the node
+        ends with is still the protocol's to name.
+        """
         if ret_code == dcg_ret_code.DCG_OK:
             return
 
-        cdef object exc = self.c_eval_exception
-        if exc is not None:
-            self.c_eval_exception = None
-            raise exc
+        cdef object cause = self.c_eval_exception
+        self.c_eval_exception = None
 
-        # WHERE it stopped is the failing node's own state, not this wrapper's:
-        # in a walk the node that reported the code is the one whose stages say
-        # how far it got, and a root that reached it is not the node that refused.
-        cdef dcg_node*          failed = subject if subject else self.header
-        cdef dcg_node_eval_ctx* ctx = &failed.eval_ctx
-        cdef str                run = f'run {ctx.eval_seq_id:#0x}' if ctx.eval_seq_id else 'no run'
-        cdef str                text = PyUnicode_FromString(failed.repr) if failed.repr else 'unrepr'
-        raise RuntimeError(
-            f'{PyUnicode_FromString(c_dcg_node_type_name(failed.ntype))}({text!r}) at {<uintptr_t> failed:#0x} '
-            f'failed to evaluate: {PyUnicode_FromString(c_dcg_ret_code_name(<dcg_ret_code> ret_code))} ({ret_code}); '
-            f'stages completed: {LogicNode.c_eval_stage_names(ctx.stage)}; {run}'
-        )
+        cdef dcg_node*          failed    = subject if subject else self.header
+        cdef dcg_node_eval_ctx* ctx       = &failed.eval_ctx
+        cdef str                code      = PyUnicode_FromString(c_dcg_ret_code_name(<dcg_ret_code> ret_code))
+        cdef str                run       = f'run {ctx.eval_seq_id:#0x}' if ctx.eval_seq_id else 'no run'
+        cdef str                text      = PyUnicode_FromString(failed.repr) if failed.repr else 'unrepr'
+        cdef str                type_str  = PyUnicode_FromString(c_dcg_node_type_name(failed.ntype))
+        cdef object             failed_at = LogicNode.c_eval_failed_stage_name(ctx.stage)
+        cdef object             source    = LogicNode.c_eval_source_name(ctx.stage)
+        cdef str                stopped   = f'; stopped at {failed_at} in {source}' if failed_at and source else ''
+
+        raise EvalFailureError(
+            f'{type_str}({text!r}) at {<uintptr_t> failed:#0x} failed to evaluate: {code} ({ret_code}); '
+            f'stages completed: {LogicNode.c_eval_stage_names(ctx.stage)}; {run}{stopped}',
+            code=ret_code,
+            code_name=code,
+            node=NODE_REGISTRY[<uintptr_t> failed],
+            node_type=type_str,
+            node_repr=text,
+            address=<uintptr_t> failed,
+            source=source,
+            failed_at=failed_at,
+            stages=tuple(LogicNode.c_eval_stage_name_list(ctx.stage)),
+            run_id=ctx.eval_seq_id,
+        ) from cause
 
     # === Cython Internal Binding ===
 
@@ -394,6 +476,21 @@ cdef class LogicNode:
     def eval(self):
         self.c_eval()
         return c_dcg_var_pyunpack(&self.header.out)
+
+    def dryrun(self):
+        if not self.header:
+            raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+
+        cdef dcg_var_t value
+        c_dcg_var_init(&value)
+
+        cdef int    ret_code = c_dcg_node_dryrun(self.header, &value)
+        cdef object answer   = c_dcg_var_pyunpack(&value)
+        c_dcg_var_dealloc(&value)
+
+        if ret_code != dcg_ret_code.DCG_OK:
+            self.c_check_eval_code(ret_code)
+        return answer
 
     property eval_hooks:
         def __get__(self):

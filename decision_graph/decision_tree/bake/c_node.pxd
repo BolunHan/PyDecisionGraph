@@ -60,11 +60,20 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
         DCG_EVAL_FLAG_BREAKPOINT
         DCG_EVAL_FLAG_TRACE
 
+    ctypedef enum dcg_eval_stage:
+        DCG_EVAL_STAGE_NONE
+        DCG_EVAL_STAGE_PRE_EVAL
+        DCG_EVAL_STAGE_EVAL
+        DCG_EVAL_STAGE_POST_EVAL
+        DCG_EVAL_STAGE_DONE
+        DCG_EVAL_STAGE_HOOK
+        DCG_EVAL_STAGE_TYPE_RULE
+        DCG_EVAL_STAGE_BUILTIN
+
     ctypedef enum dcg_node_hook_type:
         DCG_HOOK_PRE_EVAL
         DCG_HOOK_EVAL
         DCG_HOOK_POST_EVAL
-        DCG_HOOK_COUNT
 
     ctypedef int (*dcg_node_hook_fn)(dcg_node* node, void* user_data) noexcept
 
@@ -77,7 +86,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
         void* run
         uint64_t flags
         dcg_ret_code err_code
-        uint32_t stage
+        dcg_eval_stage stage
         uint64_t eval_seq_id
         size_t depth
         size_t visits
@@ -258,13 +267,6 @@ cdef extern from "decision_graph/decision_tree/bake/c_hierarchy.h":
 
 
 cdef extern from "decision_graph/decision_tree/bake/c_eval.h":
-    ctypedef enum dcg_eval_stage:
-        DCG_EVAL_STAGE_NONE
-        DCG_EVAL_STAGE_PRE_EVAL
-        DCG_EVAL_STAGE_EVAL
-        DCG_EVAL_STAGE_POST_EVAL
-        DCG_EVAL_STAGE_DONE
-
     ctypedef struct dcg_eval_run:
         uint64_t     seq_id
         dcg_ret_code code
@@ -339,7 +341,16 @@ cdef class LogicNode:
     cdef void c_bind_eval_callback(self)
 
     @staticmethod
-    cdef str c_eval_stage_names(uint32_t stage)
+    cdef list c_eval_stage_name_list(dcg_eval_stage stage)
+
+    @staticmethod
+    cdef str c_eval_stage_names(dcg_eval_stage stage)
+
+    @staticmethod
+    cdef str c_eval_failed_stage_name(dcg_eval_stage stage)
+
+    @staticmethod
+    cdef str c_eval_source_name(dcg_eval_stage stage)
 
     cdef void c_check_eval_code(self, int ret_code, dcg_node* subject=?)
 

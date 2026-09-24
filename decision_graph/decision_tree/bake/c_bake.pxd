@@ -1,4 +1,5 @@
 from libc.stdint cimport uint64_t
+from libcpp cimport bool as c_bool
 
 from cbase.allocator_protocol cimport allocator_protocol
 
@@ -28,6 +29,15 @@ cdef extern from "decision_graph/decision_tree/bake/c_bake.h":
     void c_dcg_bake_input_init(dcg_bake_input* input) noexcept nogil
     dcg_bake_report* c_dcg_bake_report_new(allocator_protocol* allocator) noexcept nogil
     void c_dcg_bake_report_free(dcg_bake_report* report) noexcept nogil
+
+    void c_dcg_bake_fail(dcg_bake_report* report, const dcg_node* node, dcg_ret_code err, c_bool* valid) noexcept nogil
+    void c_dcg_bake_node_check(const dcg_node* node, dcg_bake_report* report, c_bool* valid) noexcept nogil
+    void c_dcg_bake_node_lock(dcg_node* node, dcg_bake_report* report) noexcept nogil
+    void c_dcg_bake_walk(dcg_node* node, dcg_bake_report* report, size_t depth, c_bool* valid) noexcept nogil
+    void c_dcg_bake_lock_walk(dcg_node* node, dcg_bake_report* report) noexcept nogil
+    void c_dcg_bake_unmark_walk(dcg_node* node) noexcept nogil
+    int c_dcg_bake_prepare_record(dcg_root_node* root, dcg_bake_report* report) noexcept nogil
+
     int c_dcg_root_node_bake(dcg_root_node* root, const dcg_bake_input* input, dcg_bake_report* report) noexcept nogil
 
 

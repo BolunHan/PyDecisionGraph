@@ -3,6 +3,7 @@ from .c_var cimport (
     DCG_VAR_STRING_MAXLEN,
     DCG_VIGILANT,
     dcg_ret_code,
+    dcg_var_numeric,
     dcg_var_type_mask,
     dcg_var_type,
     dcg_d_vector_t,
@@ -50,6 +51,7 @@ from .c_var cimport (
     c_dcg_var_ref_level,
     c_dcg_var_is_ref,
     c_dcg_var_ref_base,
+    c_dcg_var_numeric_of,
     c_dcg_ret_code_name,
     c_dcg_var_type_name,
     c_dcg_var_is_numeric,
@@ -69,6 +71,7 @@ from .c_var cimport (
     c_dcg_var_as_dvector,
     c_dcg_var_as_dmatrix,
     c_dcg_var_cast,
+    c_dcg_var_snapshot,
     c_dcg_var_format,
     c_dcg_var_print,
     c_dcg_var_pypack,
@@ -136,6 +139,8 @@ from .c_node cimport (
     dcg_node_hook_type,
     dcg_node_hook_fn,
     dcg_node_eval_ctx,
+    dcg_eval_stage,
+    dcg_eval_run,
     dcg_node_event,
     dcg_node_callback_fn,
     dcg_node_callback_ctx,
@@ -161,6 +166,8 @@ from .c_node cimport (
     c_dcg_node_free,
     c_dcg_node_set_repr,
     c_dcg_node_set_string,
+    c_dcg_node_register_eval_hook,
+    c_dcg_node_unregister_eval_hooks,
     c_dcg_node_register_callback,
     c_dcg_node_unregister_callback,
     c_dcg_node_invoke_callbacks,
@@ -218,7 +225,13 @@ from .c_node cimport (
     c_dcg_node_format_line,
     c_dcg_node_render_walk,
     c_dcg_node_collect_leaves_walk,
-    c_dcg_node_collect_descendants_walk
+    c_dcg_node_collect_descendants_walk,
+    c_dcg_node_eval,
+    c_dcg_node_dryrun,
+    c_dcg_node_eval_graph,
+    c_dcg_node_eval_path_new,
+    c_dcg_node_eval_path_free,
+    c_dcg_root_node_eval
 )
 
 from .c_const cimport (
@@ -244,6 +257,7 @@ from .c_const cimport (
 from .c_expr cimport (
     DCG_EXPR_DEFAULT_ARGS,
     dcg_op_code,
+    dcg_expr_apply_fn,
     dcg_op_mask,
     dcg_expression_node,
     c_dcg_node_new_expr,
@@ -253,6 +267,50 @@ from .c_expr cimport (
     c_dcg_node_new_expr_ternary,
     c_dcg_node_new_expr_call,
     c_dcg_node_expr_bind,
+
+    c_dcg_node_expr_set_op,
+    c_dcg_node_expr_apply_fn_of,
+    c_dcg_node_expr_apply_refuse,
+    c_dcg_node_expr_apply_neg,
+    c_dcg_node_expr_apply_not,
+    c_dcg_node_expr_apply_add,
+    c_dcg_node_expr_apply_sub,
+    c_dcg_node_expr_apply_mul,
+    c_dcg_node_expr_apply_div,
+    c_dcg_node_expr_apply_floordiv,
+    c_dcg_node_expr_apply_pow,
+    c_dcg_node_expr_apply_eq,
+    c_dcg_node_expr_apply_ne,
+    c_dcg_node_expr_apply_gt,
+    c_dcg_node_expr_apply_ge,
+    c_dcg_node_expr_apply_lt,
+    c_dcg_node_expr_apply_le,
+    c_dcg_node_expr_apply_and,
+    c_dcg_node_expr_apply_or,
+    c_dcg_node_expr_apply_unary,
+    c_dcg_node_expr_apply_binary,
+    c_dcg_node_expr_eval_operand,
+    c_dcg_node_expr_eval,
+    c_dcg_node_expr_eval_refuse,
+    c_dcg_node_expr_eval_unknown,
+    c_dcg_node_expr_eval_ternary,
+    c_dcg_node_expr_eval_call,
+    c_dcg_node_expr_eval_neg,
+    c_dcg_node_expr_eval_not,
+    c_dcg_node_expr_eval_add,
+    c_dcg_node_expr_eval_sub,
+    c_dcg_node_expr_eval_mul,
+    c_dcg_node_expr_eval_div,
+    c_dcg_node_expr_eval_floordiv,
+    c_dcg_node_expr_eval_pow,
+    c_dcg_node_expr_eval_eq,
+    c_dcg_node_expr_eval_ne,
+    c_dcg_node_expr_eval_gt,
+    c_dcg_node_expr_eval_ge,
+    c_dcg_node_expr_eval_lt,
+    c_dcg_node_expr_eval_le,
+    c_dcg_node_expr_eval_and,
+    c_dcg_node_expr_eval_or,
     c_dcg_node_expr_alias,
     c_dcg_node_expr_op_style,
     c_dcg_node_expr_func_style
@@ -284,8 +342,11 @@ from .c_hierarchy cimport (
     c_dcg_node_teardown_root,
     c_dcg_node_remove,
     c_dcg_node_clear_children,
-    c_dcg_node_clean
+    c_dcg_node_clean,
+
+    NodeEvalPathView
 )
+
 
 from .c_logic_group cimport (
     dcg_node_type,
@@ -336,6 +397,7 @@ from .c_logic_group cimport (
 )
 
 from .c_collections cimport (
+    c_dcg_node_mapping_var_node_eval_hook,
     DCG_MAPPING_DEFAULT_CAPACITY,
     c_dcg_mapping_lgroup_dealloc,
     dcg_mapping_lgroup,
@@ -348,7 +410,7 @@ from .c_collections cimport (
     c_dcg_mapping_lgroup_set_int,
     c_dcg_mapping_lgroup_set_offset,
     c_dcg_mapping_lgroup_set_bool,
-    c_dcg_mapping_lgroup_get_var,
+    c_dcg_mapping_lgroup_get_var_idx,
     c_dcg_mapping_lgroup_get_node,
     c_dcg_mapping_lgroup_get_slot,
     c_dcg_mapping_lgroup_get_create_slot

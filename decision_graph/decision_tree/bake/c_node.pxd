@@ -283,6 +283,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_eval.h":
 
     dcg_node_eval_path* c_dcg_node_eval_path_new(size_t capacity, allocator_protocol* allocator) noexcept nogil
     void c_dcg_node_eval_path_free(dcg_node_eval_path* path) noexcept nogil
+    int c_dcg_root_node_eval_path_reserve(dcg_root_node* root, size_t capacity) noexcept nogil
 
 
 cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":

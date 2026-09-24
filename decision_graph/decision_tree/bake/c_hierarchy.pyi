@@ -64,12 +64,13 @@ class RootLogicNode(LogicNode):
             that leaf holds.
 
         Raises:
-            RuntimeError: When the walk could not reach a leaf - a read of an
+            EvalFailureError: When the walk could not reach a leaf - a read of an
                 entry with no value in it, a branch whose value selected no arm
-                and which has no fallback - with the ``DCG_ERR_*`` name in the
-                message. The record still holds the nodes reached before it
-                stopped.
-            Exception: Whatever a hook raised, re-raised as it was.
+                and which has no fallback, or a node a hook refused. It names the
+                node that refused, with the code, the stage and what was running
+                (``node`` is the node the record reports as ``failed``), and a
+                hook's own exception travels as its cause. The record still holds
+                the nodes reached before it stopped.
         """
         ...
 

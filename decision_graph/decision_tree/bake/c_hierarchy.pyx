@@ -39,8 +39,6 @@ cdef class RootLogicNode(LogicNode):
         if not leaf:
             raise RuntimeError(f'{self.__class__.__name__} reached no leaf and reported no error.')
 
-        if c_dcg_node_type_is_action(leaf.ntype):
-            return NODE_REGISTRY[<uintptr_t> leaf]
         return c_dcg_var_pyunpack(&leaf.out)
 
 

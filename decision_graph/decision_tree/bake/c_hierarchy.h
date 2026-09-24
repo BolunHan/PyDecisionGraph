@@ -510,7 +510,7 @@ static inline int c_dcg_node_clean(dcg_node* node) {
     /* An action's slot is the node itself, written when it was built rather than
      * produced by any evaluation - so a clean that empties the slot has to put it
      * back, or the node stops being its own value for good. */
-    if (c_dcg_node_type_is_action(node->ntype)) (void) c_dcg_var_init_ptr(&node->out, node);
+    if (c_dcg_node_type_is_action(node->ntype)) (void) c_dcg_var_init_node(&node->out, node);
 
     node->eval_ctx.run    = NULL;
     node->eval_ctx.flags  = DCG_EVAL_FLAG_NONE;

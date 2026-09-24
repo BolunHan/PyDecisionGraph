@@ -207,16 +207,16 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
 // Operands
 static inline int                  c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, dcg_node* input);
 
-// Running a node - the protocol entry the operand step drives (defined in c_eval.h,
-// which is above this family: the declaration is what makes the cycle safe)
-static inline int                  c_dcg_node_eval(dcg_node* node, bool inplace);
-
 // Evaluation - what this family's nodes evaluate to
 static inline int                  c_dcg_node_expr_set_op(dcg_expression_node* node, dcg_op_code op);
 static inline size_t               c_dcg_op_code_index(dcg_op_code op);
 static inline dcg_expr_apply_fn    c_dcg_node_expr_apply_fn_of(dcg_node_type ntype, dcg_op_code op);
 static inline int                  c_dcg_node_expr_apply_unary(dcg_var_t* out, dcg_op_code op, const dcg_var_t* a);
 static inline int                  c_dcg_node_expr_apply_binary(dcg_var_t* out, dcg_op_code op, const dcg_var_t* a, const dcg_var_t* b);
+
+// Running a node - the protocol entry the operand step drives (defined in c_eval.h,
+// which is above this family: the declaration is what makes the cycle safe)
+static inline int                  c_dcg_node_eval(dcg_node* node, bool inplace);
 
 // Operands at run time - the workspace, filled from this node's own components
 static inline int                  c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t index);
@@ -285,7 +285,7 @@ static inline int                  c_dcg_node_expr_func_style(dcg_node* const* i
  * declarations, so that a translation unit entering through this header has them
  * by the time the protocol parses, and a translation unit entering through the
  * protocol gets them when it reaches this header from the other side. The
- * forward declaration below is what makes the second order work.
+ * forward declaration above is what makes the second order work.
  */
 #include <decision_graph/decision_tree/bake/c_eval.h>
 
@@ -295,19 +295,19 @@ static inline int                  c_dcg_node_expr_func_style(dcg_node* const* i
  * Operator names, one table per family. The variant numbers start at 1, so the
  * table index is the variant minus one.
  */
-static const char* const  DCG_OP_ARITH_NAMES[]   = {"ADD", "SUB", "MUL", "DIV", "FLOORDIV", "POW", "NEG"};
-static const char* const  DCG_OP_COMPARE_NAMES[] = {"EQ", "NE", "GT", "GE", "LT", "LE"};
-static const char* const  DCG_OP_LOGIC_NAMES[]   = {"AND", "OR", "NOT"};
-static const char* const  DCG_OP_ACCESS_NAMES[]  = {"ATTR", "GETITEM"};
+static const char* const           DCG_OP_ARITH_NAMES[]   = {"ADD", "SUB", "MUL", "DIV", "FLOORDIV", "POW", "NEG"};
+static const char* const           DCG_OP_COMPARE_NAMES[] = {"EQ", "NE", "GT", "GE", "LT", "LE"};
+static const char* const           DCG_OP_LOGIC_NAMES[]   = {"AND", "OR", "NOT"};
+static const char* const           DCG_OP_ACCESS_NAMES[]  = {"ATTR", "GETITEM"};
 
 /*
  * Operator symbols, one table per family, mirroring the capi's op_repr - the
  * form a node's repr is built from.
  */
-static const char* const  DCG_OP_ARITH_SYMBOLS[]   = {"+", "-", "*", "/", "//", "**", "-"};
-static const char* const  DCG_OP_COMPARE_SYMBOLS[] = {"==", "!=", ">", ">=", "<", "<="};
-static const char* const  DCG_OP_LOGIC_SYMBOLS[]   = {"&", "|", "~"};
-static const char* const  DCG_OP_ACCESS_SYMBOLS[]  = {".", "[]"};
+static const char* const           DCG_OP_ARITH_SYMBOLS[]   = {"+", "-", "*", "/", "//", "**", "-"};
+static const char* const           DCG_OP_COMPARE_SYMBOLS[] = {"==", "!=", ">", ">=", "<", "<="};
+static const char* const           DCG_OP_LOGIC_SYMBOLS[]   = {"&", "|", "~"};
+static const char* const           DCG_OP_ACCESS_SYMBOLS[]  = {".", "[]"};
 
 /**
  * @brief The symbol of an operator ("+", "==", ...) as an arity writes it.
@@ -322,7 +322,7 @@ static const char* const  DCG_OP_ACCESS_SYMBOLS[]  = {".", "[]"};
  * @return Static string; "" for DCG_OP_NONE, an unknown operator, or an arity
  *         that writes nothing.
  */
-static inline const char* c_dcg_op_code_symbol(dcg_op_code op, size_t n_args) {
+static inline const char*          c_dcg_op_code_symbol(dcg_op_code op, size_t n_args) {
     if (op == DCG_OP_NONE) return "";
     if (n_args < 1 || n_args > 2) return ""; /* the if-form and the calls write none */
 
@@ -1636,6 +1636,17 @@ static inline int c_dcg_node_expr_apply_binary(dcg_var_t* out, dcg_op_code op, c
  * other reads.
  */
 
+/**
+ * @brief Run ONE component and write what it is worth into its operand slot.
+ *
+ * A slot that was never bound has no component to run and is left as it stands:
+ * the node has nothing to read there, which is the state
+ * c_dcg_node_expr_bind() left it in.
+ *
+ * @param node   Expression node whose operand to produce.
+ * @param index  Which operand.
+ * @return DCG_OK, or the code the component's own evaluation stopped with.
+ */
 /**
  * @brief Run ONE component and write what it is worth into its operand slot.
  *

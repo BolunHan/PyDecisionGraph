@@ -10,8 +10,16 @@
 
 #include <decision_graph/decision_tree/bake/c_action.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
-#include <decision_graph/decision_tree/bake/c_expr.h>
 #include <decision_graph/decision_tree/bake/c_node.h>
+
+/*
+ * The expression family, DECLARED rather than included: its include sits at the
+ * bottom (see the note there), and these two are all this header's body names
+ * before it - the family's node as a cast, and the family's own free. Both are
+ * satisfied by a pointer, so the incomplete type is enough.
+ */
+typedef struct dcg_expression_node dcg_expression_node;
+static inline void                 c_dcg_node_free_expr(dcg_expression_node* node);
 
 /*
  * The types the graph's own structure is made of, and the one way a graph is
@@ -512,5 +520,16 @@ static inline int c_dcg_node_clean(dcg_node* node) {
     if (ret >= 0 && !had_children) c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CHILD_CLEARED, node, (uint64_t) -1);
     return ret;
 }
+
+/*
+ * The expression family, and through it the protocol - LAST, because the two are
+ * a cycle with this header: this one frees the family's nodes by type, and the
+ * protocol's walk needs the root and the path record this header defines, both
+ * as COMPLETE types. Including either one up top would parse it while this
+ * header's own structs are still unread, which is the one order that cannot
+ * work. Down here they are all declared, and the header is finished but for this
+ * line, so the cycle closes with every type already known.
+ */
+#include <decision_graph/decision_tree/bake/c_expr.h>
 
 #endif  // C_DCG_BAKE_HIERARCHY_H

@@ -216,7 +216,7 @@ static inline int                  c_dcg_node_expr_apply_binary(dcg_var_t* out, 
 
 // Running a node - the protocol entry the operand step drives (defined in c_eval.h,
 // which is above this family: the declaration is what makes the cycle safe)
-static inline int                  c_dcg_node_eval(dcg_node* node, bool inplace);
+static inline int                  c_dcg_node_eval(dcg_node* node);
 
 // Operands at run time - the workspace, filled from this node's own components
 static inline int                  c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t index);
@@ -1662,7 +1662,7 @@ static inline int c_dcg_node_expr_eval_operand(dcg_expression_node* node, size_t
     dcg_node* component = node->components[index];
     if (!component) return DCG_OK;
 
-    int ret_code = c_dcg_node_eval(component, true);
+    int ret_code = c_dcg_node_eval(component);
     if (ret_code != DCG_OK) return ret_code;
 
     c_dcg_var_snapshot(&node->args[index], &component->out);

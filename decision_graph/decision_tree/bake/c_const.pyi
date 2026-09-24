@@ -7,6 +7,10 @@ entry, or in another node's slot it was bound to - and the node is the read of
 it, so what it answers with is what that place holds at the moment it is read.
 
 Both compose: an operand of an expression, a leaf of a branch.
+
+Both compose with a Python value as readily as with a node: a value with no node
+of its own becomes the literal that carries it, so ``5 + read`` and ``read + 5``
+build the same nodes as the forms written out with a ``ConstantNode``.
 """
 
 from typing import Any
@@ -37,35 +41,59 @@ class ConstantNode(LogicNode):
         """
         ...
 
-    def __add__(self, other: LogicNode) -> BinaryExpression:
+    def __add__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a sum expression with another node."""
         ...
 
-    def __sub__(self, other: LogicNode) -> BinaryExpression:
+    def __radd__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a sum expression with a Python value on the left."""
+        ...
+
+    def __sub__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a difference expression with another node."""
         ...
 
-    def __mul__(self, other: LogicNode) -> BinaryExpression:
+    def __rsub__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a difference expression with a Python value on the left."""
+        ...
+
+    def __mul__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a product expression with another node."""
         ...
 
-    def __truediv__(self, other: LogicNode) -> BinaryExpression:
+    def __rmul__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a product expression with a Python value on the left."""
+        ...
+
+    def __truediv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a division expression with another node."""
         ...
 
-    def __floordiv__(self, other: LogicNode) -> BinaryExpression:
+    def __rtruediv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a division expression with a Python value on the left."""
+        ...
+
+    def __floordiv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a floor-division expression with another node."""
         ...
 
-    def __pow__(self, other: LogicNode) -> BinaryExpression:
+    def __rfloordiv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a floor-division expression with a Python value on the left."""
+        ...
+
+    def __pow__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a power expression with another node."""
+        ...
+
+    def __rpow__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a power expression with a Python value on the left."""
         ...
 
     def __neg__(self) -> UnaryExpression:
         """Compose a negation of this literal."""
         ...
 
-    def __eq__(self, other: LogicNode) -> BinaryExpression:
+    def __eq__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose an equality CONDITION with another node.
 
         Comparing two nodes builds the comparison node, as it does in the capi -
@@ -73,7 +101,7 @@ class ConstantNode(LogicNode):
         """
         ...
 
-    def __ne__(self, other: LogicNode) -> BinaryExpression:
+    def __ne__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose an inequality condition with another node."""
         ...
 
@@ -81,28 +109,36 @@ class ConstantNode(LogicNode):
         """Hash by the C block's address, so a node can key a dict."""
         ...
 
-    def __lt__(self, other: LogicNode) -> BinaryExpression:
+    def __lt__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a less-than condition with another node."""
         ...
 
-    def __le__(self, other: LogicNode) -> BinaryExpression:
+    def __le__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a less-or-equal condition with another node."""
         ...
 
-    def __gt__(self, other: LogicNode) -> BinaryExpression:
+    def __gt__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a greater-than condition with another node."""
         ...
 
-    def __ge__(self, other: LogicNode) -> BinaryExpression:
+    def __ge__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a greater-or-equal condition with another node."""
         ...
 
-    def __and__(self, other: LogicNode) -> BinaryExpression:
+    def __and__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a conjunction with another node."""
         ...
 
-    def __or__(self, other: LogicNode) -> BinaryExpression:
+    def __rand__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a conjunction with a Python value on the left."""
+        ...
+
+    def __or__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a disjunction with another node."""
+        ...
+
+    def __ror__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a disjunction with a Python value on the left."""
         ...
 
     def __invert__(self) -> UnaryExpression:
@@ -147,39 +183,63 @@ class VariableNode(LogicNode):
         """
         ...
 
-    def __add__(self, other: LogicNode) -> BinaryExpression:
+    def __add__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a sum expression with another node."""
         ...
 
-    def __sub__(self, other: LogicNode) -> BinaryExpression:
+    def __radd__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a sum expression with a Python value on the left."""
+        ...
+
+    def __sub__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a difference expression with another node."""
         ...
 
-    def __mul__(self, other: LogicNode) -> BinaryExpression:
+    def __rsub__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a difference expression with a Python value on the left."""
+        ...
+
+    def __mul__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a product expression with another node."""
         ...
 
-    def __truediv__(self, other: LogicNode) -> BinaryExpression:
+    def __rmul__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a product expression with a Python value on the left."""
+        ...
+
+    def __truediv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a division expression with another node."""
         ...
 
-    def __floordiv__(self, other: LogicNode) -> BinaryExpression:
+    def __rtruediv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a division expression with a Python value on the left."""
+        ...
+
+    def __floordiv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a floor-division expression with another node."""
         ...
 
-    def __pow__(self, other: LogicNode) -> BinaryExpression:
+    def __rfloordiv__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a floor-division expression with a Python value on the left."""
+        ...
+
+    def __pow__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a power expression with another node."""
+        ...
+
+    def __rpow__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a power expression with a Python value on the left."""
         ...
 
     def __neg__(self) -> UnaryExpression:
         """Compose a negation of this read."""
         ...
 
-    def __eq__(self, other: LogicNode) -> BinaryExpression:
+    def __eq__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose an equality CONDITION with another node."""
         ...
 
-    def __ne__(self, other: LogicNode) -> BinaryExpression:
+    def __ne__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose an inequality condition with another node."""
         ...
 
@@ -187,28 +247,36 @@ class VariableNode(LogicNode):
         """Hash by the C block's address, so a node can key a dict."""
         ...
 
-    def __lt__(self, other: LogicNode) -> BinaryExpression:
+    def __lt__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a less-than condition with another node."""
         ...
 
-    def __le__(self, other: LogicNode) -> BinaryExpression:
+    def __le__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a less-or-equal condition with another node."""
         ...
 
-    def __gt__(self, other: LogicNode) -> BinaryExpression:
+    def __gt__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a greater-than condition with another node."""
         ...
 
-    def __ge__(self, other: LogicNode) -> BinaryExpression:
+    def __ge__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a greater-or-equal condition with another node."""
         ...
 
-    def __and__(self, other: LogicNode) -> BinaryExpression:
+    def __and__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a conjunction with another node."""
         ...
 
-    def __or__(self, other: LogicNode) -> BinaryExpression:
+    def __rand__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a conjunction with a Python value on the left."""
+        ...
+
+    def __or__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
         """Compose a disjunction with another node."""
+        ...
+
+    def __ror__(self, other: LogicNode | bool | int | float | str) -> BinaryExpression:
+        """Compose a disjunction with a Python value on the left."""
         ...
 
     def __invert__(self) -> UnaryExpression:

@@ -218,7 +218,7 @@ static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* br
     node->base.eval_ctx.flags |= DCG_EVAL_FLAG_BREAKPOINT;
 
     node->base.autogen     = true;
-    node->await_connection = false;   /* not left yet, so nothing to wait for */
+    node->await_connection = false;
     node->break_from       = break_from;
     return node;
 }

@@ -77,7 +77,7 @@ cdef void c_dcg_var_pypack(dcg_var_t* out, object value) except *:
         from .c_node import LogicNode  # up, by lazy import
 
         if isinstance(value, LogicNode):
-            ret_code = c_dcg_var_init_node(out, <void*> <uintptr_t> value.address)
+            ret_code = c_dcg_var_init_node(out, <const dcg_node*> <uintptr_t> value.address)
         else:
             ret_code = c_dcg_var_init_ptr(out, <void*> <PyObject*> value)
 

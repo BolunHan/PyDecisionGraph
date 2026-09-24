@@ -152,7 +152,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     int c_dcg_var_init_ref_raw(dcg_var_t* var, dcg_var_type dtype, const void* ref) noexcept nogil
     int c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src) noexcept nogil
     int c_dcg_var_init_ptr(dcg_var_t* var, void* value) noexcept nogil
-    int c_dcg_var_init_node(dcg_var_t* var, void* node) noexcept nogil
+    int c_dcg_var_init_node(dcg_var_t* var, const dcg_node* node) noexcept nogil
     int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, c_bool copy, allocator_protocol* allocator) noexcept nogil
     int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, c_bool row_major, c_bool copy, allocator_protocol* allocator) noexcept nogil
 
@@ -178,7 +178,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     const char* c_dcg_var_as_string(const dcg_var_t* var) noexcept nogil
     const void* c_dcg_var_as_ref(const dcg_var_t* var) noexcept nogil
     void* c_dcg_var_as_ptr(const dcg_var_t* var) noexcept nogil
-    void* c_dcg_var_as_node(const dcg_var_t* var) noexcept nogil
+    const dcg_node* c_dcg_var_as_node(const dcg_var_t* var) noexcept nogil
     dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var) noexcept nogil
     dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var) noexcept nogil
     int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype) noexcept nogil
@@ -186,6 +186,11 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
 
     int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) noexcept nogil
     int c_dcg_var_print(const dcg_var_t* var, FILE* stream) noexcept nogil
+
+
+cdef extern from "decision_graph/decision_tree/bake/c_node.h":
+    ctypedef struct dcg_node:
+        pass
 
 
 cdef class VarView:

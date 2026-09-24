@@ -54,6 +54,7 @@ __all__ = [
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
     'EdgeValueError',
     'EvalFailureError',
+    'BakeFailureError',
     'ResolutionError', 'ExpressFalse', 'ExpressEvaluationError', 'ContextsNotFound',
 
     # .capi.c_abc or .native.abc

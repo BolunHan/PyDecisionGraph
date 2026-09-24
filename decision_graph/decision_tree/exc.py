@@ -3,6 +3,7 @@ __all__ = [
     'EmptyBlock', 'BreakBlock',
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
     'EdgeValueError',
+    'EvalFailureError',
     'ResolutionError', 'ExpressFalse', 'ExpressEvaluationError', 'ContextsNotFound'
 ]
 
@@ -57,6 +58,82 @@ class NodeContextError(NodeError):
 class EdgeValueError(NodeError):
     """Raised when a NodeEdgeCondition has an invalid value."""
     pass
+
+
+class EvalFailureError(RuntimeError, NodeError):
+    """Raised when a node cannot produce a value.
+
+    It is what an evaluation fails with, whichever door asked for it: one node's
+    ``eval``, a dry run, or a walk from a root. It answers the three questions a
+    caller has about a failure that a bare code cannot - WHICH node refused, at
+    which of the three stages, and what was running when it did (the built-in rule
+    for the node's type, the rule its type installed, or a hook somebody put
+    there).
+
+    A hook may raise it too, and with a ``code`` of its own: the node then ends
+    with that code rather than with the generic ``DCG_ERR_HOOK``, which is how a
+    Python hook says what went wrong the way a Cython hook says it by returning
+    the code. A hook that raises anything else ends the node with ``DCG_ERR_HOOK``
+    and has its own exception attached as ``__cause__`` - the failure is the
+    hook's to describe, and nothing here replaces the description with a code.
+
+    Attributes:
+        code: The ``DCG_ERR_*`` code the node ended with.
+        code_name: That code's stable name (``'MATH'``, ``'UNBOUND'``, ...).
+        node: The wrapper of the node that refused, when the layer has one.
+        node_type: The failing node's type name.
+        node_repr: Its display text.
+        address: The C block's address.
+        source: What was running: ``'builtin'``, ``'type_rule'``, ``'hook'``,
+            ``'pre_hook'``, ``'post_hook'``, or None.
+        failed_at: The stage that failed - ``'pre'``, ``'eval'`` or ``'post'``.
+        stages: The stages that completed, by name.
+        run_id: The run the failure happened in; 0 when it was not a run.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int = 0,
+        code_name: str | None = None,
+        node: object = None,
+        node_type: str | None = None,
+        node_repr: str | None = None,
+        address: int | None = None,
+        source: str | None = None,
+        failed_at: str | None = None,
+        stages: tuple[str, ...] = (),
+        run_id: int = 0,
+    ) -> None:
+        """Initialize the failure.
+
+        Args:
+            message: What to say about it - the layer composes its own, naming the
+                node, the code and the stages.
+            code: The ``DCG_ERR_*`` code the node ended with. A hook raising this
+                gives the code it wants the node to end with.
+            code_name: That code's stable name.
+            node: The wrapper of the node that refused.
+            node_type: The failing node's type name.
+            node_repr: Its display text.
+            address: The C block's address.
+            source: What was running when it failed.
+            failed_at: The stage that failed.
+            stages: The stages that completed.
+            run_id: The run the failure happened in.
+        """
+        super().__init__(message)
+        self.code = code
+        self.code_name = code_name
+        self.node = node
+        self.node_type = node_type
+        self.node_repr = node_repr
+        self.address = address
+        self.source = source
+        self.failed_at = failed_at
+        self.stages = stages
+        self.run_id = run_id
 
 
 class ResolutionError(NodeError):

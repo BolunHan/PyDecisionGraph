@@ -5,6 +5,7 @@ from cpython.ref cimport Py_XDECREF, Py_XINCREF
 from cpython.unicode cimport PyUnicode_AsUTF8
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
+from .c_node cimport c_dcg_node_pypack
 from .c_var cimport dcg_ret_code
 
 
@@ -86,54 +87,78 @@ cdef class ExpressionNode(LogicNode):
 
     # === Python Operators ===
 
-    def __add__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_ADD, self, other)
+    def __add__(self, object other):
+        return BinaryExpression(DCG_OP_ADD, self, c_dcg_node_pypack(other))
 
-    def __sub__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_SUB, self, other)
+    def __radd__(self, object other):
+        return BinaryExpression(DCG_OP_ADD, c_dcg_node_pypack(other), self)
 
-    def __mul__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_MUL, self, other)
+    def __sub__(self, object other):
+        return BinaryExpression(DCG_OP_SUB, self, c_dcg_node_pypack(other))
 
-    def __truediv__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_DIV, self, other)
+    def __rsub__(self, object other):
+        return BinaryExpression(DCG_OP_SUB, c_dcg_node_pypack(other), self)
 
-    def __floordiv__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_FLOORDIV, self, other)
+    def __mul__(self, object other):
+        return BinaryExpression(DCG_OP_MUL, self, c_dcg_node_pypack(other))
 
-    def __pow__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_POW, self, other)
+    def __rmul__(self, object other):
+        return BinaryExpression(DCG_OP_MUL, c_dcg_node_pypack(other), self)
+
+    def __truediv__(self, object other):
+        return BinaryExpression(DCG_OP_DIV, self, c_dcg_node_pypack(other))
+
+    def __rtruediv__(self, object other):
+        return BinaryExpression(DCG_OP_DIV, c_dcg_node_pypack(other), self)
+
+    def __floordiv__(self, object other):
+        return BinaryExpression(DCG_OP_FLOORDIV, self, c_dcg_node_pypack(other))
+
+    def __rfloordiv__(self, object other):
+        return BinaryExpression(DCG_OP_FLOORDIV, c_dcg_node_pypack(other), self)
+
+    def __pow__(self, object other):
+        return BinaryExpression(DCG_OP_POW, self, c_dcg_node_pypack(other))
+
+    def __rpow__(self, object other):
+        return BinaryExpression(DCG_OP_POW, c_dcg_node_pypack(other), self)
 
     def __neg__(self):
         return UnaryExpression(DCG_OP_NEG, self)
 
-    def __eq__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_EQ, self, other)
+    def __eq__(self, object other):
+        return BinaryExpression(DCG_OP_EQ, self, c_dcg_node_pypack(other))
 
-    def __ne__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_NE, self, other)
+    def __ne__(self, object other):
+        return BinaryExpression(DCG_OP_NE, self, c_dcg_node_pypack(other))
 
     def __hash__(self):
         return hash(self.address)
 
     # Ordered comparisons build comparison nodes.
-    def __lt__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_LT, self, other)
+    def __lt__(self, object other):
+        return BinaryExpression(DCG_OP_LT, self, c_dcg_node_pypack(other))
 
-    def __le__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_LE, self, other)
+    def __le__(self, object other):
+        return BinaryExpression(DCG_OP_LE, self, c_dcg_node_pypack(other))
 
-    def __gt__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_GT, self, other)
+    def __gt__(self, object other):
+        return BinaryExpression(DCG_OP_GT, self, c_dcg_node_pypack(other))
 
-    def __ge__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_GE, self, other)
+    def __ge__(self, object other):
+        return BinaryExpression(DCG_OP_GE, self, c_dcg_node_pypack(other))
 
-    def __and__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_AND, self, other)
+    def __and__(self, object other):
+        return BinaryExpression(DCG_OP_AND, self, c_dcg_node_pypack(other))
 
-    def __or__(self, LogicNode other):
-        return BinaryExpression(DCG_OP_OR, self, other)
+    def __rand__(self, object other):
+        return BinaryExpression(DCG_OP_AND, c_dcg_node_pypack(other), self)
+
+    def __or__(self, object other):
+        return BinaryExpression(DCG_OP_OR, self, c_dcg_node_pypack(other))
+
+    def __ror__(self, object other):
+        return BinaryExpression(DCG_OP_OR, c_dcg_node_pypack(other), self)
 
     def __invert__(self):
         return UnaryExpression(DCG_OP_NOT, self)

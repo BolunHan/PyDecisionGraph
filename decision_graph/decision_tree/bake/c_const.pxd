@@ -51,3 +51,6 @@ cdef class VariableNode(LogicNode):
     cdef void c_bind_slot(self, dcg_var_t* slot)
 
     cpdef void c_bind_const(self, ConstantNode node)
+
+
+cdef LogicNode c_dcg_node_pypack(object value)

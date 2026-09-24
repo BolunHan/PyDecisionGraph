@@ -2,7 +2,7 @@ from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_AsUTF8AndSize, PyUnicod
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
 from .c_expr cimport BinaryExpression, UnaryExpression, dcg_op_code
-from .c_node cimport c_dcg_node_pypack, c_dcg_node_set_repr
+from .c_node cimport c_dcg_node_set_repr
 from .c_var cimport c_dcg_var_pypack, c_dcg_var_pyunpack, dcg_ret_code
 
 
@@ -270,3 +270,9 @@ cdef class VariableNode(LogicNode):
             if not node.key:
                 return None
             return PyUnicode_FromString(node.key)
+
+
+cdef LogicNode c_dcg_node_pypack(object value):
+    if isinstance(value, LogicNode):
+        return value
+    return ConstantNode(value)

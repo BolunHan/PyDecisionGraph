@@ -1,6 +1,6 @@
 from libc.stdlib cimport calloc
 
-from cbase.allocator_protocol import AP_SHM_ALLOCATOR_DEFAULT_REGION_SIZE, c_heap_allocator_new, c_shm_allocator_new
+from cbase.allocator_protocol cimport AP_SHM_ALLOCATOR_DEFAULT_REGION_SIZE, c_heap_allocator_new, c_shm_allocator_new
 
 cdef c_bool DCG_CFG_LOCKED = False
 cdef c_bool DCG_CFG_SHARED = True

@@ -1580,10 +1580,11 @@ static inline dcg_expr_apply_fn c_dcg_node_expr_apply_fn_of(dcg_node_type ntype,
  *
  * @param node  Expression node to set it on.
  * @param op    Operator code.
- * @return DCG_OK, or DCG_ERR_INVALID_ARG.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, or DCG_ERR_BUSY (a frozen node).
  */
 static inline int c_dcg_node_expr_set_op(dcg_expression_node* node, dcg_op_code op) {
     if (!node) return DCG_ERR_INVALID_ARG;
+    if (node->base.flags & DCG_NODE_FLAG_FROZEN) return DCG_ERR_BUSY; /* baked: the operator is what it is */
 
     node->op = op;
 #if DCG_EVAL_DIRECT_HOOKS
@@ -1841,11 +1842,13 @@ static inline dcg_expression_node* c_dcg_node_new_expr_call(dcg_op_code op, dcg_
  * @param node   Expression to modify.
  * @param index  Operand index.
  * @param input  Node whose value the operand takes.
- * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_RANGE or DCG_ERR_OOM.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_RANGE, DCG_ERR_BUSY (a frozen
+ *         node), or DCG_ERR_OOM.
  */
 static inline int c_dcg_node_expr_bind(dcg_expression_node* node, size_t index, dcg_node* input) {
     if (!node || !input) return DCG_ERR_INVALID_ARG;
     if (index >= node->n_args) return DCG_ERR_RANGE;
+    if (node->base.flags & DCG_NODE_FLAG_FROZEN) return DCG_ERR_BUSY; /* baked: the operands are what they are */
 
     dcg_var_t* slot     = &node->args[index];
     int        ret_code = DCG_OK;

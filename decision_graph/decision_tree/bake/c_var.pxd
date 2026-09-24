@@ -173,6 +173,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var) noexcept nogil
     dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var) noexcept nogil
     int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype) noexcept nogil
+    void c_dcg_var_snapshot(dcg_var_t* snapshot, const dcg_var_t* slot) noexcept nogil
 
     int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) noexcept nogil
     int c_dcg_var_print(const dcg_var_t* var, FILE* stream) noexcept nogil

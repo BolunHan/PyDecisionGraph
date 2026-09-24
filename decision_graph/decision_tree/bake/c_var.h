@@ -338,6 +338,7 @@ static inline void*           c_dcg_var_as_ptr(const dcg_var_t* var);
 static inline dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var);
 static inline dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var);
 static inline int             c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype);
+static inline void            c_dcg_var_snapshot(dcg_var_t* snapshot, const dcg_var_t* slot);
 
 // Output
 static inline int             c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap);
@@ -1834,6 +1835,44 @@ static inline int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_t
 
     if (out) *out = converted;
     return DCG_OK;
+}
+
+/**
+ * @brief Overwrite a slot with what another one reads as - the literal value.
+ *
+ * Two cases, and the first is the one that matters: a slot holding a VALUE is
+ * copied as it stands - tag and payload, no conversion, no question asked. A
+ * slot holding a REFERENCE is a pointer to a value that lives somewhere else, so
+ * it is read THROUGH, into the snapshot, which then holds the value itself (see
+ * c_dcg_var_cast). A reference to a slot that has no type yet has nothing at the
+ * end of it to read, so the reference is copied as it stands and the snapshot
+ * reports the same "nothing there" its source does.
+ *
+ * This is how a workspace is filled and how a value is recorded: a reader that
+ * wants the VALUE rather than the slot it sits in, one branch wide, with no
+ * error to report and no answer to wait for.
+ *
+ * @param snapshot  Receives the value (never NULL; may be the same object as the
+ *                  slot it reads, which is a no-op).
+ * @param slot      Slot to read (NULL leaves the snapshot empty).
+ */
+static inline void c_dcg_var_snapshot(dcg_var_t* snapshot, const dcg_var_t* slot) {
+    if (!snapshot) return;
+    if (!slot) {
+        (void) c_dcg_var_init(snapshot);
+        return;
+    }
+    if (!c_dcg_var_is_ref(slot->dtype)) {
+        *snapshot = *slot;
+        return;
+    }
+
+    dcg_var_type base = c_dcg_var_ref_base(slot->dtype);
+    if (base == VAR_TYPE_RESERVED) {
+        *snapshot = *slot; /* nothing has landed behind it yet */
+        return;
+    }
+    (void) c_dcg_var_cast(snapshot, slot, base);
 }
 
 // ========== Output ==========

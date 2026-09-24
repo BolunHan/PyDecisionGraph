@@ -30,6 +30,9 @@ class VarType(IntEnum):
     ``inferred`` is a reference to a slot whose type is not known yet.
 
     Attributes:
+        node: A node, held as its own address. It is what an action leaf's slot
+            carries - the node IS the value it stands for - and what unpacks back
+            into that node's wrapper.
         reserved: A slot holding nothing yet: an entry whose value has not
             arrived. ``is_null`` is true for one, and reading it refuses.
         inferred: A reference to a ``reserved`` slot - "the type is the slot's to
@@ -48,6 +51,7 @@ class VarType(IntEnum):
     d_vector: VarType
     d_matrix: VarType
     reserved: VarType
+    node: VarType
     raw_ptr_ref: VarType
     string_ref: VarType
     bool_ref: VarType
@@ -59,6 +63,7 @@ class VarType(IntEnum):
     datetime_ref: VarType
     d_vector_ref: VarType
     d_matrix_ref: VarType
+    node_ref: VarType
     inferred: VarType
     raw_ptr_ref_ref: VarType
     string_ref_ref: VarType
@@ -71,6 +76,7 @@ class VarType(IntEnum):
     datetime_ref_ref: VarType
     d_vector_ref_ref: VarType
     d_matrix_ref_ref: VarType
+    node_ref_ref: VarType
 
 
 class VarNumeric(IntEnum):

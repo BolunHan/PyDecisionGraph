@@ -136,7 +136,8 @@ typedef enum dcg_var_type {
     VAR_TYPE_DATETIME = 8,   // Session datetime payload (as_ptr, or as_datetime).
     VAR_TYPE_D_VECTOR = 9,   // Contiguous double vector (as_dvector).
     VAR_TYPE_D_MATRIX = 10,  // Contiguous double matrix (as_dmatrix).
-    VAR_TYPE_RESERVED = 11,
+    VAR_TYPE_NODE     = 11,  // A dcg_node* (as_node). The value layer is BELOW the node layer, so the pointer crosses as a void* and is never dereferenced here.
+    VAR_TYPE_RESERVED = 12,
 
     // One hop: as_ref is the address of the slot holding the value.
     VAR_TYPE_RAW_PTR_REF  = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_RAW_PTR,
@@ -150,6 +151,7 @@ typedef enum dcg_var_type {
     VAR_TYPE_DATETIME_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_DATETIME,
     VAR_TYPE_D_VECTOR_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_VECTOR,
     VAR_TYPE_D_MATRIX_REF = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_D_MATRIX,
+    VAR_TYPE_NODE_REF     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_NODE,
     VAR_TYPE_INFERRED     = VAR_TYPE_REF_LEVEL1 | VAR_TYPE_RESERVED,
 
     // Two hops: as_ref is the address of the slot holding the one-hop reference.
@@ -163,7 +165,8 @@ typedef enum dcg_var_type {
     VAR_TYPE_DATE_REF_REF     = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_DATE,
     VAR_TYPE_DATETIME_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_DATETIME,
     VAR_TYPE_D_VECTOR_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_D_VECTOR,
-    VAR_TYPE_D_MATRIX_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_D_MATRIX
+    VAR_TYPE_D_MATRIX_REF_REF = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_D_MATRIX,
+    VAR_TYPE_NODE_REF_REF     = VAR_TYPE_REF_LEVEL2 | VAR_TYPE_NODE
 } dcg_var_type;
 
 /**
@@ -225,6 +228,7 @@ typedef union dcg_var_variant {
     uint64_t        as_bits;     // Raw 64-bit view of any scalar payload.
     dcg_d_vector_t* as_dvector;  // VAR_TYPE_D_VECTOR. OWNED - child block of the var.
     dcg_d_matrix_t* as_dmatrix;  // VAR_TYPE_D_MATRIX. OWNED - child block of the var.
+    void*           as_node;     // VAR_TYPE_NODE. A dcg_node*, opaque here - see VAR_TYPE_NODE.
     const void*     as_ref;      // Any _REF tag: the referred-to slot - T* at level 1, T** at level 2, a star per rung.
 #if DCG_VAR_HAS_SESSION_TIME
     session_time_t*     as_time;      // VAR_TYPE_TIME.
@@ -307,6 +311,7 @@ static inline int             c_dcg_var_init_string(dcg_var_t* var, const char* 
 static inline int             c_dcg_var_init_ref_raw(dcg_var_t* var, dcg_var_type dtype, const void* ref);
 static inline int             c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src);
 static inline int             c_dcg_var_init_ptr(dcg_var_t* var, void* value);
+static inline int             c_dcg_var_init_node(dcg_var_t* var, void* node);
 static inline int             c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, bool copy, allocator_protocol* allocator);
 static inline int             c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, bool row_major, bool copy, allocator_protocol* allocator);
 
@@ -335,6 +340,7 @@ static inline ssize_t         c_dcg_var_as_offset(const dcg_var_t* var);
 static inline const char*     c_dcg_var_as_string(const dcg_var_t* var);
 static inline const void*     c_dcg_var_as_ref(const dcg_var_t* var);
 static inline void*           c_dcg_var_as_ptr(const dcg_var_t* var);
+static inline void*           c_dcg_var_as_node(const dcg_var_t* var);
 static inline dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var);
 static inline dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var);
 static inline int             c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype);
@@ -976,6 +982,29 @@ static inline int c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src) {
 }
 
 /**
+ * @brief Populate a caller-owned value with a NODE.
+ *
+ * A node is what a node-shaped value stands for - the node itself is the value,
+ * which is how an action comes to hold its own address and how a walk hands back
+ * the leaf it landed on. The pointer crosses as a void* because the value layer
+ * sits BELOW the node layer and cannot name a dcg_node: nothing here dereferences
+ * it, and the wrapper layer is where it becomes a wrapper again (see
+ * c_dcg_var_pyunpack).
+ *
+ * @param var   Value to populate.
+ * @param node  The node to hold (may be NULL: a node-shaped value of nothing).
+ * @return DCG_OK, or DCG_ERR_INVALID_ARG.
+ */
+static inline int c_dcg_var_init_node(dcg_var_t* var, void* node) {
+    if (!var) return DCG_ERR_INVALID_ARG;
+
+    if (c_dcg_var_init(var) != DCG_OK) return DCG_ERR_INVALID_ARG;
+    var->dtype         = VAR_TYPE_NODE;
+    var->value.as_node = node;
+    return DCG_OK;
+}
+
+/**
  * @brief Populate a caller-owned value with a raw pointer.
  *
  * @param var    Value to populate.
@@ -1180,13 +1209,13 @@ static inline dcg_var_type c_dcg_var_ref_base(dcg_var_type dtype) {
 }
 
 /** Display names of the plain tags, indexed by the tag itself. */
-static const char* const  DCG_VAR_TYPE_NAMES[] = {"raw_ptr", "string", "bool", "double", "int", "offset", "time", "date", "datetime", "d_vector", "d_matrix", "reserved"};
+static const char* const  DCG_VAR_TYPE_NAMES[] = {"raw_ptr", "string", "bool", "double", "int", "offset", "time", "date", "datetime", "d_vector", "d_matrix", "reserved", "node"};
 
 /** Display names of the one-hop references, indexed by the tag referred to. */
-static const char* const  DCG_VAR_TYPE_REF_NAMES[] = {"raw_ptr_ref", "string_ref", "bool_ref", "double_ref", "int_ref", "offset_ref", "time_ref", "date_ref", "datetime_ref", "d_vector_ref", "d_matrix_ref", "inferred"};
+static const char* const  DCG_VAR_TYPE_REF_NAMES[] = {"raw_ptr_ref", "string_ref", "bool_ref", "double_ref", "int_ref", "offset_ref", "time_ref", "date_ref", "datetime_ref", "d_vector_ref", "d_matrix_ref", "inferred", "node_ref"};
 
 /** Display names of the two-hop references, indexed by the tag referred to. */
-static const char* const  DCG_VAR_TYPE_REF_REF_NAMES[] = {"raw_ptr_ref_ref", "string_ref_ref", "bool_ref_ref", "double_ref_ref", "int_ref_ref", "offset_ref_ref", "time_ref_ref", "date_ref_ref", "datetime_ref_ref", "d_vector_ref_ref", "d_matrix_ref_ref", "inferred_ref"};
+static const char* const  DCG_VAR_TYPE_REF_REF_NAMES[] = {"raw_ptr_ref_ref", "string_ref_ref", "bool_ref_ref", "double_ref_ref", "int_ref_ref", "offset_ref_ref", "time_ref_ref", "date_ref_ref", "datetime_ref_ref", "d_vector_ref_ref", "d_matrix_ref_ref", "inferred_ref", "node_ref_ref"};
 
 /**
  * @brief Stable display name of a value tag.
@@ -1347,6 +1376,8 @@ static inline bool c_dcg_var_is_truthy(const dcg_var_t* var) {
             const dcg_d_matrix_t* matrix = c_dcg_var_as_dmatrix(var);
             return matrix != NULL && matrix->n_rows > 0 && matrix->n_cols > 0;
         }
+        case VAR_TYPE_NODE:
+            return c_dcg_var_as_node(var) != NULL;
         case VAR_TYPE_RAW_PTR:
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:
@@ -1413,6 +1444,8 @@ static inline bool c_dcg_var_equals(const dcg_var_t* lhs, const dcg_var_t* rhs) 
             size_t total = a->n_rows * a->n_cols;
             return total == 0 || memcmp(a->data, b->data, total * sizeof(double)) == 0;
         }
+        case VAR_TYPE_NODE:
+            return c_dcg_var_as_node(lhs) == c_dcg_var_as_node(rhs);
         default:
             return c_dcg_var_as_ptr(lhs) == c_dcg_var_as_ptr(rhs);
     }
@@ -1667,6 +1700,46 @@ static inline const void* c_dcg_var_as_ref(const dcg_var_t* var) {
     if (!var) return NULL;
     if (!c_dcg_var_is_ref(var->dtype)) c_dcg_var_vigilant_abort("c_dcg_var_as_ref", var->dtype, "cannot read this type");
     return var->value.as_ref;
+}
+
+/**
+ * @brief The node a node-shaped value holds, as an opaque address.
+ *
+ * The reader for the VAR_TYPE_NODE tag, and the one place the value layer hands a
+ * node pointer back: what to do with it is the wrapper layer's business - it is
+ * the address a wrapper is looked up by (see c_dcg_var_pyunpack). A reference to
+ * a node is followed like any other.
+ *
+ * @param var  Value to read (NULL-safe).
+ * @return The node pointer, or NULL when there is none.
+ */
+static inline void* c_dcg_var_as_node(const dcg_var_t* var) {
+    if (!var) return NULL;
+    switch (var->dtype) {
+        case VAR_TYPE_NODE:
+            return var->value.as_node;
+
+        case VAR_TYPE_NODE_REF: {
+            void* const* at = (void* const*) c_dcg_var_ref_slot(var, "c_dcg_var_as_node");
+            return at ? *at : NULL;
+        }
+
+        default:
+            break;
+    }
+
+    if (c_dcg_var_ref_base(var->dtype) != VAR_TYPE_NODE) c_dcg_var_vigilant_abort("c_dcg_var_as_node", var->dtype, "cannot read this type");
+
+    if (c_dcg_var_is_ref(var->dtype)) {
+        const void* slot = var->value.as_ref;
+        for (int level = c_dcg_var_ref_level(var->dtype); level > 1 && slot; level--) slot = *(const void* const*) slot;
+        if (!slot) {
+            c_dcg_var_vigilant_abort("c_dcg_var_as_node", var->dtype, "the reference points at nothing");
+            return NULL;  // with the vigil off
+        }
+        return *(void* const*) slot;
+    }
+    return NULL;
 }
 
 /**
@@ -1930,6 +2003,9 @@ static inline int c_dcg_var_format(const dcg_var_t* var, char* out, size_t cap) 
             n                            = matrix ? snprintf(out, cap, "d_matrix(%zux%zu)", matrix->n_rows, matrix->n_cols) : snprintf(out, cap, "d_matrix(NULL)");
             break;
         }
+        case VAR_TYPE_NODE:
+            n = snprintf(out, cap, "node 0x%zx", (size_t) (uintptr_t) c_dcg_var_as_node(var));
+            break;
         case VAR_TYPE_RAW_PTR:
         case VAR_TYPE_TIME:
         case VAR_TYPE_DATE:

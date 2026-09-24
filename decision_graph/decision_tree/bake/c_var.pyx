@@ -17,6 +17,7 @@ class VarType(enum.IntEnum):
     datetime = VAR_TYPE_DATETIME
     d_vector = VAR_TYPE_D_VECTOR
     d_matrix = VAR_TYPE_D_MATRIX
+    node = VAR_TYPE_NODE
     reserved = VAR_TYPE_RESERVED
 
     raw_ptr_ref = VAR_TYPE_RAW_PTR_REF
@@ -30,6 +31,7 @@ class VarType(enum.IntEnum):
     datetime_ref = VAR_TYPE_DATETIME_REF
     d_vector_ref = VAR_TYPE_D_VECTOR_REF
     d_matrix_ref = VAR_TYPE_D_MATRIX_REF
+    node_ref = VAR_TYPE_NODE_REF
     inferred = VAR_TYPE_INFERRED
 
     raw_ptr_ref_ref = VAR_TYPE_RAW_PTR_REF_REF
@@ -43,6 +45,7 @@ class VarType(enum.IntEnum):
     datetime_ref_ref = VAR_TYPE_DATETIME_REF_REF
     d_vector_ref_ref = VAR_TYPE_D_VECTOR_REF_REF
     d_matrix_ref_ref = VAR_TYPE_D_MATRIX_REF_REF
+    node_ref_ref = VAR_TYPE_NODE_REF_REF
 
 
 class VarNumeric(enum.IntEnum):
@@ -56,18 +59,27 @@ cdef void c_dcg_var_pypack(dcg_var_t* out, object value) except *:
 
     if value is None:
         ret_code = c_dcg_var_init(out)
+    elif isinstance(value, bytes):
+        ret_code = c_dcg_var_init_string(out, <const char*> value)
+    elif isinstance(value, str):
+        ret_code = c_dcg_var_init_string(out, PyUnicode_AsUTF8(value))
     elif isinstance(value, bool):
         ret_code = c_dcg_var_init_bool(out, value)
     elif isinstance(value, int):
         ret_code = c_dcg_var_init_int(out, <ssize_t> value)
     elif isinstance(value, float):
         ret_code = c_dcg_var_init_double(out, value)
-    elif isinstance(value, str):
-        ret_code = c_dcg_var_init_string(out, PyUnicode_AsUTF8(value))
-    elif isinstance(value, bytes):
-        ret_code = c_dcg_var_init_string(out, <const char*> value)
     else:
-        ret_code = c_dcg_var_init_ptr(out, <void*> <PyObject*> value)
+        # A NODE packs as a node - the same pointer, tagged so that unpacking it
+        # hands the wrapper back (see c_dcg_var_pyunpack). The class is the node
+        # layer's, one above this one, so it arrives by lazy import (DEPENDENCY.md
+        # 3.3); anything else packs as the opaque Python pointer it is.
+        from .c_node import LogicNode  # up, by lazy import
+
+        if isinstance(value, LogicNode):
+            ret_code = c_dcg_var_init_node(out, <void*> <uintptr_t> value.address)
+        else:
+            ret_code = c_dcg_var_init_ptr(out, <void*> <PyObject*> value)
 
     if ret_code != DCG_OK:
         raise ValueError(f'Cannot pack {value!r} into a dcg_var_t.')
@@ -80,6 +92,14 @@ cdef object c_dcg_var_pyunpack(const dcg_var_t* var):
         return None
 
     cdef dcg_var_type base = c_dcg_var_ref_base(var.dtype)
+
+    if base == VAR_TYPE_NODE:
+        # A node-shaped value is the node itself, so what it unpacks to is the
+        # wrapper the layer holds for it. The registry is the node layer's, one
+        # above this one, so it arrives by lazy import - the reach DEPENDENCY.md
+        # 3.3 records, and the same one the node layer takes for its own class.
+        from .c_node import NODE_REGISTRY
+        return NODE_REGISTRY[<uintptr_t> c_dcg_var_as_node(var)]
 
     if base == VAR_TYPE_BOOL:
         return c_dcg_var_as_bool(var)

@@ -55,7 +55,9 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         VAR_TYPE_DATETIME
         VAR_TYPE_D_VECTOR
         VAR_TYPE_D_MATRIX
+        VAR_TYPE_NODE
         VAR_TYPE_RESERVED
+
         VAR_TYPE_RAW_PTR_REF
         VAR_TYPE_STRING_REF
         VAR_TYPE_BOOL_REF
@@ -67,7 +69,9 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         VAR_TYPE_DATETIME_REF
         VAR_TYPE_D_VECTOR_REF
         VAR_TYPE_D_MATRIX_REF
+        VAR_TYPE_NODE_REF
         VAR_TYPE_INFERRED
+
         VAR_TYPE_RAW_PTR_REF_REF
         VAR_TYPE_STRING_REF_REF
         VAR_TYPE_BOOL_REF_REF
@@ -79,6 +83,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         VAR_TYPE_DATETIME_REF_REF
         VAR_TYPE_D_VECTOR_REF_REF
         VAR_TYPE_D_MATRIX_REF_REF
+        VAR_TYPE_NODE_REF_REF
 
     ctypedef struct dcg_d_vector_t:
         double* data
@@ -101,6 +106,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
         dcg_d_vector_t* as_dvector
         dcg_d_matrix_t* as_dmatrix
         const void* as_ref
+        void* as_node
 
     ctypedef struct dcg_var_t:
         dcg_var_type dtype
@@ -134,6 +140,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     dcg_var_t* c_dcg_var_new_dmatrix(size_t n_rows, size_t n_cols, c_bool row_major, allocator_protocol* allocator) noexcept nogil
     dcg_var_t* c_dcg_var_new_ref(const dcg_var_t* src, allocator_protocol* allocator) noexcept nogil
     void c_dcg_var_free(dcg_var_t* var) noexcept nogil
+    void c_dcg_var_dealloc(dcg_var_t* var) noexcept nogil
 
     int c_dcg_var_init(dcg_var_t* var) noexcept nogil
     int c_dcg_var_init_reserved(dcg_var_t* var) noexcept nogil
@@ -145,6 +152,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     int c_dcg_var_init_ref_raw(dcg_var_t* var, dcg_var_type dtype, const void* ref) noexcept nogil
     int c_dcg_var_init_ref(dcg_var_t* var, const dcg_var_t* src) noexcept nogil
     int c_dcg_var_init_ptr(dcg_var_t* var, void* value) noexcept nogil
+    int c_dcg_var_init_node(dcg_var_t* var, void* node) noexcept nogil
     int c_dcg_var_init_dvector(dcg_var_t* var, double* value, size_t n, c_bool copy, allocator_protocol* allocator) noexcept nogil
     int c_dcg_var_init_dmatrix(dcg_var_t* var, double* value, size_t n_rows, size_t n_cols, c_bool row_major, c_bool copy, allocator_protocol* allocator) noexcept nogil
 
@@ -170,6 +178,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_var.h":
     const char* c_dcg_var_as_string(const dcg_var_t* var) noexcept nogil
     const void* c_dcg_var_as_ref(const dcg_var_t* var) noexcept nogil
     void* c_dcg_var_as_ptr(const dcg_var_t* var) noexcept nogil
+    void* c_dcg_var_as_node(const dcg_var_t* var) noexcept nogil
     dcg_d_vector_t* c_dcg_var_as_dvector(const dcg_var_t* var) noexcept nogil
     dcg_d_matrix_t* c_dcg_var_as_dmatrix(const dcg_var_t* var) noexcept nogil
     int c_dcg_var_cast(dcg_var_t* out, const dcg_var_t* var, dcg_var_type dtype) noexcept nogil

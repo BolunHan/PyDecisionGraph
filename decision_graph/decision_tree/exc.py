@@ -4,6 +4,7 @@ __all__ = [
     'NodeError', 'TooManyChildren', 'TooFewChildren', 'NodeNotFountError', 'NodeValueError', 'NodeTypeError', 'NodeContextError',
     'EdgeValueError',
     'EvalFailureError',
+    'BakeFailureError',
     'ResolutionError', 'ExpressFalse', 'ExpressEvaluationError', 'ContextsNotFound'
 ]
 
@@ -134,6 +135,38 @@ class EvalFailureError(RuntimeError, NodeError):
         self.failed_at = failed_at
         self.stages = stages
         self.run_id = run_id
+
+
+class BakeFailureError(RuntimeError, NodeError):
+    """Raised when a graph cannot be baked.
+
+    A bake is the pass that makes a built graph ready to be walked: it verifies
+    what an evaluation assumes, locks what it verified, and prepares the record a
+    walk fills. What it refuses is a graph that is not walkable - an operand slot
+    with no component behind it, an operator the node's arity does not apply, a
+    node with no evaluation at all - and it refuses BEFORE anything is locked, so
+    the graph a failed bake leaves behind is exactly the graph it was handed.
+
+    The report travels with the failure rather than being replaced by the
+    exception: it says which node refused, with which code, how many problems the
+    pass found, and (since a failed bake changes nothing) that nothing was
+    locked, sealed or prepared.
+
+    Attributes:
+        report: The ``BakeReport`` the pass filled.
+    """
+
+    def __init__(self, message: str, *, report: object = None) -> None:
+        """Initialize the failure.
+
+        Args:
+            message: What to say about it - the layer composes its own, naming
+                the node that refused and the code it ended with.
+            report: The bake report, holding the code, the node that produced it,
+                the problems found and what the pass affected.
+        """
+        super().__init__(message)
+        self.report = report
 
 
 class ResolutionError(NodeError):

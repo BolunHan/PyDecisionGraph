@@ -1,6 +1,7 @@
-from cbase.allocator_protocol.c_allocator_protocol cimport allocator_protocol
-from cbase.bytemap.c_bytemap cimport bytemap
 from libcpp cimport bool as c_bool
+
+from cbase.allocator_protocol cimport allocator_protocol
+from cbase.bytemap cimport bytemap
 
 from .c_const cimport VariableNode, dcg_variable_node
 from .c_logic_group cimport LogicGroup, dcg_logic_group

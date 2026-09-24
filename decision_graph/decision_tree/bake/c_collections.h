@@ -576,14 +576,13 @@ static inline dcg_variable_node* c_dcg_mapping_lgroup_get_node(dcg_mapping_lgrou
     node->base.out.dtype           = VAR_TYPE_INFERRED;
     node->base.out.value.as_offset = (ssize_t) (slot - lgroup->slots);
 
-#if DCG_EVAL_DIRECT_HOOKS
-    /* A read made BY a store carries the store's own rule: what the entry holds
-     * now IS what the node reads, and the store is what knows it. A variable node
+    /* A read made BY a store carries the store's own rule, in every build: what
+     * the entry holds now IS what the node reads, the store is what knows it, and
+     * the rule belongs to the read this constructor just made. A variable node
      * built by hand - bound to a slot, with no store to look anything up in -
-     * carries no hook and is evaluated by the dispatch instead (see
+     * carries no rule and is evaluated by the dispatch instead (see
      * c_dcg_node_eval_default). */
     node->base.eval_ctx.type_eval_fn = c_dcg_node_mapping_var_node_eval_hook;
-#endif
     return node;
 }
 

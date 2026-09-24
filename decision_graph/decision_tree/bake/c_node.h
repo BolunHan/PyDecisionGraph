@@ -148,12 +148,13 @@ typedef struct dcg_node_label {
 /**
  * @brief Compile-time switch: teach each node its own evaluation as it is built.
  *
- * A node's built-in value comes from its type, and by default the evaluator
- * finds it by dispatching on that type - one switch per evaluated node, every
- * time it is evaluated (see c_dcg_node_eval_default in c_eval.h). Define this to
- * 1 and each family INSTALLS its own rule as the node's eval hook as the node is
- * built, so the evaluator calls a function pointer instead: the dispatch happens
- * once, at bake time, and a hot walk pays only the call.
+ * A node's built-in value comes from its type. Each family INSTALLS its own rule
+ * as the node's eval hook as the node is built, so the evaluator calls a function
+ * pointer: the dispatch that would find the rule from the type happens once, at
+ * bake time, and a hot walk pays only the call. Define this to 0 and nothing is
+ * installed, so the evaluator finds the rule by dispatching on the type every
+ * time instead - one switch per evaluated node (see c_dcg_node_eval_default in
+ * c_eval.h).
  *
  * It costs one pointer per node (the ctx's type_eval_fn, which a caller's hook
  * still overrides) and a pointer test per evaluation; what it saves is the
@@ -170,7 +171,7 @@ typedef struct dcg_node_label {
  * and evaluated by one with it on still works - it just dispatches).
  */
 #ifndef DCG_EVAL_DIRECT_HOOKS
-#define DCG_EVAL_DIRECT_HOOKS 0
+#define DCG_EVAL_DIRECT_HOOKS 1
 #endif
 
 /**

@@ -7,7 +7,7 @@ import uuid
 from math import inf
 from typing import Literal, Any
 
-from algo_engine.profile import PROFILE
+from algo_engine.exchange_profile import PROFILE
 
 from . import LOGGER
 from .base import SignalLogicGroup

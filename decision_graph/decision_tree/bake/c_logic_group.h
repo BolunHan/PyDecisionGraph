@@ -315,8 +315,6 @@ static inline int c_dcg_lgm_push_breakpoint(dcg_logic_group_manager* mgr, dcg_br
     return DCG_OK;
 }
 
-// ========== Group Lifecycle ==========
-
 /**
  * @brief Initialize a group buf, taking a copy of its name.
  *
@@ -643,11 +641,27 @@ static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* n
     ret = c_dcg_lgm_connect_awaiting(mgr, node);
     if (ret != DCG_OK) return ret;
 
+    /*
+     * A breakpoint entered is ALREADY in the graph, so there is nothing to place.
+     *
+     * It got there when the break was made - the arm it took is where it stands -
+     * and entering it is the build going INSIDE it, not adding it. Placing it
+     * again would link it a second time, into whatever arm the node below
+     * happens to have open, and the link refuses that: a child that already has
+     * a parent is DCG_ERR_BUSY. The capi makes the same distinction by its
+     * breakpoint's enter never calling the manager's enter at all - it pushes
+     * the node and stops - which is what the skip below amounts to.
+     *
+     * Everything after this block still runs: the node is pushed, so it is the
+     * active node the build inside it fills.
+     */
+    bool already_placed = (node->ntype == DCG_NODE_BREAKPOINT);
+
     /* A breakpoint that took the node over is its parent now, and that is what
      * makes the placement below a join rather than a plain link. */
     bool adopted = node->parent != NULL;
 
-    if (mgr->n_nodes) {
+    if (mgr->n_nodes && !already_placed) {
         dcg_node* active      = mgr->nodes[mgr->n_nodes - 1];
         dcg_node* placeholder = c_dcg_node_get_placeholder(active);
         if (!placeholder) return DCG_ERR_UNRESOLVED;
@@ -699,6 +713,23 @@ static inline int c_dcg_lgm_connect_awaiting(dcg_logic_group_manager* mgr, dcg_n
 
     for (size_t i = 0; i < mgr->n_breakpoints; i++) {
         dcg_breakpoint_node* breakpoint = mgr->breakpoints[i];
+
+        /*
+         * A breakpoint cannot resume into itself, and this is asked BEFORE the
+         * waiting check rather than after it. When the node being entered IS the
+         * queued breakpoint, the build is going INSIDE it rather than resuming
+         * into it - the arm it opened is what the build fills - and entering it
+         * has already taken the waiting flag off, so a later test would read it
+         * as "not waiting", keep it in the queue and never drop it here.
+         *
+         * Both at once would give the arm away twice, so this one is the build's
+         * now and leaves the queue.
+         */
+        if (breakpoint == (dcg_breakpoint_node*) node) {
+            breakpoint->await_connection = false;
+            continue;
+        }
+
         if (!breakpoint->await_connection) {
             mgr->breakpoints[kept++] = breakpoint;
             continue;

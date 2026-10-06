@@ -173,6 +173,7 @@ static inline void             c_dcg_bake_node_lock(dcg_node* node, dcg_bake_rep
 
 // The walk
 static inline void             c_dcg_bake_walk(dcg_node* node, dcg_bake_report* report, size_t depth, bool* valid);
+static inline void             c_dcg_bake_resolve_walk(dcg_node* node);
 static inline void             c_dcg_bake_lock_walk(dcg_node* node, dcg_bake_report* report);
 static inline void             c_dcg_bake_unmark_walk(dcg_node* node);
 static inline int              c_dcg_bake_prepare_record(dcg_root_node* root, dcg_bake_report* report);
@@ -283,6 +284,21 @@ static inline void c_dcg_bake_fail(dcg_bake_report* report, const dcg_node* node
  * @param valid   Bakeability accumulator.
  */
 static inline void c_dcg_bake_node_check(const dcg_node* node, dcg_bake_report* report, bool* valid) {
+    /*
+     * A breakpoint is build-time scaffolding, and the bake takes it down (see
+     * c_dcg_node_resolve_breakpoint). What it has to have, for that to be
+     * possible, is the node it resumed into: the breakpoint's one arm is an ELSE
+     * holding the rest of the branch, and a breakpoint without it is a branch
+     * that broke and never carried on anywhere - nothing to splice in, and
+     * nothing for a walk to reach if it stayed.
+     */
+    if (node->ntype == DCG_NODE_BREAKPOINT) {
+        if (!c_dcg_node_child_by_condition(node, DCG_ELSE_CONDITION)) {
+            c_dcg_bake_fail(report, node, DCG_ERR_UNRESOLVED, valid);
+        }
+        return;
+    }
+
     if (!c_dcg_node_type_is_op(node->ntype)) return;
 
     const dcg_expression_node* expr  = (const dcg_expression_node*) node;
@@ -408,6 +424,51 @@ static inline void c_dcg_bake_walk(dcg_node* node, dcg_bake_report* report, size
 
     dcg_expression_node* expr = (dcg_expression_node*) node;
     for (size_t i = 0; i < expr->n_args; i++) c_dcg_bake_walk(expr->components[i], report, depth + 1, valid);
+}
+
+/**
+ * @brief Take every breakpoint out of the graph, leaving the branch in its place.
+ *
+ * The pass that makes a built graph the graph an evaluation walks: a breakpoint
+ * is how a BUILD carries on somewhere else, and by the time the graph is baked
+ * there is no carrying on left to do - the node the break resumed into is what
+ * the branch does. So each breakpoint is spliced out and its continuation takes
+ * its place, and the graph the walks below see has none in it.
+ *
+ * It runs only on a graph the check walk passed, and the check is what makes
+ * that safe: every breakpoint was verified to HAVE a continuation, so no splice
+ * here can fail for want of one. The work itself is the breakpoint's own (see
+ * c_dcg_node_resolve_breakpoint) - what is here is where it happens.
+ *
+ * The marks are LEFT as they are: the check walk put them there and the lock
+ * walk is still to consume them, and the node a splice removes has its own mark
+ * taken off by the splice, so the lock walk reaches exactly what the check walk
+ * verified and nothing that left.
+ *
+ * @param node  Node to resolve breaks below.
+ */
+static inline void c_dcg_bake_resolve_walk(dcg_node* node) {
+    if (!node) return;
+
+    for (dcg_node* child = node->children; child; ) {
+        /* The successor is read BEFORE anything is spliced: a splice unlinks the
+         * breakpoint, and its own sibling link goes with it. */
+        dcg_node* next = child->next_sibling;
+
+        if (child->ntype == DCG_NODE_BREAKPOINT) {
+            /* The continuation is read BEFORE the splice: resolving detaches the
+             * breakpoint, and what it resumed into goes with it. */
+            dcg_node* continuation = c_dcg_node_child_by_condition(child, DCG_ELSE_CONDITION);
+            if (c_dcg_node_resolve_breakpoint(child) == DCG_OK && continuation) {
+                /* Descend into what took the breakpoint's place: the branch may
+                 * have broken again further down. */
+                c_dcg_bake_resolve_walk(continuation);
+            }
+        } else {
+            c_dcg_bake_resolve_walk(child);
+        }
+        child = next;
+    }
 }
 
 /**
@@ -544,6 +605,13 @@ static inline int c_dcg_root_node_bake(dcg_root_node* root, const dcg_bake_input
         c_dcg_bake_unmark_walk(&root->base);
         return out->code;
     }
+
+    /* The breaks come down before anything is locked: what a bake leaves behind
+     * is the graph an evaluation walks, and that graph has no breakpoints in it.
+     * The check above established that each one HAS a continuation, so this
+     * cannot fail - and a validate-only ask has already returned, so asking
+     * whether a graph would bake still changes nothing about it. */
+    c_dcg_bake_resolve_walk(&root->base);
 
     c_dcg_bake_lock_walk(&root->base, out);
 

@@ -144,6 +144,35 @@ class RootLogicNode(LogicNode):
         """
         ...
 
+    def get_breakpoint(self) -> BreakpointNode | None:
+        """The breakpoint this graph left waiting, or None if it left none.
+
+        A breakpoint that has not resumed into anything yet IS a leaf - it is
+        where a branch stopped - so what this looks for is the first breakpoint
+        among the leaves: the one a build can enter to carry the graph on from
+        where it broke out.
+
+        That is what makes a graph assemblable from several places. One function
+        builds up to a break, this hands the break back, and the next function
+        takes it and builds the rest - so the two halves never have to be in the
+        same scope, or even the same function.
+
+        Returns:
+            The waiting breakpoint, or None when the graph has none.
+        """
+        ...
+
+    @property
+    def inherit_contexts(self) -> bool:
+        """Whether this root takes the groups around it rather than shelving them.
+
+        Recorded on the root when it is built, and read back off the block. Note
+        that this layer's root does not shelve yet - its entering reserves its arm
+        and nothing else - so the flag is carried and reported but has no effect
+        on a build. The capi's root does shelve, which is where the two differ.
+        """
+        ...
+
     @property
     def name(self) -> str | None:
         """The root's name - None for a root rebuilt from C, which carries none."""
@@ -287,6 +316,54 @@ class BreakpointNode(LogicNode):
         Raises:
             MemoryError: When the block cannot be allocated.
         """
+        ...
+
+    @classmethod
+    def break_(cls, break_from: LogicGroup, **kwargs: Any) -> BreakpointNode:
+        """Break out of a group, and hand back the breakpoint that did it.
+
+        A break is a node: it takes the arm the build was about to fill, and the
+        build continues from IT rather than from the group it left. That is what
+        makes this the door for assembling a graph in pieces - one function
+        builds up to the break and returns, and the break it made is taken here
+        to carry on outside the group.
+
+        The breakpoint is built first and then installed, rather than made by the
+        install: the block that lands in the graph has to be the one this wrapper
+        holds, or the caller is handed a handle on a node that is not in the
+        graph.
+
+        Args:
+            break_from: The group being broken out of.
+            **kwargs: Passed to the constructor.
+
+        Returns:
+            The breakpoint, now in the graph and waiting to resume into the next
+            node built.
+
+        Raises:
+            RuntimeError: When the C layer cannot place it.
+            MemoryError: When the block cannot be allocated.
+        """
+        ...
+
+    def connect(self, child: LogicNode) -> None:
+        """Connect a node as what this breakpoint resumes into.
+
+        A breakpoint resumes into exactly one node - which is what its arm is
+        for - so a second connection is refused rather than replacing the first.
+
+        Args:
+            child: Node to connect.
+
+        Raises:
+            RuntimeError: When the C layer refuses the link.
+        """
+        ...
+
+    @property
+    def linked_to(self) -> LogicNode | None:
+        """The node this breakpoint resumes into, or None while it waits."""
         ...
 
     @property

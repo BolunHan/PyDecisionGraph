@@ -208,6 +208,7 @@ static inline int                      c_dcg_lgm_enter_node(dcg_logic_group_mana
 static inline int                      c_dcg_lgm_connect_awaiting(dcg_logic_group_manager* mgr, dcg_node* node);  // Internal helper: not part of the stable surface.
 static inline int                      c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node);
 static inline int                      c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node);
+static inline int                      c_dcg_lgm_install_breakpoint(dcg_logic_group_manager* mgr, dcg_breakpoint_node* breakpoint);
 static inline int                      c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_logic_group* group);
 
 // Shelving
@@ -792,17 +793,65 @@ static inline int c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* n
 }
 
 /**
+ * @brief Install a breakpoint that has already been built into the active node.
+ *
+ * The placing half of a break, split out from the making of one so that a caller
+ * which has a breakpoint of its own can put THAT one in - the node a wrapper
+ * already holds, rather than a second block of the same kind that the caller
+ * would have no handle on. One block, one wrapper: a break the caller can name
+ * afterwards has to be the block that landed.
+ *
+ * What it does is the active node's placeholder slot swapped for the breakpoint,
+ * and the breakpoint queued. The queue is what joins it: when the group is left
+ * the breakpoint starts waiting for a node to resume into, and the next node
+ * entered outside it is connected by ``c_dcg_lgm_connect_awaiting``, which walks
+ * that queue and nothing else - so a breakpoint that is placed but not queued is
+ * in the graph and never resumes.
+ *
+ * The queue's room is taken BEFORE the graph is touched, because a push can only
+ * fail for want of room: an OOM afterwards would leave the breakpoint placed and
+ * unqueued, which is the one outcome this has to avoid. Taken first, a failure
+ * changes nothing at all and the caller still owns what it handed in.
+ *
+ * With no active node there is nothing to break out of, and the call is a no-op
+ * - the capi's rule, kept because a builder that breaks at the top of a graph is
+ * not making an error, it is making an empty branch.
+ *
+ * @param mgr         Manager to modify.
+ * @param breakpoint  Breakpoint to place and queue. On DCG_OK it belongs to the
+ *                    graph; on any error it was not placed and is still the
+ *                    caller's to release.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_UNRESOLVED (the active node has
+ *         no slot to break out of) or DCG_ERR_OOM.
+ */
+static inline int c_dcg_lgm_install_breakpoint(dcg_logic_group_manager* mgr, dcg_breakpoint_node* breakpoint) {
+    if (!mgr || !breakpoint) return DCG_ERR_INVALID_ARG;
+    if (!mgr->n_nodes) return DCG_OK; /* no active node: a break affects nothing */
+
+    dcg_node* active      = mgr->nodes[mgr->n_nodes - 1];
+    dcg_node* placeholder = c_dcg_node_get_placeholder(active);
+    if (!placeholder) return DCG_ERR_UNRESOLVED;
+
+    if (!c_dcg_lgm_reserve((void**) &mgr->breakpoints, &mgr->breakpoints_capacity, mgr->n_breakpoints, sizeof(dcg_breakpoint_node*), mgr->allocator)) {
+        return DCG_ERR_OOM;
+    }
+
+    int ret = c_dcg_node_replace(placeholder, &breakpoint->base);
+    if (ret != DCG_OK) return ret;
+
+    c_dcg_node_free_generic(placeholder); /* displaced: the slot is the breakpoint's now */
+
+    (void) c_dcg_lgm_push_breakpoint(mgr, breakpoint); /* the room is taken above, so this cannot fail */
+    return DCG_OK;
+}
+
+/**
  * @brief Break out of a group while a graph is being built.
  *
- * The inspection half of a break, and the only half there is so far. The
- * active node's placeholder slot is swapped for a breakpoint that names the
- * group being broken out of, and the breakpoint is queued: when the group is
- * left it starts waiting for a node to resume into, and the next node entered
- * outside it becomes that node's child.
- *
- * With no active node there is nothing to break out of, and the call is a
- * no-op - the capi's rule, kept because a builder that breaks at the top of a
- * graph is not making an error, it is making an empty branch.
+ * The inspection half of a break, and the only half there is so far: make a
+ * breakpoint naming the group, and install it - see
+ * ``c_dcg_lgm_install_breakpoint`` for what the placing involves and why the
+ * queue's room is taken before the graph is.
  *
  * @param mgr    Manager to modify.
  * @param group  Group being broken out of.
@@ -813,22 +862,17 @@ static inline int c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_l
     if (!mgr || !group) return DCG_ERR_INVALID_ARG;
     if (!mgr->n_nodes) return DCG_OK; /* no active node: a break affects nothing */
 
-    dcg_node* active      = mgr->nodes[mgr->n_nodes - 1];
-    dcg_node* placeholder = c_dcg_node_get_placeholder(active);
-    if (!placeholder) return DCG_ERR_UNRESOLVED;
-
+    dcg_node* active = mgr->nodes[mgr->n_nodes - 1];
     dcg_breakpoint_node* breakpoint = c_dcg_node_new_breakpoint(group, NULL, c_ap_protocol_from_ptr(active));
     if (!breakpoint) return DCG_ERR_OOM;
 
-    int ret = c_dcg_node_replace(placeholder, &breakpoint->base);
+    int ret = c_dcg_lgm_install_breakpoint(mgr, breakpoint);
     if (ret != DCG_OK) {
+        /* The install changes nothing when it fails, so the block it was handed
+         * is still unplaced and still ours. */
         c_dcg_node_free_breakpoint(breakpoint);
         return ret;
     }
-    c_dcg_node_free_generic(placeholder); /* displaced: the slot is the breakpoint's now */
-
-    ret = c_dcg_lgm_push_breakpoint(mgr, breakpoint);
-    if (ret != DCG_OK) return ret; /* the breakpoint stays in the graph, only the queue missed it */
     return DCG_OK;
 }
 

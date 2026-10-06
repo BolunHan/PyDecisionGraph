@@ -83,6 +83,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_logic_group.h":
     int c_dcg_lgm_connect_awaiting(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
     int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
     int c_dcg_lgm_label_node(dcg_logic_group_manager* mgr, dcg_node* node) noexcept nogil
+    int c_dcg_lgm_install_breakpoint(dcg_logic_group_manager* mgr, dcg_breakpoint_node* breakpoint) noexcept nogil
     int c_dcg_lgm_break_inspection(dcg_logic_group_manager* mgr, dcg_logic_group* group) noexcept nogil
 
     int c_dcg_node_root_ctx_shelve(dcg_root_node* root, dcg_logic_group_manager* mgr) noexcept nogil

@@ -41,6 +41,9 @@ cdef class RootLogicNode(LogicNode):
 
         return c_dcg_var_pyunpack(&leaf.out)
 
+    def __call__(self):
+        return self.eval()
+
     # === Bake Protocol ===
 
     cpdef object bake(self, bint validate_only=False):

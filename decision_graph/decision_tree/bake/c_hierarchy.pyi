@@ -75,6 +75,25 @@ class RootLogicNode(LogicNode):
         """
         ...
 
+    def __call__(self) -> Any:
+        """Evaluate the graph - the same walk ``eval`` runs, written as a call.
+
+        A root is what a caller asks to make a decision, and asking it is the
+        call: ``root()`` and ``root.eval()`` answer with the same value for the
+        same graph and leave the same record. The call form is what a graph reads
+        as at the place a decision is wanted, and it is the one door the two
+        layers spell the same way.
+
+        Returns:
+            The leaf's wrapper when the walk landed on an action, else the value
+            that leaf holds.
+
+        Raises:
+            EvalFailureError: When the walk could not reach a leaf - the same
+                failures, reported the same way, as ``eval``.
+        """
+        ...
+
     def bake(self, validate_only: bool = False) -> BakeReport:
         """Bake the graph: verify what an evaluation assumes, lock it, prepare it.
 

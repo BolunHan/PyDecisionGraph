@@ -10,7 +10,7 @@ from libc.stdio cimport fprintf, stderr
 from cbase.bytemap cimport c_bytemap_gen_seq_id
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_edge cimport C_AUTO_CONDITION, EDGE_REGISTRY, NO_CONDITION, NodeEdgeCondition, dcg_node_edge_condition
+from .c_edge cimport AUTO_CONDITION, C_AUTO_CONDITION, EDGE_REGISTRY, NO_CONDITION, NodeEdgeCondition, dcg_node_edge_condition
 from .c_var cimport VarView, c_dcg_ret_code_name, c_dcg_var_dealloc, c_dcg_var_init, c_dcg_var_pyunpack, dcg_ret_code
 from ..exc import EvalFailureError, NodeTypeError
 
@@ -420,7 +420,7 @@ cdef class LogicNode:
 
     # === Python Interfaces ===
 
-    def append(self, LogicNode child, NodeEdgeCondition condition=None):
+    def append(self, LogicNode child, NodeEdgeCondition condition=AUTO_CONDITION):
         self.c_append(child.header, condition.header if condition is not None else C_AUTO_CONDITION)
 
     def overwrite(self, LogicNode new_node, NodeEdgeCondition condition):
@@ -477,7 +477,7 @@ cdef class LogicNode:
         self.c_eval()
         return c_dcg_var_pyunpack(&self.header.out)
 
-    def dryrun(self):
+    def dry_run(self):
         if not self.header:
             raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
 

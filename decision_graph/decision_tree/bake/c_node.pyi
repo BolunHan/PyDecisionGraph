@@ -14,7 +14,7 @@ from uuid import UUID
 
 from cbase.bytemap import BoundByteMap
 
-from .c_edge import NodeEdgeCondition
+from .c_edge import AUTO_CONDITION, NodeEdgeCondition
 from .c_logic_group import LogicGroupManager
 from .c_var import VarView
 
@@ -122,15 +122,28 @@ class LogicNode:
         """
         ...
 
-    def append(self, child: LogicNode, condition: NodeEdgeCondition | None = None) -> None:
-        """Link a child under an explicit edge, or the inherited one.
+    def append(self, child: LogicNode, condition: NodeEdgeCondition = AUTO_CONDITION) -> None:
+        """Link a child under an explicit edge, or under an inferred one.
+
+        The default is the auto edge, which hands the arm to the PARENT to work
+        out - the same edge ``>>`` links by - so ``node.append(child)`` and
+        ``node >> child`` add a child the same way. A build that knows which arm
+        it is filling passes the edge, and one that is filling a branch's second
+        arm normally should not have to say so.
+
+        The edge is what a build settles, not what a graph runs: an auto edge is
+        resolved when the child joins, and what the parent ends up holding is the
+        arm itself - which is what ``children`` is keyed by and what a
+        reconstruction restores.
 
         Args:
             child: Node to link.
-            condition: Edge to link it by; the edge it reports when not given.
+            condition: Edge to link it by; the auto edge when not given.
 
         Raises:
-            RuntimeError: When the C layer refuses the link.
+            RuntimeError: When the C layer refuses the link - an arm the parent
+                has no room for, or one the child cannot take.
+            TypeError: When ``condition`` is not a ``NodeEdgeCondition``.
         """
         ...
 
@@ -277,7 +290,7 @@ class LogicNode:
         """
         ...
 
-    def dryrun(self) -> Any:
+    def dry_run(self) -> Any:
         """Ask this node what it WOULD evaluate to, and leave it as it was.
 
         The same three stages run as in ``eval``, and then the node is put back

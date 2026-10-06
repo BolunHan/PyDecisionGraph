@@ -426,6 +426,7 @@ from .c_collections cimport (
     dcg_mapping_lgroup,
     c_dcg_mapping_lgroup_new,
     c_dcg_mapping_lgroup_free,
+    c_dcg_mapping_lgroup_clear,
     c_dcg_mapping_lgroup_set,
     c_dcg_mapping_lgroup_set_ref,
     c_dcg_mapping_lgroup_set_ptr,

@@ -24,3 +24,6 @@ from .c_collections import *
 
 # === Layer 6: Reconstruct ===
 from .c_reconstruct import *
+
+# === Layer 7: Protocol ===
+from .c_bake import *

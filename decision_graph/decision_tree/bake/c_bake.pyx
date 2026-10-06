@@ -8,6 +8,9 @@ from .c_var cimport c_dcg_ret_code_name
 from ..exc import BakeFailureError
 
 
+__all__ = ['BakeReport', 'c_dcg_bake_root']
+
+
 cdef class BakeReport:
     def __cinit__(self, *args, **kwargs):
         self.header = NULL

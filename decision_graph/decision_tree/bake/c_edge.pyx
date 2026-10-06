@@ -5,7 +5,7 @@ from libc.stdint cimport uintptr_t
 from cbase.bytemap cimport c_bytemap_gen_seq_id
 
 from .c_allocator_protocol cimport DCG_DEFAULT_ALLOCATOR
-from .c_var cimport c_dcg_var_pypack
+from .c_var cimport c_dcg_var_is_null, c_dcg_var_pypack, c_dcg_var_pyunpack
 
 
 cdef class NodeEdgeCondition:
@@ -99,6 +99,14 @@ cdef class NodeEdgeCondition:
                 raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             return c_dcg_condition_is_binary(self.header)
 
+    property value:
+        def __get__(self):
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            if c_dcg_var_is_null(&self.header.value):
+                raise ValueError('Condition has no value assigned.')
+            return c_dcg_var_pyunpack(&self.header.value)
+
 
 cdef class ConditionAny(NodeEdgeCondition):
     @staticmethod
@@ -150,6 +158,10 @@ cdef class ConditionTrue(BinaryCondition):
     def __int__(self):
         return 1
 
+    property value:
+        def __get__(self):
+            return True
+
 
 cdef class ConditionFalse(BinaryCondition):
     @staticmethod
@@ -164,6 +176,10 @@ cdef class ConditionFalse(BinaryCondition):
 
     def __int__(self):
         return 0
+
+    property value:
+        def __get__(self):
+            return False
 
 
 cdef inline NodeEdgeCondition c_dcg_condition_reconstruct(dcg_node_edge_condition* edge):

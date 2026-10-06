@@ -92,6 +92,24 @@ class NodeEdgeCondition:
         """Whether this is a two-way edge: the true or the false arm."""
         ...
 
+    @property
+    def value(self) -> Any:
+        """The value this edge is taken by: what the parent's result must match.
+
+        A caller's condition carries the value it was built with, and it is read
+        here as the Python object it was. The three edges that stand for "no
+        particular value" - the unconditional, the else and the auto - hold none,
+        so reading one raises rather than answering with a value that says
+        nothing. The two arms of a branch are the exception the other way: they
+        DO answer, with the ``True`` and the ``False`` they are, which is what
+        makes a built-in edge usable without unpacking the C tag first.
+
+        Raises:
+            ValueError: When the condition holds no value.
+            RuntimeError: When the wrapper is uninitialised.
+        """
+        ...
+
 
 class ConditionAny(NodeEdgeCondition):
     """The unconditional edge: a parent's single arm."""
@@ -120,6 +138,11 @@ class ConditionTrue(BinaryCondition):
         """1, as the arm it is."""
         ...
 
+    @property
+    def value(self) -> bool:
+        """True - the arm answers with the value it stands for."""
+        ...
+
 
 class ConditionFalse(BinaryCondition):
     """The false arm of a two-way branch."""
@@ -130,6 +153,11 @@ class ConditionFalse(BinaryCondition):
 
     def __int__(self) -> int:
         """0, as the arm it is."""
+        ...
+
+    @property
+    def value(self) -> bool:
+        """False - the arm answers with the value it stands for."""
         ...
 
 

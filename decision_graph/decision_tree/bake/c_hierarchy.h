@@ -155,7 +155,10 @@ typedef struct dcg_breakpoint_node {
 
 // Lifecycle
 static inline dcg_root_node*       c_dcg_node_new_root(const char* repr, allocator_protocol* allocator);
+static inline int                   c_dcg_node_ctx_enter_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr);
 static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* break_from, const char* repr, allocator_protocol* allocator);
+static inline dcg_breakpoint_node* c_dcg_node_get_breakpoint(const dcg_node* node);
+static inline int                   c_dcg_node_resolve_breakpoint(dcg_node* node);
 static inline void                 c_dcg_node_free_root(dcg_root_node* node);
 static inline void                 c_dcg_node_free_breakpoint(dcg_breakpoint_node* node);
 
@@ -225,6 +228,15 @@ static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* br
     }
     node->base.eval_ctx.flags |= DCG_EVAL_FLAG_BREAKPOINT;
 
+    /*
+     * What entering a breakpoint means, armed here with everything else the type
+     * is built with. The table in c_node.h cannot give it: its body needs the
+     * breakpoint struct, and that is this header - one the table's header sits
+     * below. A node is what its constructor makes it, so this is where the
+     * answer belongs, and nothing has to correct the node afterwards.
+     */
+    node->base.ctx_ops.enter_fn = c_dcg_node_ctx_enter_breakpoint;
+
     node->base.autogen     = true;
     node->await_connection = false;
     node->break_from       = break_from;
@@ -243,6 +255,157 @@ static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* br
 static inline void c_dcg_node_free_root(dcg_root_node* node) {
     if (!node) return;
     c_dcg_node_free(&node->base);
+}
+
+/**
+ * @brief Take a breakpoint out of a graph, leaving its continuation in its place.
+ *
+ * A breakpoint is SCAFFOLDING: it stands where a branch broke so a build can
+ * carry on somewhere else, and once the graph is built there is nothing left for
+ * it to do. What the branch actually does is what the break resumed into, so the
+ * bake splices that node into the breakpoint's place - and the arm the
+ * breakpoint held becomes the continuation's, because where the branch goes did
+ * not change when the scaffolding came down.
+ *
+ * This is where the "take over" belongs. Doing it while the graph is being BUILT
+ * would mean a build could not name the break it made afterwards, and a node
+ * that vanishes from under its own wrapper is a wrapper nobody can use; done
+ * here, the graph the walk sees has no breakpoints in it and the wrapper still
+ * owns a block that is simply no longer linked.
+ *
+ * The ELSE arm is the continuation, and it is the only arm a breakpoint has: one
+ * child, the else the enter opened or the manager connected. The node is
+ * detached rather than freed - the caller that built the breakpoint holds the
+ * block, and freeing it here would leave that handle dangling.
+ *
+ * @param node  Breakpoint to resolve. Must be one, and must have resumed.
+ * @return DCG_OK, DCG_ERR_TYPE (not a breakpoint), DCG_ERR_UNRESOLVED (it broke
+ *         and never carried on - nothing to splice in) or the link's own code.
+ */
+static inline int c_dcg_node_resolve_breakpoint(dcg_node* node) {
+    if (!node || node->ntype != DCG_NODE_BREAKPOINT) return DCG_ERR_TYPE;
+
+    dcg_node* continuation = c_dcg_node_child_by_condition(node, DCG_ELSE_CONDITION);
+    if (!continuation) return DCG_ERR_UNRESOLVED;
+
+    /* Read off the breakpoint BEFORE the splice: the replace re-parents the
+     * continuation and rewrites the edge it hangs by. */
+    const dcg_node_edge_condition* inherited = node->condition_to_parent;
+
+    /*
+     * The continuation is let go of the breakpoint first, because a replace
+     * refuses a node that still has a parent - its `new` is expected to be free
+     * to link - and the breakpoint is its parent until this moment.
+     *
+     * `replace_shared` is the other door for a parented node, and it is the wrong
+     * one here: it lands the node at the END of the new parent's list, which for
+     * a breakpoint holding a branch's true arm would put the continuation after
+     * the false arm and swap the two around. Detaching first keeps the slot: the
+     * branch goes on meaning what it meant.
+     */
+    int ret = c_dcg_node_detach(continuation);
+    if (ret != DCG_OK) return ret;
+
+    ret = c_dcg_node_replace(node, continuation);
+    if (ret != DCG_OK) return ret;
+
+    c_dcg_node_adopt_condition(continuation, inherited);
+
+    /* The breakpoint is out of the graph, and it has to stop pointing INTO it.
+     * Detaching the continuation leaves the breakpoint's child list naming a
+     * node that now belongs to another parent - a stale pointer that anything
+     * walking the block afterwards follows, the block's own free included. */
+    node->children = NULL;
+    node->flags &= ~(uint32_t) DCG_NODE_FLAG_VISITED; /* out of the graph: the walks must not reach it */
+    return DCG_OK;
+}
+
+/**
+ * @brief Enter a breakpoint: open the one arm a build inside it fills.
+ *
+ * Entering is how a build goes INSIDE a breakpoint and carries the branch on
+ * from there - what it builds becomes the node the breakpoint resumed into. The
+ * breakpoint itself is not discarded: it stays on its arm until the bake takes
+ * it down (c_dcg_node_resolve_breakpoint), and a build that wants to name the
+ * break it made can go on doing so.
+ *
+ * The arm is ONE, and its condition is the ELSE. A breakpoint stands for "the
+ * branch carried on here", which is what an else says: not a value the parent's
+ * result is compared against, but the path taken where the branch that broke had
+ * nothing left to decide.
+ *
+ * There are TWO ways a breakpoint resumes, and this call settles which one is in
+ * play. The other is the manager's, and it is the manager's to give up: a queued
+ * breakpoint is connected to the next node entered anywhere, and a breakpoint
+ * cannot resume into itself - see c_dcg_lgm_connect_awaiting, which drops the
+ * breakpoint being entered as it passes. What is left here is the arm, which is
+ * the node's own business and needs nothing the node does not carry.
+ *
+ * Entering a breakpoint that already resumed into something is refused rather
+ * than given a second arm: a breakpoint resumes into exactly one node.
+ *
+ * @param node  Breakpoint being entered.
+ * @param mgr   Manager holding the build (unused: opening an arm is the node's
+ *              own; the queue half is settled where the queue is).
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_TYPE (not a breakpoint),
+ *         DCG_ERR_BUSY (it already resumes into something) or DCG_ERR_OOM.
+ */
+static inline int c_dcg_node_ctx_enter_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr) {
+    (void) mgr;
+
+    if (!node) return DCG_ERR_INVALID_ARG;
+    if (node->ntype != DCG_NODE_BREAKPOINT) return DCG_ERR_TYPE;
+    if (node->children) return DCG_ERR_BUSY;
+
+    /* The build is inside it now, so it is not waiting for anything: the flag is
+     * a fact about the node, which is why it is cleared here rather than where
+     * the queue is. The QUEUE half is the manager's, and the manager drops it as
+     * it passes - see c_dcg_lgm_connect_awaiting. */
+    ((dcg_breakpoint_node*) node)->await_connection = false;
+
+    dcg_node* arm = c_dcg_node_new_placeholder(c_ap_protocol_from_ptr(node));
+    if (!arm) return DCG_ERR_OOM;
+
+    int ret = c_dcg_node_append(node, arm, DCG_ELSE_CONDITION);
+    if (ret != DCG_OK) {
+        c_dcg_node_free(arm);
+        return ret;
+    }
+    return DCG_OK;
+}
+
+/**
+ * @brief The first breakpoint below a node that has not resumed into anything.
+ *
+ * What a caller is asking for is the break a build left behind: the place the
+ * graph stopped, which another build can take up and carry on from. That is a
+ * breakpoint with no child - one that has resumed into something is where a
+ * branch CONTINUED, not where it stopped - and it is the same test the capi's
+ * ``get_breakpoint`` makes by looking for a breakpoint among the leaves.
+ *
+ * The walk does NOT descend into a breakpoint, and that is load-bearing rather
+ * than tidy: a resumed node stands in two parents' lists at once (see the join
+ * in c_dcg_node_append), so a breakpoint's child list is BORROWED and its
+ * sibling chain runs on into the other parent's children. Walking there would
+ * leave the tree and could come back round to a node already visited. A waiting
+ * breakpoint has no such list, so stopping at every breakpoint keeps the walk
+ * inside a real tree - each node reached once, from its own parent.
+ *
+ * @param node  Node to search below (NULL-safe).
+ * @return The waiting breakpoint, or NULL when there is none.
+ */
+static inline dcg_breakpoint_node* c_dcg_node_get_breakpoint(const dcg_node* node) {
+    if (!node) return NULL;
+
+    for (const dcg_node* child = node->children; child; child = child->next_sibling) {
+        if (child->ntype == DCG_NODE_BREAKPOINT) {
+            if (!child->children) return (dcg_breakpoint_node*) child;
+            continue; /* resumed: its child list is borrowed, not ours to walk */
+        }
+        dcg_breakpoint_node* found = c_dcg_node_get_breakpoint(child);
+        if (found) return found;
+    }
+    return NULL;
 }
 
 /**

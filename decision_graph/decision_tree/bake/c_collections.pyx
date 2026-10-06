@@ -75,6 +75,28 @@ cdef class LogicMapping(LogicGroup):
     def __len__(self):
         return (<dcg_mapping_lgroup*> self.header).n_slots
 
+    def __bool__(self):
+        return bool((<dcg_mapping_lgroup*> self.header).n_slots)
+
+    def update(self, *args, **kwargs):
+        if len(args) > 1:
+            raise TypeError(f'update expected at most 1 argument, got {len(args)}')
+
+        if args:
+            other = args[0]
+            if hasattr(other, 'keys'):
+                for key in other.keys():
+                    self[key] = other[key]
+            else:
+                for key, value in other:
+                    self[key] = value
+
+        for key, value in kwargs.items():
+            self[key] = value
+
+    def clear(self):
+        c_dcg_mapping_lgroup_clear(<dcg_mapping_lgroup*> self.header)
+
     property frozen:
         def __get__(self):
             if not self.header:

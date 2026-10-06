@@ -23,6 +23,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
     dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, size_t capacity, allocator_protocol* allocator) noexcept nogil
     void c_dcg_mapping_lgroup_dealloc(dcg_mapping_lgroup* lgroup) noexcept nogil
     void c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup) noexcept nogil
+    void c_dcg_mapping_lgroup_clear(dcg_mapping_lgroup* lgroup) noexcept nogil
 
     int c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, dcg_var_t* value) noexcept nogil
     int c_dcg_mapping_lgroup_set_ref(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, dcg_var_t* value) noexcept nogil

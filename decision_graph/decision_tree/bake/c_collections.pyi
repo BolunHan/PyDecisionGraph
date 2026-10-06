@@ -92,6 +92,44 @@ class LogicMapping(LogicGroup):
         """The entries held, reserved ones included."""
         ...
 
+    def __bool__(self) -> bool:
+        """True when the store holds an entry, reserved ones included."""
+        ...
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        """Write several entries at once, as :meth:`dict.update` does.
+
+        Accepts one positional argument - a mapping, or an iterable of key/value
+        pairs - and any number of keyword arguments, and writes each pair the way
+        ``store[key] = value`` does: an entry the store does not hold is reserved
+        for it.
+
+        Args:
+            *args: At most one mapping or iterable of pairs.
+            **kwargs: Entries to write, by name.
+
+        Raises:
+            TypeError: When more than one positional argument is given.
+            RuntimeError: When the C layer refuses a write.
+            KeyError: When the store is frozen and a key is new.
+        """
+        ...
+
+    def clear(self) -> None:
+        """Empty the store, entry by entry.
+
+        Every entry is dropped - its value released and its name forgotten -
+        while the store itself stays where it was, so ``len`` is 0 afterwards and
+        a key the store held is a new entry again. Freezing is not exempt: it
+        seals a store's SHAPE against new entries, and this is a store's contents
+        leaving.
+
+        The entries are emptied in place rather than the block being moved, so a
+        read built over one keeps a valid address - it reports an unfilled entry,
+        not rubbish. What it no longer reports is the value that was there.
+        """
+        ...
+
     @property
     def frozen(self) -> bool:
         """Whether the store is sealed against new entries.

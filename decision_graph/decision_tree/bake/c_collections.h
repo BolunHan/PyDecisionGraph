@@ -97,6 +97,7 @@ typedef struct dcg_mapping_lgroup {
 static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, size_t capacity, allocator_protocol* allocator);
 static inline void                c_dcg_mapping_lgroup_dealloc(dcg_mapping_lgroup* lgroup);
 static inline void                c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup);
+static inline void                c_dcg_mapping_lgroup_clear(dcg_mapping_lgroup* lgroup);
 
 // Setter
 static inline int                 c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, dcg_var_t* value);
@@ -257,6 +258,35 @@ static inline void c_dcg_mapping_lgroup_free(dcg_mapping_lgroup* lgroup) {
     if (!lgroup) return;
     c_dcg_mapping_lgroup_dealloc(lgroup);
     c_ap_free_owned(lgroup);
+}
+
+/**
+ * @brief Empty a mapping's entries, keeping the store itself.
+ *
+ * Every entry goes and nothing else does: each slot in use is released in place
+ * and the index that names it is emptied, while the slots block, its capacity
+ * and the group around them stay exactly where they were. That is what makes
+ * this different from a free - entries are dropped, not the store.
+ *
+ * The slots are emptied IN PLACE on purpose. A read that has been evaluated
+ * holds the entry it resolved to - an offset into this block - so a clear that
+ * moved or released the block would leave every read in a graph pointing at
+ * freed storage. Emptied, the block still holds the address the read names, and
+ * the read reports what an unfilled entry reports rather than reading rubbish.
+ *
+ * A frozen store is not exempt: freezing seals the SHAPE, and this changes the
+ * contents the seal was never about. Anything that removes entries cannot be
+ * undone, so a caller that clears a store a graph is baked against has to fill
+ * the entries it needs again before evaluating.
+ *
+ * @param lgroup  Group to empty (NULL-safe).
+ */
+static inline void c_dcg_mapping_lgroup_clear(dcg_mapping_lgroup* lgroup) {
+    if (!lgroup) return;
+
+    for (size_t i = 0; i < lgroup->n_slots; i++) c_dcg_var_dealloc(&lgroup->slots[i]);
+    c_bytemap_ex_clear(&lgroup->idx_mapping); /* the table block stays; only its entries go */
+    lgroup->n_slots = 0;
 }
 
 // ========== Internal Helpers ==========

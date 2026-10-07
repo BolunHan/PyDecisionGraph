@@ -72,7 +72,7 @@
         walk: null,
         collapsed: new Set(),
         positions: new Map(),
-        edgesGroup: null,
+        edgeKeys: new Set(),
         selected: null,
         failedId: null,
         zoom: null,
@@ -272,11 +272,21 @@
         };
     }
 
-    /** The two ends of an edge between two placed cards, and its curve. */
-    function edgeGeometry(parent, child, horizontal) {
-        const a = parent.card;
-        const b = child.card;
-        let p0, p1, p2, p3;
+    function curveOf(p0, p1, p2, p3) {
+        return `M${p0.x},${p0.y} C${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`;
+    }
+
+    /**
+     * A branch edge drawn between two card POSITIONS: the path, and where its
+     * condition chip goes.
+     *
+     * Positions are arguments rather than read off the cards, because the same
+     * call draws the link at its final place and at every step of a card's
+     * travel - a link is a path, so it does not move on its own; it is redrawn
+     * along wherever its two ends are at the time.
+     */
+    function edgePath(a, b, horizontal) {
+        let p0, p3;
 
         if (horizontal) {
             // Depth runs down the screen: leave the bottom, arrive at the top.
@@ -290,14 +300,42 @@
 
         const span = horizontal ? p3.y - p0.y : p3.x - p0.x;
         const lift = Math.max(18, Math.abs(span) * 0.42);
-        p1 = horizontal ? { x: p0.x, y: p0.y + lift } : { x: p0.x + lift, y: p0.y };
-        p2 = horizontal ? { x: p3.x, y: p3.y - lift } : { x: p3.x - lift, y: p3.y };
+        const p1 = horizontal ? { x: p0.x, y: p0.y + lift } : { x: p0.x + lift, y: p0.y };
+        const p2 = horizontal ? { x: p3.x, y: p3.y - lift } : { x: p3.x - lift, y: p3.y };
 
-        return { p0, p1, p2, p3, mid: bezierMid(p0, p1, p2, p3) };
+        return { d: curveOf(p0, p1, p2, p3), mid: bezierMid(p0, p1, p2, p3) };
     }
 
-    function pathOf(g) {
-        return `M${g.p0.x},${g.p0.y} C${g.p1.x},${g.p1.y} ${g.p2.x},${g.p2.y} ${g.p3.x},${g.p3.y}`;
+    /**
+     * A breakpoint's link to what it resumed into: dashed, and with no chip.
+     *
+     * Source's far side to the target's near side, the same way a child edge
+     * runs - the reference leaves the node it hangs off the way a branch does.
+     */
+    function referencePath(a, b, horizontal) {
+        const p0 = horizontal
+            ? { x: a.x + cardW() / 2, y: a.y + cardH() }
+            : { x: a.x + cardW(), y: a.y + cardH() / 2 };
+        const p3 = horizontal
+            ? { x: b.x + cardW() / 2, y: b.y }
+            : { x: b.x, y: b.y + cardH() / 2 };
+        const d = horizontal
+            ? `M${p0.x},${p0.y} C${p0.x},${(p0.y + p3.y) / 2} ${p3.x},${(p0.y + p3.y) / 2} ${p3.x},${p3.y}`
+            : `M${p0.x},${p0.y} C${(p0.x + p3.x) / 2},${p0.y} ${(p0.x + p3.x) / 2},${p3.y} ${p3.x},${p3.y}`;
+        return { d, mid: null };
+    }
+
+    function pathFor(entry, a, b) {
+        return entry.virtual ? referencePath(a, b, entry.horizontal) : edgePath(a, b, entry.horizontal);
+    }
+
+    /** Where a link's condition chip sits, given where its curve now runs. */
+    function placeChip(entry, mid) {
+        if (!entry.chip || !mid) return;
+        entry.chip.background.setAttribute('x', mid.x - entry.chip.width / 2);
+        entry.chip.background.setAttribute('y', mid.y - 8);
+        entry.chip.label.setAttribute('x', mid.x);
+        entry.chip.label.setAttribute('y', mid.y + 1);
     }
 
     function drawCard(parentGroup, placed) {
@@ -400,48 +438,44 @@
         state.cards.set(rec.id, group);
     }
 
-    function drawEdge(parentGroup, source, target, condition, kind) {
-        const geometry = edgeGeometry(source, target, kind === 'horizontal');
-        const path = svgEl('path', { class: 'edge', d: pathOf(geometry) });
-        parentGroup.appendChild(path);
-        const entry = { path, source: source.data.record.id, target: target.data.record.id };
+    /**
+     * Draw one link, and remember everything needed to draw it again.
+     *
+     * The key is what tells a link in this drawing from the same link in the
+     * last one - an edge is made afresh on every render, so without it there is
+     * no way to know which have just appeared and which were there all along.
+     */
+    function drawLink(parentGroup, source, target, horizontal, options) {
+        const entry = {
+            path: null,
+            source,
+            target,
+            horizontal,
+            virtual: Boolean(options.virtual),
+            key: options.key || `${source.data.record.id}>${target.data.record.id}`,
+            chip: null,
+        };
 
-        if (condition) {
-            const chip = svgEl('g', { class: `edge-chip ${conditionClass(condition)}` });
-            const text = conditionText(condition);
+        const drawn = pathFor(entry, source.card, target.card);
+        entry.path = svgEl('path', { class: entry.virtual ? 'vlink' : 'edge', d: drawn.d });
+        parentGroup.appendChild(entry.path);
+
+        if (options.condition) {
+            const text = conditionText(options.condition);
             const width = Math.max(30, text.length * 6.2 + 14);
-            chip.appendChild(svgEl('rect', {
-                class: 'edge-chip-bg', x: geometry.mid.x - width / 2, y: geometry.mid.y - 8,
-                width, height: 16, rx: 8, ry: 8,
-            }));
-            const label = svgEl('text', { class: 'edge-chip-text', x: geometry.mid.x, y: geometry.mid.y + 1 });
+            const chip = svgEl('g', { class: `edge-chip ${conditionClass(options.condition)}` });
+            const background = svgEl('rect', { class: 'edge-chip-bg', width, height: 16, rx: 8, ry: 8 });
+            const label = svgEl('text', { class: 'edge-chip-text' });
             label.textContent = text;
+            chip.appendChild(background);
             chip.appendChild(label);
             parentGroup.appendChild(chip);
-            entry.chip = chip;
+            entry.chip = { group: chip, background, label, width };
+            placeChip(entry, drawn.mid);
         }
+
         state.edges.push(entry);
         return entry;
-    }
-
-    function drawReference(parentGroup, source, target, kind) {
-        const a = source.card;
-        const b = target.card;
-        const horizontal = kind === 'horizontal';
-        // Source's far side to the target's near side, the same way a child edge
-        // runs: the reference leaves the node it hangs off the way a branch does.
-        const p0 = horizontal
-            ? { x: a.x + cardW() / 2, y: a.y + cardH() }
-            : { x: a.x + cardW(), y: a.y + cardH() / 2 };
-        const p3 = horizontal
-            ? { x: b.x + cardW() / 2, y: b.y }
-            : { x: b.x, y: b.y + cardH() / 2 };
-        const curve = horizontal
-            ? `M${p0.x},${p0.y} C${p0.x},${(p0.y + p3.y) / 2} ${p3.x},${(p0.y + p3.y) / 2} ${p3.x},${p3.y}`
-            : `M${p0.x},${p0.y} C${(p0.x + p3.x) / 2},${p0.y} ${(p0.x + p3.x) / 2},${p3.y} ${p3.x},${p3.y}`;
-        const path = svgEl('path', { class: 'vlink', d: curve });
-        parentGroup.appendChild(path);
-        state.edges.push({ path, source: source.data.record.id, target: target.data.record.id, virtual: true });
     }
 
     // ======================================================================
@@ -484,25 +518,33 @@
     }
 
     /**
-     * Carry the cards from where they were to where they now are.
+     * Carry what changed from where it was to where it now is.
      *
-     * The layout is recomputed from scratch on every change, so a card that
-     * moved would jump straight there. Three things have to be put right:
+     * The layout is recomputed from scratch on every change, so everything that
+     * moved would jump. Three things have to be put right, and NOTHING else
+     * touched - an unaffected card, link or condition chip that is animated
+     * anyway reads as the whole drawing flashing:
      *
      *   - a card that MOVED is set back where it was and travels;
-     *   - a card that ARRIVED fades in;
-     *   - a card - or a link, which is redrawn wholesale and so is never "the
-     *     same link" twice - that has LEFT keeps a copy on screen to fade away,
-     *     because it is out of the drawing by then and nothing can animate it.
+     *   - a link joined to one is redrawn along wherever its two ends are;
+     *   - whatever has LEFT - a card, or a link whose ends are gone - keeps a
+     *     copy on screen to fade, because it is out of the drawing by then and
+     *     nothing can animate it.
      */
-    function animateLayout(previous, positions, previousCards, previousEdges) {
+    function animateLayout(context) {
+        const { previous, positions, previousCards, previousEdges, arrivingEdges } = context;
         const ms = animationMs();
+        const stillHere = new Set(state.edges.map((entry) => entry.key));
 
         const ghost = svgEl('g', { class: 'ghost-layer' });
-        if (previousEdges) ghost.appendChild(previousEdges.cloneNode(true));
         previousCards.forEach((group, id) => {
             if (positions.has(id)) return;   // it survives, and travels instead
             ghost.appendChild(group.cloneNode(true));
+        });
+        previousEdges.forEach((entry) => {
+            if (stillHere.has(entry.key)) return;   // both its ends are still there
+            ghost.appendChild(entry.path.cloneNode(true));
+            if (entry.chip) ghost.appendChild(entry.chip.group.cloneNode(true));
         });
         const leaving = ghost.childNodes.length > 0;
         if (leaving) {
@@ -510,51 +552,69 @@
             viewport.appendChild(ghost);
         }
 
-        const moving = [];
-        const arriving = [];
+        const moves = new Map();
+        const arrivingCards = [];
         state.cards.forEach((group, id) => {
             const was = previous.get(id);
             const now = positions.get(id);
             if (!now) return;
             if (!was) {
                 group.style.opacity = '0';
-                arriving.push(group);
+                arrivingCards.push(group);
                 return;
             }
             if (was.x === now.x && was.y === now.y) return;
             group.setAttribute('transform', `translate(${was.x},${was.y})`);
-            moving.push({ group, from: was, to: now });
+            moves.set(id, { group, from: was, to: now });
         });
 
-        // Taken now rather than read from the state each frame: a redraw while
-        // this runs replaces the list, and the animation is about the nodes it
-        // started with.
-        const links = state.edges.map((entry) => entry.path);
-        links.forEach((path) => { path.style.opacity = '0'; });
+        // A link is a path: it has no position of its own to travel from, so it
+        // is redrawn each frame along the two ends it joins - and only the ones
+        // that actually join a card on the move are redrawn at all.
+        const travelling = state.edges.filter((entry) =>
+            moves.has(entry.source.data.record.id) || moves.has(entry.target.data.record.id));
 
-        if (!moving.length && !arriving.length && !links.length && !leaving) return;
+        arrivingEdges.forEach((entry) => { entry.path.style.opacity = '0'; });
+
+        if (!moves.size && !arrivingCards.length && !arrivingEdges.length && !leaving) return;
+
+        const at = (entry, id, t) => {
+            const move = moves.get(id);
+            if (!move) return null;
+            return {
+                x: move.from.x + (move.to.x - move.from.x) * t,
+                y: move.from.y + (move.to.y - move.from.y) * t,
+            };
+        };
 
         // The values the animation drives are also the ones the stylesheet
         // fades, so the stylesheet is stood down for the length of it.
-        const driven = [...arriving, ...links, ...(leaving ? [ghost] : [])];
-        driven.forEach((el) => { el.style.transition = 'none'; });
+        const fading = [...arrivingCards, ...arrivingEdges.map((entry) => entry.path), ...(leaving ? [ghost] : [])];
+        fading.forEach((el) => { el.style.transition = 'none'; });
 
         runAnimation((t) => {
-            moving.forEach(({ group, from, to }) => {
-                group.setAttribute(
+            moves.forEach((move) => {
+                move.group.setAttribute(
                     'transform',
-                    `translate(${from.x + (to.x - from.x) * t},${from.y + (to.y - from.y) * t})`,
+                    `translate(${move.from.x + (move.to.x - move.from.x) * t},${move.from.y + (move.to.y - move.from.y) * t})`,
                 );
             });
-            arriving.forEach((group) => { group.style.opacity = String(t); });
-            links.forEach((path) => { path.style.opacity = String(t); });
+            travelling.forEach((entry) => {
+                const a = at(entry, entry.source.data.record.id, t) || entry.source.card;
+                const b = at(entry, entry.target.data.record.id, t) || entry.target.card;
+                const drawn = pathFor(entry, a, b);
+                entry.path.setAttribute('d', drawn.d);
+                placeChip(entry, drawn.mid);
+            });
+            arrivingCards.forEach((group) => { group.style.opacity = String(t); });
+            arrivingEdges.forEach((entry) => { entry.path.style.opacity = String(t); });
             if (leaving) ghost.style.opacity = String(1 - t);
         }, ms, () => {
             // Hand every node back to its markup: an inline value left behind
             // would fight the next render, and the position belongs to the
             // transform attribute.
-            moving.forEach(({ group, to }) => group.setAttribute('transform', `translate(${to.x},${to.y})`));
-            driven.forEach((el) => { el.style.transition = ''; el.style.opacity = ''; });
+            moves.forEach((move) => move.group.setAttribute('transform', `translate(${move.to.x},${move.to.y})`));
+            fading.forEach((el) => { el.style.transition = ''; el.style.opacity = ''; });
             if (leaving) ghost.remove();
         });
     }
@@ -563,7 +623,7 @@
         const animate = Boolean(options && options.animate);
         const previous = state.positions;
         const previousCards = state.cards;
-        const previousEdges = state.edgesGroup;
+        const previousEdges = state.edges;
 
         state.cards = new Map();
         state.edges = [];
@@ -578,14 +638,19 @@
         hierarchy.each((d) => {
             (d.children || []).forEach((child) => {
                 // `child.data` is the layout node; `child` is d3's wrapper.
-                drawEdge(edgesGroup, d, child, child.data.condition, horizontal ? 'horizontal' : 'vertical');
+                drawLink(edgesGroup, d, child, horizontal, { condition: child.data.condition });
             });
         });
 
         state.refLinks.forEach((link) => {
             const source = byLayoutId.get(link.source);
             const target = byLayoutId.get(link.target);
-            if (source && target) drawReference(edgesGroup, source, target, horizontal ? 'horizontal' : 'vertical');
+            if (source && target) {
+                drawLink(edgesGroup, source, target, horizontal, {
+                    virtual: true,
+                    key: `ref:${link.source}>${link.target}`,
+                });
+            }
         });
 
         placed.forEach((d) => drawCard(cardsGroup, d));
@@ -597,11 +662,18 @@
         const positions = new Map();
         placed.forEach((d) => positions.set(d.data.record.id, { x: d.card.x, y: d.card.y }));
         state.positions = positions;
-        state.edgesGroup = edgesGroup;
+
+        // Which links are new to this drawing. A link is made afresh on every
+        // render, so only the keys tell one that has just appeared from one that
+        // was there all along - and only the former has any business fading in.
+        const arrivingEdges = state.edges.filter((entry) => !state.edgeKeys.has(entry.key));
+        state.edgeKeys = new Set(state.edges.map((entry) => entry.key));
 
         paint();
 
-        if (animate) animateLayout(previous, positions, previousCards, previousEdges);
+        if (animate) {
+            animateLayout({ previous, positions, previousCards, previousEdges, arrivingEdges });
+        }
     }
 
     /** Is this node outside the store group the sidebar picked? */
@@ -634,8 +706,8 @@
             entry.path.classList.toggle('is-active', lit);
             entry.path.classList.toggle('is-dim', dim);
             if (entry.chip) {
-                entry.chip.classList.toggle('is-active', lit);
-                entry.chip.classList.toggle('is-dim', dim);
+                entry.chip.group.classList.toggle('is-active', lit);
+                entry.chip.group.classList.toggle('is-dim', dim);
             }
         });
     }

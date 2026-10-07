@@ -13,19 +13,18 @@
 
     // ---- Card geometry. The grid the layout snaps to. ----
     //
-    // The card's own coordinates are fixed and its size is a transform on the
-    // group, so a card scales as one piece - band, text, the lot - instead of
-    // every offset inside it having to know about the slider.
-    const CARD_W = 216;
-    const CARD_H = 84;
+    // The card's size belongs to the reader rather than to the layout: a node's
+    // display text is as long as it is, and a card that cannot grow has to cut
+    // it off. So the WIDTH is what the text wraps to and the HEIGHT is how much
+    // of it fits - a card scaled by a transform would only make the same
+    // overflow bigger.
     const BAND_H = 22;
     const CARD_PAD = 12;
     const REPR_LINE_H = 16;
-    const MAX_REPR_LINES = 2;
-    const CHARS_PER_LINE = 30;
-    const META_CHARS = 34;
-    const BADGE_CHARS = 22;
+    const META_ROW_H = 24;   // The strip along the bottom the metadata sits in.
+    const CHAR_W = 6.55;     // One character of the display text, in the mono font.
     const CORNER = 9;
+    const CHIP_CHARS = 30;   // A condition chip is on the edge, not on a card.
 
     const ZOOM_MIN = 0.15;
     const ZOOM_MAX = 3;
@@ -35,18 +34,27 @@
 
     // ---- Presentation: what the sliders drive. ----
     const PRESENTATION_DEFAULTS = {
-        levelGap: 84,     // Between one level and the next: the edge's length.
-        siblingGap: 48,   // Between two cards of the same level.
-        scale: 1,         // Card size, as a factor of the card's own coordinates.
-        edgeWidth: 1.6,   // Stroke width of a link.
+        levelGap: 84,      // Between one level and the next: the edge's length.
+        siblingGap: 48,    // Between two cards of the same level.
+        cardWidth: 232,    // What a display text wraps to.
+        cardHeight: 100,   // How much of it fits.
+        edgeWidth: 1.6,    // Stroke width of a link.
     };
     const presentation = { ...PRESENTATION_DEFAULTS };
 
     /** The size a card ends up on screen, and the cell it takes with it. */
-    const cardW = () => CARD_W * presentation.scale;
-    const cardH = () => CARD_H * presentation.scale;
+    const cardW = () => presentation.cardWidth;
+    const cardH = () => presentation.cardHeight;
     const cellX = () => cardW() + presentation.siblingGap;
     const cellY = () => cardH() + presentation.levelGap;
+
+    /** How much display text a card of the current size holds. */
+    const charsPerLine = () => Math.max(6, Math.floor((cardW() - CARD_PAD * 2) / CHAR_W));
+    const reprLines = () => Math.max(1, Math.floor((cardH() - BAND_H - META_ROW_H) / REPR_LINE_H));
+
+    // How long a card's own animation runs, and the easing it runs on.
+    const ANIM_MS = 260;
+    const ANIM_EASE = 'cubic-bezier(.2,.7,.3,1)';
 
     // ---- State ----
     const state = {
@@ -61,6 +69,8 @@
         hasWalk: false,
         walk: null,
         collapsed: new Set(),
+        positions: new Map(),
+        edgesGroup: null,
         selected: null,
         failedId: null,
         zoom: null,
@@ -198,27 +208,33 @@
         return node;
     }
 
-    /** Break a display text into at most MAX_REPR_LINES lines of CHARS_PER_LINE. */
-    function wrapText(text) {
+    /**
+     * Break a display text to fit the card: `perLine` characters, `maxLines` lines.
+     *
+     * Both come from the card's current size rather than from a constant, so
+     * widening a card lets a long expression onto one line and heightening one
+     * lets it onto the next line instead of being dropped.
+     */
+    function wrapText(text, perLine, maxLines) {
         const source = String(text == null ? '' : text);
-        if (source.length <= CHARS_PER_LINE) return [source];
+        if (source.length <= perLine) return [source];
 
         const lines = [];
         let rest = source;
-        while (rest.length && lines.length < MAX_REPR_LINES) {
-            if (rest.length <= CHARS_PER_LINE) {
+        while (rest.length && lines.length < maxLines) {
+            if (rest.length <= perLine) {
                 lines.push(rest);
                 rest = '';
                 break;
             }
-            let cut = rest.lastIndexOf(' ', CHARS_PER_LINE);
+            let cut = rest.lastIndexOf(' ', perLine);
             // No space to break at: cut mid-token rather than overflow the card.
-            if (cut < CHARS_PER_LINE * 0.4) cut = CHARS_PER_LINE;
+            if (cut < perLine * 0.4) cut = perLine;
             lines.push(rest.slice(0, cut));
             rest = rest.slice(cut).replace(/^\s+/, '');
         }
         if (rest.length && lines.length) {
-            lines[lines.length - 1] = lines[lines.length - 1].slice(0, CHARS_PER_LINE - 1) + '…';
+            lines[lines.length - 1] = lines[lines.length - 1].slice(0, perLine - 1) + '…';
         }
         return lines;
     }
@@ -284,25 +300,27 @@
 
     function drawCard(parentGroup, placed) {
         const rec = placed.data.record;
+        const W = cardW();
+        const H = cardH();
         const group = svgEl('g', {
             // The TYPE as well as the family: a family says where a node sits,
             // the type says what it does, and for the action family that is the
             // whole of what a reader wants off the card.
             class: `card fam-${rec.family || 'OTHER'} type-${rec.type || 'UNKNOWN'}`,
-            transform: `translate(${placed.card.x},${placed.card.y}) scale(${presentation.scale})`,
+            transform: `translate(${placed.card.x},${placed.card.y})`,
         });
         group.dataset.id = rec.id;
 
         group.appendChild(svgEl('rect', {
-            class: 'card-body', x: 0, y: 0, width: CARD_W, height: CARD_H,
+            class: 'card-body', x: 0, y: 0, width: W, height: H,
             rx: CORNER, ry: CORNER,
         }));
 
         // The header band: a rounded rect with its lower corners squared off by
-        // a second rect, which is cheaper than a clip path per card.
+        // the path itself, which is cheaper than a clip path per card.
         group.appendChild(svgEl('path', {
             class: 'card-band',
-            d: `M0,${BAND_H} V${CORNER} Q0,0 ${CORNER},0 H${CARD_W - CORNER} Q${CARD_W},0 ${CARD_W},${CORNER} V${BAND_H} Z`,
+            d: `M0,${BAND_H} V${CORNER} Q0,0 ${CORNER},0 H${W - CORNER} Q${W},0 ${W},${CORNER} V${BAND_H} Z`,
         }));
 
         const typeText = svgEl('text', { class: 'card-type', x: CARD_PAD, y: BAND_H / 2 + 1 });
@@ -315,23 +333,29 @@
         if (rec.operands && rec.operands.length) badges.push(`${rec.operands.length} ops`);
         if (rec.hooks && rec.hooks.length) badges.push(rec.hooks.join(','));
         if (badges.length) {
-            const badge = svgEl('text', { class: 'card-badge-text', x: CARD_W - CARD_PAD, y: BAND_H / 2 + 1 });
-            badge.textContent = clamp(badges.join(' · '), BADGE_CHARS);
+            const badge = svgEl('text', { class: 'card-badge-text', x: W - CARD_PAD, y: BAND_H / 2 + 1 });
+            // The badges share the band with the type, so they get what is left
+            // of it rather than a width of their own.
+            const room = Math.max(6, Math.floor((W - CARD_PAD * 3 - typeText.textContent.length * 7) / CHAR_W));
+            badge.textContent = clamp(badges.join(' · '), room);
             group.appendChild(badge);
         }
 
-        // Display text, wrapped. A leaf's text is the leaf's whole meaning, so
-        // it gets the weight; a branch's is what the branch asks.
-        const lines = wrapText(rec.repr);
-        const textTop = BAND_H + 16 + (lines.length === 1 ? REPR_LINE_H / 2 : 0);
+        // Display text, wrapped to the card's width and centred in the space
+        // the band and the metadata strip leave.
+        const lines = wrapText(rec.repr, charsPerLine(), reprLines());
+        const top = BAND_H;
+        const bottom = H - META_ROW_H;
+        const block = lines.length * REPR_LINE_H;
+        const first = top + Math.max(0, (bottom - top - block) / 2) + REPR_LINE_H * 0.7;
         lines.forEach((line, index) => {
-            const text = svgEl('text', { class: 'card-repr', x: CARD_PAD, y: textTop + index * REPR_LINE_H });
+            const text = svgEl('text', { class: 'card-repr', x: CARD_PAD, y: first + index * REPR_LINE_H });
             text.textContent = line;
             group.appendChild(text);
         });
 
-        // The metadata line: what store the node belongs to, what it last
-        // produced, and how much hangs below it.
+        // The metadata line: what group the node belongs to, what it holds
+        // itself, what it last produced, and how much hangs below it.
         const meta = [];
         if (rec.labels && rec.labels.length) meta.push(rec.labels.join(','));
         // What the node holds ITSELF comes before what it produced: a literal's
@@ -341,8 +365,8 @@
         if (rec.out !== null && rec.out !== undefined) meta.push(`out=${rec.out}`);
         if (rec.size > 1) meta.push(`${rec.size} nodes`);
         if (meta.length) {
-            const metaText = svgEl('text', { class: 'card-meta', x: CARD_PAD, y: CARD_H - 14 });
-            metaText.textContent = clamp(meta.join(' · '), META_CHARS);
+            const metaText = svgEl('text', { class: 'card-meta', x: CARD_PAD, y: H - 12 });
+            metaText.textContent = clamp(meta.join(' · '), charsPerLine() + 4);
             group.appendChild(metaText);
         }
 
@@ -351,16 +375,16 @@
             const collapsed = state.collapsed.has(rec.id);
             const toggle = svgEl('g', { class: 'card-toggle' });
             toggle.appendChild(svgEl('rect', {
-                class: 'card-toggle-bg', x: CARD_W - 30, y: CARD_H - 26, width: 22, height: 18, rx: 5, ry: 5,
+                class: 'card-toggle-bg', x: W - 30, y: H - 26, width: 22, height: 18, rx: 5, ry: 5,
             }));
-            const label = svgEl('text', { class: 'card-toggle-text', x: CARD_W - 19, y: CARD_H - 16 });
+            const label = svgEl('text', { class: 'card-toggle-text', x: W - 19, y: H - 16 });
             label.textContent = collapsed ? `+${armCount}` : '−';
             toggle.appendChild(label);
             toggle.addEventListener('click', (event) => {
                 event.stopPropagation();
                 if (state.collapsed.has(rec.id)) state.collapsed.delete(rec.id);
                 else state.collapsed.add(rec.id);
-                render();
+                render({ animate: true });
             });
             group.appendChild(toggle);
         }
@@ -422,7 +446,84 @@
     // Render
     // ======================================================================
 
-    function render() {
+    /**
+     * Carry the cards from where they were to where they now are.
+     *
+     * The layout is recomputed from scratch on every change, so a card that
+     * moved would jump straight there. This puts each one back where it was and
+     * lets it travel, and fades in the ones that were not on screen before. A
+     * link has no position of its own to animate - its shape is a path - so the
+     * links cross-fade instead.
+     */
+    function animateLayout(previous, positions, previousCards, previousEdges) {
+        // What is GONE gets a departure rather than a disappearance: a copy of
+        // each vanished card - and of the links, which are redrawn wholesale and
+        // so are never "the same link" twice - stays exactly where it was for
+        // the length of the transition and fades. Without this a collapse is a
+        // blink, because the drawing is rebuilt rather than moved.
+        const ghost = svgEl('g', { class: 'ghost-layer' });
+        if (previousEdges) ghost.appendChild(previousEdges.cloneNode(true));
+        previousCards.forEach((group, id) => {
+            if (positions.has(id)) return;   // it survives, and travels instead
+            ghost.appendChild(group.cloneNode(true));
+        });
+        if (ghost.childNodes.length) {
+            viewport.appendChild(ghost);
+            requestAnimationFrame(() => {
+                ghost.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
+                ghost.style.opacity = '0';
+            });
+            setTimeout(() => ghost.remove(), ANIM_MS + 60);
+        }
+
+        state.cards.forEach((group, id) => {
+            const was = previous.get(id);
+            const now = positions.get(id);
+            if (!now) return;
+
+            if (!was) {
+                group.style.opacity = '0';
+                requestAnimationFrame(() => {
+                    group.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
+                    group.style.opacity = '';
+                });
+                setTimeout(() => { group.style.transition = ''; }, ANIM_MS + 60);
+                return;
+            }
+
+            const dx = was.x - now.x;
+            const dy = was.y - now.y;
+            if (!dx && !dy) return;
+
+            group.style.transform = `translate(${now.x + dx}px, ${now.y + dy}px)`;
+            requestAnimationFrame(() => {
+                group.style.transition = `transform ${ANIM_MS}ms ${ANIM_EASE}`;
+                group.style.transform = `translate(${now.x}px, ${now.y}px)`;
+            });
+            setTimeout(() => {
+                // Hand the position back to the attribute: an inline transform
+                // left behind would fight the next render.
+                group.style.transition = '';
+                group.style.transform = '';
+            }, ANIM_MS + 60);
+        });
+
+        state.edges.forEach((entry) => {
+            entry.path.style.opacity = '0';
+            requestAnimationFrame(() => {
+                entry.path.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
+                entry.path.style.opacity = '';
+            });
+            setTimeout(() => { entry.path.style.transition = ''; }, ANIM_MS + 60);
+        });
+    }
+
+    function render(options) {
+        const animate = Boolean(options && options.animate);
+        const previous = state.positions;
+        const previousCards = state.cards;
+        const previousEdges = state.edgesGroup;
+
         state.cards = new Map();
         state.edges = [];
 
@@ -452,7 +553,14 @@
         viewport.appendChild(edgesGroup);
         viewport.appendChild(cardsGroup);
 
+        const positions = new Map();
+        placed.forEach((d) => positions.set(d.data.record.id, { x: d.card.x, y: d.card.y }));
+        state.positions = positions;
+        state.edgesGroup = edgesGroup;
+
         paint();
+
+        if (animate) animateLayout(previous, positions, previousCards, previousEdges);
     }
 
     /** Is this node outside the store group the sidebar picked? */
@@ -901,10 +1009,13 @@
             key: 'siblingGap', out: 'pres-sibling-out',
             fromSlider: Number, toSlider: (v) => Math.round(v), format: (v) => String(Math.round(v)),
         },
-        'pres-scale': {
-            key: 'scale', out: 'pres-scale-out',
-            fromSlider: (raw) => raw / 100, toSlider: (v) => Math.round(v * 100),
-            format: (v) => `${Math.round(v * 100)}%`,
+        'pres-width': {
+            key: 'cardWidth', out: 'pres-width-out',
+            fromSlider: Number, toSlider: (v) => Math.round(v), format: (v) => String(Math.round(v)),
+        },
+        'pres-height': {
+            key: 'cardHeight', out: 'pres-height-out',
+            fromSlider: Number, toSlider: (v) => Math.round(v), format: (v) => String(Math.round(v)),
         },
         'pres-edge': {
             key: 'edgeWidth', out: 'pres-edge-out',
@@ -966,6 +1077,50 @@
         }
 
         applyEdgeWidth();
+    }
+
+    /**
+     * Make every control panel foldable.
+     *
+     * The sidebar is a column of widgets, and the one a reader wants is rarely
+     * the one taking the most room - so each panel keeps its title and puts its
+     * body away. The body is wrapped here rather than in the markup, so a panel
+     * is written once and a control added to it later is inside the fold by
+     * default; the template says which panels start folded.
+     */
+    function buildPanels() {
+        document.querySelectorAll('#sidebar .panel').forEach((panel) => {
+            const title = panel.querySelector('.panel-title');
+            if (!title || panel.dataset.foldable === 'ready') return;
+            panel.dataset.foldable = 'ready';
+
+            const body = document.createElement('div');
+            body.className = 'panel-body';
+            while (title.nextSibling) body.appendChild(title.nextSibling);
+            panel.appendChild(body);
+
+            const caret = document.createElement('span');
+            caret.className = 'panel-caret';
+            caret.setAttribute('aria-hidden', 'true');
+            title.appendChild(caret);
+
+            title.classList.add('panel-toggle');
+            title.setAttribute('role', 'button');
+            title.setAttribute('tabindex', '0');
+
+            const setFolded = (folded) => {
+                panel.classList.toggle('is-collapsed', folded);
+                title.setAttribute('aria-expanded', String(!folded));
+            };
+            title.addEventListener('click', () => setFolded(!panel.classList.contains('is-collapsed')));
+            title.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                setFolded(!panel.classList.contains('is-collapsed'));
+            });
+
+            setFolded(panel.dataset.collapsed === 'true');
+        });
     }
 
     function wire() {
@@ -1039,6 +1194,7 @@
             'Cards drawn: a node reached only as an operand of another is not one of them.';
         showScaffolding(data.scaffolding);
 
+        buildPanels();
         buildGroupChips();
         wire();
         wirePresentation();

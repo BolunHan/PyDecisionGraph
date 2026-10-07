@@ -55,9 +55,18 @@ time and an export is the picture on screen rather than a second drawing of it.
 - **Operands** are not children, and are listed as their own thing: an
   expression reads nodes the tree does not reach, so the inspector names them
   and the card counts them.
-- **Presentation** — the level gap, the sibling gap, the card size and the edge
-  width are sliders, because how much of a graph fits on a screen is the
-  reader's call rather than the layout's.
+- **Presentation** — the level gap, the sibling gap, the card's width and its
+  height, and the edge width are sliders, because how much of a graph fits on a
+  screen is the reader's call rather than the layout's. The width is what a
+  display text wraps to and the height is how much of it fits: a long
+  expression needs one or the other raised, and a card scaled by a transform
+  would only make the same overflow bigger.
+- **The sidebar folds.** Every panel keeps its title and puts its body away,
+  and the presentation sliders start folded at the bottom — they are the
+  controls a reader reaches for once, not the ones they keep open.
+- **Collapsing a node animates.** The drawing is rebuilt rather than moved, so
+  a card that has changed place is put back where it was and allowed to travel,
+  and one that has left keeps a copy on screen to fade away.
 - **Scaffolding** — a breakpoint a split build stopped at, and a stand-in a
   branch reserved, are what an un-baked graph still carries and a baked one does
   not. The title bar counts them, because that count is what tells the two

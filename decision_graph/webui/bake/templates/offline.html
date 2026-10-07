@@ -51,33 +51,6 @@
         </section>
 
         <section class="panel">
-            <h2 class="panel-title">Presentation</h2>
-            <label class="slider-row">
-                <span class="slider-label">Level gap</span>
-                <input type="range" id="pres-level" min="0" max="240" step="2" value="84">
-                <output class="slider-value" id="pres-level-out">84</output>
-            </label>
-            <label class="slider-row">
-                <span class="slider-label">Sibling gap</span>
-                <input type="range" id="pres-sibling" min="0" max="200" step="2" value="48">
-                <output class="slider-value" id="pres-sibling-out">48</output>
-            </label>
-            <label class="slider-row">
-                <span class="slider-label">Card size</span>
-                <input type="range" id="pres-scale" min="60" max="170" step="5" value="100">
-                <output class="slider-value" id="pres-scale-out">100%</output>
-            </label>
-            <label class="slider-row">
-                <span class="slider-label">Edge width</span>
-                <input type="range" id="pres-edge" min="10" max="60" step="5" value="16">
-                <output class="slider-value" id="pres-edge-out">1.6</output>
-            </label>
-            <div class="btn-row">
-                <button type="button" class="btn" id="btn-pres-reset" title="Back to the defaults">Reset</button>
-            </div>
-        </section>
-
-        <section class="panel">
             <h2 class="panel-title">Walk</h2>
             <label class="switch-row" id="row-highlight">
                 <input type="checkbox" id="ctl-highlight" checked>
@@ -95,9 +68,9 @@
         </section>
 
         <section class="panel">
-            <h2 class="panel-title">Store groups</h2>
+            <h2 class="panel-title">Logic Group</h2>
             <div class="chips" id="ctl-groups"></div>
-            <p class="hint">A read's label is the store it reads; picking one dims every other store's nodes.</p>
+            <p class="hint">A node carries the logic groups it was built inside. Picking one dims everything else.</p>
         </section>
 
         <section class="panel">
@@ -122,6 +95,38 @@
                 <button type="button" class="btn" id="btn-export-png">PNG</button>
             </div>
         </section>
+        <section class="panel" data-collapsed="true">
+            <h2 class="panel-title">Presentation</h2>
+            <label class="slider-row">
+                <span class="slider-label">Level gap</span>
+                <input type="range" id="pres-level" min="0" max="240" step="2" value="84">
+                <output class="slider-value" id="pres-level-out">84</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Sibling gap</span>
+                <input type="range" id="pres-sibling" min="0" max="200" step="2" value="48">
+                <output class="slider-value" id="pres-sibling-out">48</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Card width</span>
+                <input type="range" id="pres-width" min="140" max="440" step="4" value="232">
+                <output class="slider-value" id="pres-width-out">232</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Card height</span>
+                <input type="range" id="pres-height" min="56" max="320" step="4" value="100">
+                <output class="slider-value" id="pres-height-out">100</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Edge width</span>
+                <input type="range" id="pres-edge" min="10" max="60" step="5" value="16">
+                <output class="slider-value" id="pres-edge-out">1.6</output>
+            </label>
+            <div class="btn-row">
+                <button type="button" class="btn" id="btn-pres-reset" title="Back to the defaults">Reset</button>
+            </div>
+        </section>
+
     </aside>
 
     <main id="stage">

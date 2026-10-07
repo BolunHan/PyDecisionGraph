@@ -223,6 +223,48 @@ body {
     color: var(--text-faint);
 }
 
+/* ---- A panel folds ---- */
+
+.panel-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.panel-toggle:hover {
+    color: var(--text-dim);
+}
+
+.panel-toggle:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+}
+
+.panel-caret {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid currentColor;
+    transition: transform var(--t-fast) ease;
+}
+
+.panel.is-collapsed .panel-caret {
+    transform: rotate(-90deg);
+}
+
+.panel.is-collapsed .panel-title {
+    margin-bottom: 0;
+}
+
+.panel.is-collapsed .panel-body {
+    display: none;
+}
+
 .field {
     margin-bottom: 10px;
 }
@@ -474,6 +516,18 @@ body {
     gap: 5px;
 }
 
+/* The logic groups: one label per row. A group name is a word or two, and a
+   wrapped row of chips reads as a sentence rather than as a list. */
+#ctl-groups {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+#ctl-groups .chip {
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
 .chip {
     padding: 3px 9px;
     border: 1px solid var(--line);
@@ -655,6 +709,12 @@ body {
 
 .card {
     cursor: pointer;
+}
+
+/* The copy of what has just left the drawing. It is there to be looked at on
+   its way out, not to be touched or read. */
+.ghost-layer {
+    pointer-events: none;
 }
 
 .card-body {

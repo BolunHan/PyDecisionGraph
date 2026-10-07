@@ -5,7 +5,7 @@
 
 #include <decision_graph/decision_tree/bake/c_node.h>
 
-#include <decision_graph/decision_tree/bake/c_collection.h>
+#include <decision_graph/decision_tree/bake/c_collections.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
 #include <decision_graph/decision_tree/bake/c_expr.h>
 
@@ -213,7 +213,7 @@ static void test_single_node_and_deep_tree(void) {
     dcg_node* root = dcg_t_node_root("Entry Point");
     dcg_node* walk = root;
     for (int level = 0; level < DEPTH; level++) {
-        dcg_node* child = dcg_t_node_collection(DCG_NODE_LIST, "level");
+        dcg_node* child = dcg_t_node_plain("level");
         (void) c_dcg_node_append(walk, child, level == 0 ? DCG_NO_CONDITION : DCG_TRUE_CONDITION);
         walk = child;
     }

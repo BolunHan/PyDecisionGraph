@@ -16,12 +16,15 @@ static void test_lazy_init(void) {
     DCG_CHECK_INT(__DCG_NO_CONDITION.repr[0], '\0'); /* not written yet */
     DCG_CHECK_INT(__DCG_TRUE_CONDITION.repr[0], '\0');
 
-    /* The identity predicates compare storage addresses, so they answer
-     * correctly while the handles are still unpublished. */
+    /* The identity predicates read the type, which every built-in carries from
+     * its static initializer - so they answer correctly while the handles are
+     * still unpublished. */
     DCG_CHECK(c_dcg_condition_is_none(NULL));
     DCG_CHECK(!c_dcg_condition_is_else(NULL));
     DCG_CHECK(!c_dcg_condition_is_true(NULL));
     DCG_CHECK(!c_dcg_condition_is_sentinel(NULL));
+    DCG_CHECK(c_dcg_condition_is_none(&__DCG_NO_CONDITION));
+    DCG_CHECK(c_dcg_condition_is_true(&__DCG_TRUE_CONDITION));
     DCG_CHECK(!__DCG_CONDITION_INITIALIZED); /* ...and they do not trigger the init */
 
     /* The first use of a macro writes the built-ins, once. */
@@ -114,6 +117,43 @@ static void test_identity_predicates(void) {
     DCG_CHECK(!c_dcg_condition_is_sentinel(&own));
     DCG_CHECK(!c_dcg_condition_is_true(&own));
     DCG_CHECK(!c_dcg_condition_is_none(&own));
+}
+
+static void test_identity_survives_a_copy(void) {
+    /* What a second translation unit sees: its own object carrying the same
+     * type. The built-ins are file-scope objects in the header, so this is not
+     * a hypothetical - it is every other TU that includes it. */
+    dcg_node_edge_condition copied_none  = {.type = DCG_NODE_EDGE_NONE};
+    dcg_node_edge_condition copied_true  = {.type = DCG_NODE_EDGE_TRUE};
+    dcg_node_edge_condition copied_false = {.type = DCG_NODE_EDGE_FALSE};
+
+    DCG_CHECK(&copied_true != DCG_TRUE_CONDITION); /* a different object... */
+    DCG_CHECK_INT(copied_true.type, DCG_TRUE_CONDITION->type);
+
+    /* ...that is nevertheless the same edge. */
+    DCG_CHECK(c_dcg_condition_is_true(&copied_true));
+    DCG_CHECK(c_dcg_condition_is_binary(&copied_true));
+    DCG_CHECK(c_dcg_condition_is_sentinel(&copied_true));
+    DCG_CHECK(!c_dcg_condition_is_false(&copied_true));
+    DCG_CHECK(c_dcg_condition_is_false(&copied_false));
+    DCG_CHECK(c_dcg_condition_is_none(&copied_none));
+    DCG_CHECK(!c_dcg_condition_is_binary(&copied_none));
+    DCG_CHECK(!c_dcg_condition_is_none(&copied_true));
+
+    DCG_CHECK(c_dcg_condition_equals(&copied_true, DCG_TRUE_CONDITION));
+    DCG_CHECK(c_dcg_condition_equals(DCG_TRUE_CONDITION, &copied_true));
+    DCG_CHECK(!c_dcg_condition_equals(&copied_true, DCG_FALSE_CONDITION));
+    DCG_CHECK(c_dcg_condition_equals(&copied_none, DCG_NO_CONDITION));
+    DCG_CHECK(c_dcg_condition_equals(&copied_none, NULL));
+
+    /* Selection reads the type too, so a copied arm follows the value. */
+    dcg_var_t yes = dcg_t_var_bool(true);
+    dcg_var_t no  = dcg_t_var_bool(false);
+    DCG_CHECK(c_dcg_condition_matches(&copied_true, &yes));
+    DCG_CHECK(!c_dcg_condition_matches(&copied_true, &no));
+    DCG_CHECK(!c_dcg_condition_matches(&copied_false, &yes));
+    DCG_CHECK(c_dcg_condition_matches(&copied_false, &no));
+    DCG_CHECK(c_dcg_condition_matches(&copied_none, &no));
 }
 
 static void test_condition_equality(void) {
@@ -257,6 +297,7 @@ int main(void) {
     DCG_RUN(test_lazy_init); /* must stay first: it asserts the pre-init state */
     DCG_RUN(test_builtins_are_static);
     DCG_RUN(test_identity_predicates);
+    DCG_RUN(test_identity_survives_a_copy);
     DCG_RUN(test_condition_equality);
     DCG_RUN(test_branch_matching);
     DCG_RUN(test_init_and_lifecycle);

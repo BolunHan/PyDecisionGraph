@@ -6,7 +6,7 @@
 
 #include <decision_graph/decision_tree/bake/c_node.h>
 
-#include <decision_graph/decision_tree/bake/c_collection.h>
+#include <decision_graph/decision_tree/bake/c_collections.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
 #include <decision_graph/decision_tree/bake/c_expr.h>
 
@@ -41,7 +41,7 @@ static void force_link(dcg_node* parent, dcg_node* child, const dcg_node_edge_co
 /* ------------------------------------------------------------------ */
 
 static void test_append_and_order(void) {
-    dcg_node* parent = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* parent = dcg_t_node_plain("list");
     dcg_node* first  = dcg_t_node_double("first", 1.0);
     dcg_node* second = dcg_t_node_double("second", 2.0);
     dcg_node* third  = dcg_t_node_double("third", 3.0);
@@ -83,7 +83,7 @@ static void test_append_and_order(void) {
 }
 
 static void test_append_rejections(void) {
-    dcg_node* parent = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent = dcg_t_node_plain("parent");
     dcg_node* child  = dcg_t_node_double("child", 1.0);
     dcg_node* other  = dcg_t_node_double("other", 2.0);
 
@@ -107,7 +107,7 @@ static void test_append_rejections(void) {
 }
 
 static void test_else_rules(void) {
-    dcg_node* parent   = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent   = dcg_t_node_plain("parent");
     dcg_node* first    = dcg_t_node_double("first", 1.0);
     dcg_node* fallback = dcg_t_node_double("fallback", 0.0);
     dcg_node* too_late = dcg_t_node_double("too late", 9.0);
@@ -123,7 +123,7 @@ static void test_else_rules(void) {
     DCG_CHECK_INT(c_dcg_node_teardown_root(parent), 3); /* parent, first, fallback */
 
     /* An else branch can never be inserted in front of another child... */
-    parent   = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    parent   = dcg_t_node_plain("parent");
     first    = dcg_t_node_double("first", 1.0);
     fallback = dcg_t_node_double("fallback", 0.0);
     too_late = dcg_t_node_double("too late", 9.0);
@@ -155,7 +155,7 @@ static void test_root_rules(void) {
     DCG_CHECK_INT(c_dcg_node_append(root, second, DCG_NO_CONDITION), DCG_ERR_TYPE);
 
     /* AUTO normalizes to the unconditional edge under a root. */
-    c_dcg_node_free(entry);
+    c_dcg_node_free_generic(entry); /* an expression releases what it holds, and only the dispatcher knows it does */
     DCG_CHECK_INT(c_dcg_node_append(root, second, DCG_AUTO_CONDITION), DCG_OK);
     DCG_CHECK(c_dcg_condition_is_none(second->condition_to_parent));
 
@@ -163,7 +163,7 @@ static void test_root_rules(void) {
 }
 
 static void test_inference(void) {
-    dcg_node* parent = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent = dcg_t_node_plain("parent");
     dcg_node* first  = dcg_t_node_double("first", 1.0);
     dcg_node* second = dcg_t_node_double("second", 2.0);
     dcg_node* third  = dcg_t_node_double("third", 3.0);
@@ -186,7 +186,7 @@ static void test_inference(void) {
     DCG_CHECK_INT(c_dcg_node_teardown_root(parent), 3); /* parent, first, second */
 
     /* A single auto-generated else branch infers TRUE... */
-    parent                = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    parent                = dcg_t_node_plain("parent");
     dcg_node* placeholder = dcg_t_node_placeholder("holder");
     DCG_CHECK_INT(c_dcg_node_append(parent, placeholder, DCG_ELSE_CONDITION), DCG_OK);
     DCG_CHECK(c_dcg_node_infer_condition(parent) == DCG_TRUE_CONDITION);
@@ -200,7 +200,7 @@ static void test_inference(void) {
 static void test_autogen_edge_reuse(void) {
     /* With two or more branches the newest auto-generated edge is handed
      * back, so the builder can locate and replace the slot it created. */
-    dcg_node* parent      = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent      = dcg_t_node_plain("parent");
     dcg_node* first       = dcg_t_node_double("first", 1.0);
     dcg_node* auto_filled = dcg_t_node_action(DCG_NODE_NOACTION, "auto");
 
@@ -213,7 +213,7 @@ static void test_autogen_edge_reuse(void) {
 }
 
 static void test_insert_at(void) {
-    dcg_node* parent = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent = dcg_t_node_plain("parent");
     dcg_node* first  = dcg_t_node_double("first", 1.0);
     dcg_node* third  = dcg_t_node_double("third", 3.0);
     dcg_node* middle = dcg_t_node_double("middle", 2.0);
@@ -237,7 +237,7 @@ static void test_insert_at(void) {
 }
 
 static void test_detach_replace_remove(void) {
-    dcg_node* parent      = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent      = dcg_t_node_plain("parent");
     dcg_node* first       = dcg_t_node_double("first", 1.0);
     dcg_node* second      = dcg_t_node_double("second", 2.0);
     dcg_node* replacement = dcg_t_node_double("replacement", 9.0);
@@ -262,7 +262,7 @@ static void test_detach_replace_remove(void) {
     /* A detached node has no slot to replace. */
     dcg_node* orphan = dcg_t_node_double("orphan", 0.0);
     DCG_CHECK_INT(c_dcg_node_replace(orphan, first), DCG_ERR_INVALID_ARG);
-    c_dcg_node_free(orphan);
+    c_dcg_node_free_generic(orphan); /* the same, for a node no graph holds */
 
     c_dcg_node_free(first);
     c_dcg_node_free(second);
@@ -270,8 +270,8 @@ static void test_detach_replace_remove(void) {
 }
 
 static void test_clear_children(void) {
-    dcg_node* parent     = dcg_t_node_collection(DCG_NODE_LIST, "parent");
-    dcg_node* child      = dcg_t_node_collection(DCG_NODE_LIST, "child");
+    dcg_node* parent     = dcg_t_node_plain("parent");
+    dcg_node* child      = dcg_t_node_plain("child");
     dcg_node* grandchild = dcg_t_node_double("grandchild", 1.0);
 
     DCG_CHECK_INT(c_dcg_node_append(parent, child, DCG_NO_CONDITION), DCG_OK);
@@ -286,7 +286,7 @@ static void test_clear_children(void) {
 }
 
 static void test_frozen_parent(void) {
-    dcg_node* parent = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent = dcg_t_node_plain("parent");
     dcg_node* child  = dcg_t_node_double("child", 1.0);
 
     parent->flags |= DCG_NODE_FLAG_FROZEN;
@@ -385,14 +385,50 @@ static void test_traversal_queries(void) {
     DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, branch, yes, no */
 }
 
+static void test_an_arm_is_found_across_condition_copies(void) {
+    /* The binding layer builds the graph in one translation unit and hands out
+     * the conditions from another (c_edge.pyx vs c_node.pyx), so the condition
+     * that built an arm is never the object a lookup holds. The edges have to
+     * agree anyway - this is the path the root's first append runs through. */
+    dcg_node* parent = dcg_t_node_plain("branch");
+    dcg_node* yes    = dcg_t_node_double("yes", 1.0);
+    dcg_node* no     = dcg_t_node_double("no", 0.0);
+    dcg_node* again  = dcg_t_node_double("again", 2.0);
+
+    dcg_node_edge_condition copied_true  = {.type = DCG_NODE_EDGE_TRUE};
+    dcg_node_edge_condition copied_false = {.type = DCG_NODE_EDGE_FALSE};
+
+    DCG_CHECK_INT(c_dcg_node_append(parent, yes, DCG_TRUE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(parent, no, DCG_FALSE_CONDITION), DCG_OK);
+
+    /* Both arms are found by the copies, and the copies do not cross over. */
+    DCG_CHECK(c_dcg_node_child_by_condition(parent, &copied_true) == yes);
+    DCG_CHECK(c_dcg_node_child_by_condition(parent, &copied_false) == no);
+
+    /* The copy names an arm that is already taken, and the parent says so. */
+    DCG_CHECK_INT(c_dcg_node_append(parent, again, &copied_true), DCG_ERR_DUPLICATE);
+    /* With both arms taken there is nothing left for AUTO to infer. */
+    DCG_CHECK_INT(c_dcg_node_append_auto(parent, again), DCG_ERR_UNRESOLVED);
+    DCG_CHECK(again->parent == NULL);
+
+    c_dcg_node_free(again);
+    c_dcg_node_free(yes);
+    c_dcg_node_free(no);
+    c_dcg_node_free(parent);
+}
+
 static void test_find_by_uid(void) {
     dcg_node* root   = build_sample_tree(NULL, NULL, NULL);
     dcg_node* target = c_dcg_node_child_at(c_dcg_node_child_at(root, 0), 1);
 
-    target->uid = (uint128_t) 0xcafe;
-    DCG_CHECK(c_dcg_node_find_by_uid(root, (uint128_t) 0xcafe) == target);
-    DCG_CHECK(c_dcg_node_find_by_uid(root, (uint128_t) 0xbeef) == NULL);
-    DCG_CHECK(c_dcg_node_find_by_uid(NULL, (uint128_t) 0xcafe) == NULL);
+    /* Overwrite the minted identity with a known one; the rest keep theirs. */
+    static const unsigned char probe[16] = {0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+    static const unsigned char other[16] = {0xbe, 0xef};
+    memcpy(target->uid, probe, sizeof(probe));
+
+    DCG_CHECK(c_dcg_node_find_by_uid(root, probe) == target);
+    DCG_CHECK(c_dcg_node_find_by_uid(root, other) == NULL);
+    DCG_CHECK(c_dcg_node_find_by_uid(NULL, probe) == NULL);
 
     DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, branch, yes, no */
 }
@@ -491,7 +527,7 @@ static void test_validate_rejects_broken_graphs(void) {
     dcg_t_trace_node("orphan binary", orphan);
     DCG_CHECK(!c_dcg_node_validate(orphan, &report));
     DCG_CHECK_INT(report.code, DCG_ERR_TYPE);
-    c_dcg_node_free(orphan);
+    c_dcg_node_free_generic(orphan); /* the same, for a node no graph holds */
 
     /* A root with two children. */
     dcg_node* root   = dcg_t_node_root("Entry Point");
@@ -525,7 +561,7 @@ static void test_validate_rejects_broken_graphs(void) {
 
     /* An unresolved AUTO edge must never reach a baked graph. */
     root                 = dcg_t_node_root("Entry Point");
-    dcg_node* unresolved = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* unresolved = dcg_t_node_plain("list");
     dcg_node* auto_child = dcg_t_node_double("auto", 1.0);
     (void) c_dcg_node_append(root, unresolved, DCG_NO_CONDITION);
     force_link(unresolved, auto_child, DCG_AUTO_CONDITION);
@@ -537,7 +573,7 @@ static void test_validate_rejects_broken_graphs(void) {
      * followed by another child) and the second as the duplicate - two
      * defects, both counted. */
     root               = dcg_t_node_root("Entry Point");
-    dcg_node* branch   = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* branch   = dcg_t_node_plain("list");
     dcg_node* else_one = dcg_t_node_double("else one", 1.0);
     dcg_node* else_two = dcg_t_node_double("else two", 2.0);
     (void) c_dcg_node_append(root, branch, DCG_NO_CONDITION);
@@ -549,7 +585,7 @@ static void test_validate_rejects_broken_graphs(void) {
     DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, list, both else branches */
 
     root                 = dcg_t_node_root("Entry Point");
-    branch               = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    branch               = dcg_t_node_plain("list");
     dcg_node* fallback   = dcg_t_node_double("fallback", 0.0);
     dcg_node* after_else = dcg_t_node_double("after", 1.0);
     (void) c_dcg_node_append(root, branch, DCG_NO_CONDITION);
@@ -589,9 +625,10 @@ static void test_validate_rejects_broken_graphs(void) {
     DCG_CHECK_INT(report.code, DCG_ERR_EDGE);
     DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, call, loose, keyed */
 
-    /* A collection is exempt: its children are items keyed by value. */
+    /* Value-keyed branches are a branch set of their own: two children keyed by
+     * value are legitimate, and the rule that rejects a MIX does not touch them. */
     root   = dcg_t_node_root("Entry Point");
-    branch = dcg_t_node_collection(DCG_NODE_MAPPING, "map");
+    branch = dcg_t_node_plain("keyed");
     dcg_node_edge_condition key_a;
     dcg_node_edge_condition key_b;
     c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
@@ -600,12 +637,12 @@ static void test_validate_rejects_broken_graphs(void) {
     force_link(branch, dcg_t_node_double("item a", 1.0), &key_a);
     force_link(branch, dcg_t_node_double("item b", 2.0), &key_b);
     DCG_CHECK(c_dcg_node_validate(root, &report));
-    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, mapping, item a, item b */
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, branch, item a, item b */
 
     /* A hand-wired cycle. */
     root           = dcg_t_node_root("Entry Point");
-    dcg_node* loop = dcg_t_node_collection(DCG_NODE_LIST, "loop");
-    dcg_node* tail = dcg_t_node_collection(DCG_NODE_LIST, "tail");
+    dcg_node* loop = dcg_t_node_plain("loop");
+    dcg_node* tail = dcg_t_node_plain("tail");
     (void) c_dcg_node_append(root, loop, DCG_NO_CONDITION);
     (void) c_dcg_node_append(loop, tail, DCG_TRUE_CONDITION);
     force_link(tail, loop, DCG_FALSE_CONDITION); /* tail -> loop closes the cycle */
@@ -697,7 +734,7 @@ static void test_teardown_refuses_a_sub_root(void) {
      * graph above still points at, which is exactly what a sub-root kept for
      * regional management is. It is refused, and nothing is touched. */
     dcg_node* root   = dcg_t_node_root("Entry Point");
-    dcg_node* branch = dcg_t_node_collection(DCG_NODE_LIST, "branch");
+    dcg_node* branch = dcg_t_node_plain("branch");
     dcg_node* leaf   = dcg_t_node_double("leaf", 1.0);
 
     (void) c_dcg_node_append(root, branch, DCG_NO_CONDITION);
@@ -723,8 +760,8 @@ static void test_teardown_a_shared_node_is_freed_once(void) {
      * trusted the tree shape would free it twice; the record is what makes it
      * once, and the sanitizer is what proves it. */
     dcg_node* top    = dcg_t_node_root("Entry Point");
-    dcg_node* left   = dcg_t_node_collection(DCG_NODE_LIST, "left");
-    dcg_node* right  = dcg_t_node_collection(DCG_NODE_LIST, "right");
+    dcg_node* left   = dcg_t_node_plain("left");
+    dcg_node* right  = dcg_t_node_plain("right");
     dcg_node* shared = dcg_t_node_double("shared", 1.0);
 
     (void) c_dcg_node_append(top, left, DCG_NO_CONDITION);
@@ -752,8 +789,8 @@ static void test_teardown_of_a_cycle_terminates(void) {
      * gone: the record ends the walk, and the edges are dropped before the
      * first free. */
     dcg_node* top  = dcg_t_node_root("Entry Point");
-    dcg_node* loop = dcg_t_node_collection(DCG_NODE_LIST, "loop");
-    dcg_node* tail = dcg_t_node_collection(DCG_NODE_LIST, "tail");
+    dcg_node* loop = dcg_t_node_plain("loop");
+    dcg_node* tail = dcg_t_node_plain("tail");
 
     (void) c_dcg_node_append(top, loop, DCG_NO_CONDITION);
     (void) c_dcg_node_append(loop, tail, DCG_TRUE_CONDITION);
@@ -763,6 +800,292 @@ static void test_teardown_of_a_cycle_terminates(void) {
      * is stated rather than drawn - the teardown is the walk that does not. */
     (void) printf("    %-26s loop -> tail -> loop (3 nodes, one back edge)\n", "cycle");
     DCG_CHECK_INT(c_dcg_node_teardown_root(top), 3); /* each node exactly once */
+}
+
+/* ------------------------------------------------------------------ */
+/* Closing a branch                                                    */
+/* ------------------------------------------------------------------ */
+
+/* The arm a fill added, whatever it was filled with. */
+static void fill_checks(dcg_node* node, const dcg_node_edge_condition* condition) {
+    dcg_node* filled = c_dcg_node_child_by_condition(node, condition);
+    DCG_CHECK(filled != NULL);
+    if (!filled) return;
+    DCG_CHECK_INT(filled->ntype, DCG_NODE_NOACTION);
+    DCG_CHECK(filled->autogen); /* auto-generated: a later consolidation can tell */
+    DCG_CHECK_STR(filled->repr, DCG_DEF_REPR_NOACTION);
+}
+
+static void test_auto_fill_no_branch(void) {
+    /* A node that never got a branch is closed with an unconditioned no-action. */
+    dcg_node* node = dcg_t_node_plain("empty");
+
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 1);
+    fill_checks(node, DCG_NO_CONDITION);
+
+    /* Idempotent: the second call sees a closed node and adds nothing. */
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 1);
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 2);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(NULL), DCG_ERR_INVALID_ARG);
+}
+
+static void test_auto_fill_one_branch(void) {
+    /* A lone binary arm gains its opposite: the node becomes total. */
+    dcg_node* node = dcg_t_node_plain("binary");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("then", 1.0), DCG_TRUE_CONDITION), DCG_OK);
+
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+    fill_checks(node, DCG_FALSE_CONDITION);
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+
+    node = dcg_t_node_plain("binary");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("else", 2.0), DCG_FALSE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    fill_checks(node, DCG_TRUE_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+
+    /* An unconditioned arm already says all the node can: nothing is added. */
+    node = dcg_t_node_plain("unconditioned");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("only", 1.0), DCG_NO_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 1);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 2);
+
+    /* A value-keyed arm stands alone too: a node keyed by value is complete. */
+    node = dcg_t_node_plain("keyed");
+    dcg_node_edge_condition key;
+    c_dcg_condition_init(&key, dcg_t_var_string("a"), "a");
+    force_link(node, dcg_t_node_double("item", 1.0), &key);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 1);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 2);
+}
+
+static void test_auto_fill_else_only(void) {
+    /* An ELSE-only node is a node waiting for its TRUE arm, and the arm goes in
+     * FRONT of the fallback - the else-last rule is not negotiable. */
+    dcg_node* root = dcg_t_node_root("Entry Point");
+    dcg_node* node = dcg_t_node_plain("else-only");
+    DCG_CHECK_INT(c_dcg_node_append(root, node, DCG_NO_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("fallback", 1.0), DCG_ELSE_CONDITION), DCG_OK);
+
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+    fill_checks(node, DCG_TRUE_CONDITION);
+    DCG_CHECK(c_dcg_node_first_child(node) == c_dcg_node_child_by_condition(node, DCG_TRUE_CONDITION));
+    DCG_CHECK(c_dcg_node_last_child(node) == c_dcg_node_child_by_condition(node, DCG_ELSE_CONDITION)); /* still last */
+    DCG_CHECK(c_dcg_node_validate(root, NULL)); /* a closed node is a valid graph */
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4);
+}
+
+static void test_auto_fill_two_branches(void) {
+    dcg_node*             node = NULL;
+    dcg_node_edge_condition key_a;
+    dcg_node_edge_condition key_b;
+
+    /* Two binaries stand as they are. */
+    node = dcg_t_node_plain("binary pair");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("then", 1.0), DCG_TRUE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("else", 2.0), DCG_FALSE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+
+    /* One arm plus a fallback stands too. */
+    node = dcg_t_node_plain("value + else");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("then", 1.0), DCG_TRUE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("fallback", 2.0), DCG_ELSE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+
+    /* Two value-keyed arms gain the protective fallback that makes them total. */
+    node = dcg_t_node_plain("keyed pair");
+    c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
+    c_dcg_condition_init(&key_b, dcg_t_var_string("b"), "b");
+    force_link(node, dcg_t_node_double("item a", 1.0), &key_a);
+    force_link(node, dcg_t_node_double("item b", 2.0), &key_b);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 3);
+    fill_checks(node, DCG_ELSE_CONDITION);
+    DCG_CHECK(c_dcg_node_last_child(node) == c_dcg_node_child_by_condition(node, DCG_ELSE_CONDITION));
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 4);
+
+    /* An unconditioned arm cannot share a node - that is a build error. */
+    node = dcg_t_node_plain("unconditioned pair");
+    DCG_CHECK_INT(c_dcg_node_append(node, dcg_t_node_double("only", 1.0), DCG_NO_CONDITION), DCG_OK);
+    force_link(node, dcg_t_node_double("extra", 2.0), DCG_TRUE_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_ERR_EDGE);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+
+    /* A binary beside a value-keyed arm is contradictory. */
+    node = dcg_t_node_plain("mixed pair");
+    c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
+    force_link(node, dcg_t_node_double("item", 1.0), &key_a);
+    force_link(node, dcg_t_node_double("then", 2.0), DCG_TRUE_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_ERR_EDGE);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3);
+}
+
+static void test_auto_fill_many_branches(void) {
+    dcg_node*             node = NULL;
+    dcg_node_edge_condition key_a;
+    dcg_node_edge_condition key_b;
+    dcg_node_edge_condition key_c;
+
+    /* Value-keyed arms beyond a pair gain the fallback too. */
+    node = dcg_t_node_plain("keyed trio");
+    c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
+    c_dcg_condition_init(&key_b, dcg_t_var_string("b"), "b");
+    c_dcg_condition_init(&key_c, dcg_t_var_string("c"), "c");
+    force_link(node, dcg_t_node_double("item a", 1.0), &key_a);
+    force_link(node, dcg_t_node_double("item b", 2.0), &key_b);
+    force_link(node, dcg_t_node_double("item c", 3.0), &key_c);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 4);
+    fill_checks(node, DCG_ELSE_CONDITION);
+
+    /* One that already ends with a fallback is left alone. */
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 4);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 5);
+
+    /* A binary among three is one branch too many. */
+    node = dcg_t_node_plain("keyed pair + binary");
+    c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
+    c_dcg_condition_init(&key_b, dcg_t_var_string("b"), "b");
+    force_link(node, dcg_t_node_double("item a", 1.0), &key_a);
+    force_link(node, dcg_t_node_double("item b", 2.0), &key_b);
+    force_link(node, dcg_t_node_double("then", 3.0), DCG_TRUE_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_ERR_TYPE);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 4);
+
+    /* So is an unconditioned arm. */
+    node = dcg_t_node_plain("keyed pair + unconditioned");
+    c_dcg_condition_init(&key_a, dcg_t_var_string("a"), "a");
+    c_dcg_condition_init(&key_b, dcg_t_var_string("b"), "b");
+    force_link(node, dcg_t_node_double("item a", 1.0), &key_a);
+    force_link(node, dcg_t_node_double("item b", 2.0), &key_b);
+    force_link(node, dcg_t_node_double("only", 3.0), DCG_NO_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_ERR_EDGE);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 4);
+}
+
+static void test_auto_fill_closes_a_built_branch(void) {
+    /* The shape a `with` block produces, in the order it produces it: a node is
+     * entered with both arms RESERVED, a nested build fills one, and the close
+     * has nothing left to add - the arm that was never built is still holding
+     * its placeholder, and consolidation is what turns it into a no-action. */
+    dcg_node* root = dcg_t_node_root("Entry Point");
+    dcg_node* node = dcg_t_node_plain("decision");
+    DCG_CHECK_INT(c_dcg_node_append(root, node, DCG_NO_CONDITION), DCG_OK);
+
+    dcg_node* reserved_true  = c_dcg_node_new_placeholder(NULL);
+    dcg_node* reserved_false = c_dcg_node_new_placeholder(NULL);
+    DCG_CHECK_INT(c_dcg_node_append(node, reserved_true, DCG_TRUE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(node, reserved_false, DCG_FALSE_CONDITION), DCG_OK);
+
+    /* One arm is built out; the other still holds its placeholder. */
+    DCG_CHECK_INT(c_dcg_node_replace(reserved_true, dcg_t_node_double("built", 1.0)), DCG_OK);
+    c_dcg_node_free(reserved_true);
+
+    /* Both arms are binaries, so the close has nothing to say. */
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+
+    DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(node), 1);
+    DCG_CHECK_INT(reserved_false->ntype, DCG_NODE_NOACTION);
+    DCG_CHECK(reserved_false->autogen);
+    DCG_CHECK_STR(reserved_false->repr, DCG_DEF_REPR_NOACTION); /* the arm reads as a no-action, as it does in capi */
+
+    DCG_CHECK(c_dcg_node_validate(root, NULL));
+    dcg_t_trace_tree("closed branch (built + consolidated)", root);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4);
+}
+
+static void test_an_entered_binary_reserves_true_first(void) {
+    /* The two arms a branching node reserves go in the order the evaluator reads
+     * them: TRUE first, FALSE second. The capi keeps the pair the other way
+     * round, and this layer deliberately does not - the child order here IS the
+     * reading order, so a render shows the true branch above the fallback and a
+     * sequential check reaches it first. */
+    dcg_node* node = dcg_t_node_plain("decision");
+    DCG_CHECK_INT(c_dcg_node_ctx_enter_binary(node, NULL), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
+
+    dcg_node* first = c_dcg_node_first_child(node);
+    dcg_node* last  = c_dcg_node_last_child(node);
+    DCG_CHECK_INT(first->ntype, DCG_NODE_PLACEHOLDER);
+    DCG_CHECK_INT(last->ntype, DCG_NODE_PLACEHOLDER);
+    DCG_CHECK(c_dcg_condition_is_true(first->condition_to_parent));
+    DCG_CHECK(c_dcg_condition_is_false(last->condition_to_parent));
+
+    /* The fill takes the first reservation, so the first branch built lands on
+     * the TRUE arm - and filling it leaves the order as it was. */
+    DCG_CHECK(c_dcg_node_get_placeholder(node) == first);
+    DCG_CHECK_INT(c_dcg_node_replace(first, dcg_t_node_double("built", 1.0)), DCG_OK);
+    c_dcg_node_free(first);
+    DCG_CHECK(c_dcg_condition_is_true(c_dcg_node_first_child(node)->condition_to_parent));
+    DCG_CHECK(c_dcg_condition_is_false(c_dcg_node_last_child(node)->condition_to_parent));
+    DCG_CHECK(c_dcg_node_get_placeholder(node) == last);
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3); /* node, built, the FALSE arm */
+}
+
+static void test_get_placeholder_takes_the_first_standing(void) {
+    /* A node with both arms reserved hands back the FIRST standing placeholder,
+     * which is the TRUE arm of the pair an entering reserves. Anything else
+     * would fill the fallback first and leave the pair in the order the read
+     * does not use. */
+    dcg_node* node = dcg_t_node_plain("decision");
+
+    dcg_node* reserved_true  = c_dcg_node_new_placeholder(NULL);
+    dcg_node* reserved_false = c_dcg_node_new_placeholder(NULL);
+    DCG_CHECK_INT(c_dcg_node_append(node, reserved_true, DCG_TRUE_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_append(node, reserved_false, DCG_FALSE_CONDITION), DCG_OK);
+
+    DCG_CHECK(c_dcg_node_get_placeholder(node) == reserved_true);
+
+    /* Fill it, and the one that is left is the FALSE arm's. */
+    DCG_CHECK_INT(c_dcg_node_replace(reserved_true, dcg_t_node_double("built", 1.0)), DCG_OK);
+    c_dcg_node_free(reserved_true);
+    DCG_CHECK(c_dcg_node_get_placeholder(node) == reserved_false);
+
+    /* A node with no placeholder at all gets one on the inferred edge. */
+    dcg_node* fresh = dcg_t_node_plain("fresh");
+    DCG_CHECK(c_dcg_node_get_placeholder(fresh) != NULL);
+    DCG_CHECK_INT(c_dcg_node_child_count(fresh), 1);
+    DCG_CHECK(c_dcg_condition_is_true(c_dcg_node_first_child(fresh)->condition_to_parent));
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(node), 3); /* node, built, reserved_false */
+    DCG_CHECK_INT(c_dcg_node_teardown_root(fresh), 2);
+    DCG_CHECK(c_dcg_node_get_placeholder(NULL) == NULL);
+}
+
+static void test_auto_fill_under_a_root(void) {
+    /* A node is only judgeable once it hangs in a graph: a parentless node that
+     * is not a root is a detached fragment, and validation says so. */
+    dcg_node* root = dcg_t_node_root("Entry Point");
+    dcg_node* node = dcg_t_node_plain("decision");
+    DCG_CHECK_INT(c_dcg_node_append(root, node, DCG_NO_CONDITION), DCG_OK);
+
+    DCG_CHECK_INT(c_dcg_node_auto_fill(node), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_child_count(node), 1);
+    DCG_CHECK(c_dcg_node_validate(root, NULL));
+
+    /* The same node on its own is not a graph. */
+    dcg_node* loose = dcg_t_node_plain("loose");
+    DCG_CHECK_INT(c_dcg_node_auto_fill(loose), DCG_OK);
+    DCG_CHECK(!c_dcg_node_validate(loose, NULL));
+
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 3);
+    DCG_CHECK_INT(c_dcg_node_teardown_root(loose), 2);
 }
 
 int main(void) {
@@ -778,12 +1101,22 @@ int main(void) {
     DCG_RUN(test_clear_children);
     DCG_RUN(test_frozen_parent);
     DCG_RUN(test_traversal_queries);
+    DCG_RUN(test_an_arm_is_found_across_condition_copies);
     DCG_RUN(test_find_by_uid);
     DCG_RUN(test_labels);
     DCG_RUN(test_validate_accepts_a_well_formed_graph);
     DCG_RUN(test_validate_rejects_broken_graphs);
     DCG_RUN(test_validate_null_and_print);
     DCG_RUN(test_consolidate_placeholder);
+    DCG_RUN(test_auto_fill_no_branch);
+    DCG_RUN(test_auto_fill_one_branch);
+    DCG_RUN(test_auto_fill_else_only);
+    DCG_RUN(test_auto_fill_two_branches);
+    DCG_RUN(test_auto_fill_many_branches);
+    DCG_RUN(test_auto_fill_closes_a_built_branch);
+    DCG_RUN(test_get_placeholder_takes_the_first_standing);
+    DCG_RUN(test_an_entered_binary_reserves_true_first);
+    DCG_RUN(test_auto_fill_under_a_root);
     DCG_RUN(test_teardown_refuses_a_sub_root);
     DCG_RUN(test_teardown_a_shared_node_is_freed_once);
     DCG_RUN(test_teardown_of_a_cycle_terminates);

@@ -5,7 +5,7 @@
 
 #include <decision_graph/decision_tree/bake/c_expr.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
-#include <decision_graph/decision_tree/bake/c_collection.h>
+#include <decision_graph/decision_tree/bake/c_collections.h>
 
 #include <decision_graph/decision_tree/bake/c_action.h>
 
@@ -202,7 +202,7 @@ static void test_bound_operands(void) {
     dcg_expression_node* node = NULL;
 
     (void) c_dcg_var_init_double(&value, 2.5);
-    var = c_dcg_node_new_var("x", &value, NULL);
+    var = c_dcg_node_new_var("x", "x", 1, &value, NULL, NULL);
     DCG_CHECK(var != NULL);
 
     node = c_dcg_node_new_expr_binary(DCG_OP_ADD, &var->base, &var->base, NULL);
@@ -224,6 +224,68 @@ static void test_bound_operands(void) {
     c_dcg_node_free_var(var);
 }
 
+static void test_operand_references(void) {
+    /* An operand is HELD, whatever the slot took: binding takes one reference on
+     * it and teardown gives it back - the same rule for a literal, a read and an
+     * expression, so there is no case that has to be reasoned about twice. The
+     * block is shared while the expression is alive, which is what makes freeing
+     * an operand by hand a loud mistake instead of a slot left reading freed
+     * memory - and what keeps the node readable after one of its holders lets go.
+     */
+    dcg_constant_node*   five  = c_dcg_node_new_const_int(5, NULL);
+    dcg_expression_node* inner = c_dcg_node_new_expr_unary(DCG_OP_NEG, &five->base, NULL);
+    DCG_CHECK(inner != NULL);
+    DCG_CHECK(inner->components[0] == &five->base); /* a folded literal is held all the same */
+    c_ap_decref(&five->base);                /* this caller's own reference goes back */
+
+    allocator_protocol* protocol = c_ap_protocol_from_ptr(inner);
+    int64_t             owned    = atomic_load_explicit(&protocol->ref_count, memory_order_acquire);
+
+    dcg_expression_node* outer = c_dcg_node_new_expr_unary(DCG_OP_NOT, &inner->base, NULL);
+    DCG_CHECK(outer != NULL);
+    DCG_CHECK(outer->components[0] == &inner->base); /* held, not just pointed at */
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned + 1);
+
+    /* One holder letting go gives the reference back; the node is untouched. */
+    c_dcg_node_free_expr(outer);
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned);
+    DCG_CHECK_INT(inner->op, DCG_OP_NEG);
+    DCG_CHECK_INT(inner->n_args, 1);
+
+    /* Rebinding a slot to the operand it already holds does not pile up
+     * references, so the hold can be moved without leaking one. */
+    outer = c_dcg_node_new_expr_unary(DCG_OP_NOT, &inner->base, NULL);
+    DCG_CHECK_INT(c_dcg_node_expr_bind(outer, 0, &inner->base), DCG_OK);
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned + 1);
+    c_dcg_node_free_expr(outer);
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned);
+
+    /* Rebinding to a DIFFERENT operand gives the old one back, so a slot never
+     * holds two operands' references at once. */
+    dcg_constant_node*   seven = c_dcg_node_new_const_int(7, NULL);
+    dcg_expression_node* again = c_dcg_node_new_expr_unary(DCG_OP_NOT, &inner->base, NULL);
+    DCG_CHECK(again != NULL);
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned + 1);
+
+    DCG_CHECK_INT(c_dcg_node_expr_bind(again, 0, &seven->base), DCG_OK);
+    DCG_CHECK(atomic_load_explicit(&protocol->ref_count, memory_order_acquire) == owned); /* inner's hold went back */
+    DCG_CHECK(again->components[0] == &seven->base);
+    c_ap_decref(&seven->base);
+    c_dcg_node_free_expr(again);
+
+    /* The literal a bound slot took the value of is held as well, so the slot
+     * reads what it folded in for as long as the expression lives. */
+    seven                       = c_dcg_node_new_const_int(7, NULL);
+    dcg_expression_node* plain  = c_dcg_node_new_expr_unary(DCG_OP_NOT, &seven->base, NULL);
+    DCG_CHECK(plain != NULL);
+    DCG_CHECK(plain->components[0] == &seven->base);
+    c_ap_decref(&seven->base); /* the expression's hold is what keeps it readable */
+    DCG_CHECK_INT(c_dcg_var_as_int(&plain->args[0]), 7);
+
+    c_dcg_node_free_expr(plain);
+    c_dcg_node_free_expr(inner); /* its own hold on five is given back here, and the block dies */
+}
+
 static void test_folded_constants(void) {
     /* A constant is known when the graph is baked, so its value is folded in
      * rather than referred to: a literal needs no indirection to be read. */
@@ -233,7 +295,7 @@ static void test_folded_constants(void) {
     DCG_CHECK_INT(node->args[0].dtype, VAR_TYPE_INT); /* the value, not a reference */
     DCG_CHECK_INT(c_dcg_var_as_int(&node->args[0]), 5);
     dcg_t_trace_expr("binary MUL(five, five)", node);
-    c_dcg_node_free_expr(node);
+    c_dcg_node_free_expr(node); /* gives back its two holds on `five` */
     c_dcg_node_free_const(five);
 
     /* A folded string is a copy nested under the expression, so the expression
@@ -246,7 +308,7 @@ static void test_folded_constants(void) {
     DCG_CHECK(c_dcg_var_as_string(&node->args[0]) != text->base.out.value.as_string); /* a copy */
 
     dcg_t_trace_expr("unary NOT(text)", node);
-    c_dcg_node_free_const(text);
+    c_ap_decref(&text->base); /* folded in, and held: this reference goes back */
     DCG_CHECK_STR(c_dcg_var_as_string(&node->args[0]), "abc"); /* the expression kept its own */
     c_dcg_node_free_expr(node);                                /* LSan checks the copy went with it */
 }
@@ -263,7 +325,7 @@ static void test_binding(void) {
     dcg_constant_node* seven = c_dcg_node_new_const_int(7, NULL);
     DCG_CHECK_INT(c_dcg_node_expr_bind(node, 0, &seven->base), DCG_OK);
     DCG_CHECK_INT(c_dcg_var_as_int(&node->args[0]), 7);
-    c_dcg_node_free_const(seven);
+    c_ap_decref(&seven->base); /* bound into the slot: this reference goes back */
 
     /* Out-of-range and NULL arguments are refused. */
     DCG_CHECK_INT(c_dcg_node_expr_bind(node, 2, input), DCG_ERR_RANGE);
@@ -286,8 +348,8 @@ static void test_eval_style_loop(void) {
 
     (void) c_dcg_var_init_double(&a, 1.25);
     (void) c_dcg_var_init_int(&b, 2);
-    lhs = c_dcg_node_new_var("a", &a, NULL);
-    rhs = c_dcg_node_new_var("b", &b, NULL);
+    lhs = c_dcg_node_new_var("a", "a", 1, &a, NULL, NULL);
+    rhs = c_dcg_node_new_var("b", "b", 1, &b, NULL, NULL);
 
     node = c_dcg_node_new_expr_binary(DCG_OP_ADD, &lhs->base, &rhs->base, NULL);
     DCG_CHECK(node != NULL);
@@ -313,6 +375,167 @@ static void test_eval_style_loop(void) {
     c_dcg_node_free_var(rhs);
 }
 
+static void test_every_op_keeps_its_own_rule(void) {
+    /* Which rule evaluates a node is answered ONCE, out of the flat list of the
+     * family's rules (DCG_EXPR_EVAL_FNS) - and where the answer is KEPT is what
+     * DCG_EVAL_DIRECT_HOOKS decides: injected onto the node as its type-eval rule
+     * as it is built, or found again at evaluation time by the family's own entry
+     * (c_dcg_node_expr_eval). Both are asserted here, in every operator, because a
+     * rule that is right for one operator and wrong for another is exactly the
+     * drift this design exists to prevent.
+     *
+     * The rules drive their OWN operands, so nothing has to be filled in before
+     * one is called: the workspace is the node's own field, over the node's own
+     * components. */
+    static const struct {
+        dcg_op_code      op;
+        dcg_node_type    ntype;
+        dcg_node_hook_fn rule;
+    } cases[] = {
+        {DCG_OP_NEG, DCG_NODE_UNARY, c_dcg_node_expr_eval_neg},
+        {DCG_OP_NOT, DCG_NODE_UNARY, c_dcg_node_expr_eval_not},
+        {DCG_OP_ADD, DCG_NODE_BINARY, c_dcg_node_expr_eval_add},
+        {DCG_OP_SUB, DCG_NODE_BINARY, c_dcg_node_expr_eval_sub},
+        {DCG_OP_MUL, DCG_NODE_BINARY, c_dcg_node_expr_eval_mul},
+        {DCG_OP_DIV, DCG_NODE_BINARY, c_dcg_node_expr_eval_div},
+        {DCG_OP_FLOORDIV, DCG_NODE_BINARY, c_dcg_node_expr_eval_floordiv},
+        {DCG_OP_POW, DCG_NODE_BINARY, c_dcg_node_expr_eval_pow},
+        {DCG_OP_EQ, DCG_NODE_BINARY, c_dcg_node_expr_eval_eq},
+        {DCG_OP_NE, DCG_NODE_BINARY, c_dcg_node_expr_eval_ne},
+        {DCG_OP_GT, DCG_NODE_BINARY, c_dcg_node_expr_eval_gt},
+        {DCG_OP_GE, DCG_NODE_BINARY, c_dcg_node_expr_eval_ge},
+        {DCG_OP_LT, DCG_NODE_BINARY, c_dcg_node_expr_eval_lt},
+        {DCG_OP_LE, DCG_NODE_BINARY, c_dcg_node_expr_eval_le},
+        {DCG_OP_AND, DCG_NODE_BINARY, c_dcg_node_expr_eval_and},
+        {DCG_OP_OR, DCG_NODE_BINARY, c_dcg_node_expr_eval_or}
+    };
+
+    dcg_constant_node* lhs = c_dcg_node_new_const_int(6, NULL);
+    dcg_constant_node* rhs = c_dcg_node_new_const_int(7, NULL);
+    dcg_node*          vars[1] = {&lhs->base};
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        dcg_op_code op = cases[i].op;
+
+        /* The flat list holds the operator's own rule, at the slot its code
+         * indexes - the code flattened into its family and its variant. */
+        DCG_CHECK(DCG_EXPR_EVAL_FNS[c_dcg_op_code_index(op)] == cases[i].rule);
+
+        dcg_expression_node* node = cases[i].ntype == DCG_NODE_UNARY ? c_dcg_node_new_expr_unary(op, &lhs->base, NULL) : c_dcg_node_new_expr_binary(op, &lhs->base, &rhs->base, NULL);
+        DCG_CHECK(node != NULL);
+
+#if DCG_EVAL_DIRECT_HOOKS
+        /* The injection: the node carries ITS operator's rule, from the moment its
+         * operator is set. */
+        DCG_CHECK(node->base.eval_ctx.type_eval_fn == cases[i].rule);
+#else
+        /* No injection in this build, so nothing is on the node and the rule is
+         * found from the code when the node is evaluated. */
+        DCG_CHECK(node->base.eval_ctx.type_eval_fn == NULL);
+#endif
+
+        /* Either way the same rule runs - and it is the node's whole evaluation:
+         * it runs its own components, fills its own workspace, and applies its
+         * own kernel, with no dispatch and nothing to fill in beforehand. */
+        DCG_CHECK_INT(c_dcg_node_expr_eval(&node->base, NULL), DCG_OK);
+        DCG_CHECK(!c_dcg_var_is_null(&node->base.out));
+        c_dcg_node_free_expr(node);
+    }
+    (void) printf("    %-26s %zu operators, each with its own rule and its own value\n", "flat rule list", sizeof(cases) / sizeof(cases[0]));
+
+    /* An operator the node's arity has no rule for refuses - in either build. */
+    dcg_expression_node* unary_add = c_dcg_node_new_expr_unary(DCG_OP_ADD, &lhs->base, NULL);
+    DCG_CHECK(unary_add != NULL);
+#if DCG_EVAL_DIRECT_HOOKS
+    DCG_CHECK(unary_add->base.eval_ctx.type_eval_fn == c_dcg_node_expr_eval_refuse);
+#endif
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&unary_add->base, NULL), DCG_ERR_TYPE);
+    c_dcg_node_free_expr(unary_add);
+
+    dcg_expression_node* binary_neg = c_dcg_node_new_expr_binary(DCG_OP_NEG, &lhs->base, &rhs->base, NULL);
+    DCG_CHECK(binary_neg != NULL);
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&binary_neg->base, NULL), DCG_ERR_TYPE);
+    c_dcg_node_free_expr(binary_neg);
+
+    /* The slots that name no operator of a family this one has - a family head,
+     * the access operators - refuse; one that names no operator at all reports
+     * the node it was handed. */
+    DCG_CHECK(DCG_EXPR_EVAL_FNS[c_dcg_op_code_index(DCG_OP_GETITEM)] == c_dcg_node_expr_eval_refuse);
+    DCG_CHECK(DCG_EXPR_EVAL_FNS[c_dcg_op_code_index(DCG_OP_NONE)] == c_dcg_node_expr_eval_unknown);
+    DCG_CHECK(DCG_EXPR_EVAL_FNS[c_dcg_op_code_index(DCG_OP_ARITH)] == c_dcg_node_expr_eval_unknown);
+    DCG_CHECK(c_dcg_node_expr_apply_fn_of(DCG_NODE_UNARY, DCG_OP_ADD) == c_dcg_node_expr_apply_refuse);
+    DCG_CHECK(c_dcg_node_expr_apply_fn_of(DCG_NODE_BINARY, DCG_OP_NEG) == c_dcg_node_expr_apply_refuse);
+    DCG_CHECK(c_dcg_node_expr_apply_fn_of(DCG_NODE_BINARY, DCG_OP_GETITEM) == c_dcg_node_expr_apply_refuse);
+
+    /* An if-expression reads the arm its condition picks, and ONLY that arm: a
+     * call on the side not taken - which has no evaluation at all - is not this
+     * node's problem. */
+    dcg_expression_node* ternary = c_dcg_node_new_expr_ternary(DCG_OP_NONE, &lhs->base, &rhs->base, &lhs->base, NULL);
+    DCG_CHECK(ternary != NULL);
+#if DCG_EVAL_DIRECT_HOOKS
+    DCG_CHECK(ternary->base.eval_ctx.type_eval_fn == c_dcg_node_expr_eval_ternary);
+#endif
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&ternary->base, NULL), DCG_OK);
+    DCG_CHECK_INT(c_dcg_var_as_int(&ternary->base.out), 7); /* 6 is true, so the then-arm */
+    c_dcg_node_free_expr(ternary);
+
+    dcg_expression_node* untaken = c_dcg_node_new_expr_call(DCG_OP_NONE, vars, 1, "never", NULL);
+    dcg_expression_node* lazy    = c_dcg_node_new_expr_ternary(DCG_OP_NONE, &lhs->base, &rhs->base, &untaken->base, NULL);
+    DCG_CHECK(untaken != NULL && lazy != NULL);
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&lazy->base, NULL), DCG_OK);
+    DCG_CHECK_INT(c_dcg_var_as_int(&lazy->base.out), 7); /* the else-arm holds the call, and is not reached */
+    c_dcg_node_free_expr(lazy);
+    c_dcg_node_free_expr(untaken);
+
+    /* A call has no evaluation: saying so is its rule, in either build. */
+    dcg_expression_node* call = c_dcg_node_new_expr_call(DCG_OP_NONE, vars, 1, "my_call", NULL);
+    DCG_CHECK(call != NULL);
+#if DCG_EVAL_DIRECT_HOOKS
+    DCG_CHECK(call->base.eval_ctx.type_eval_fn == c_dcg_node_expr_eval_call);
+#endif
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&call->base, NULL), DCG_ERR_TYPE);
+    c_dcg_node_free_expr(call);
+
+    /* A node born with no operator at all refuses until an operator arrives - and
+     * setting one moves the rule with the code, which is what keeps the two from
+     * ever disagreeing. */
+    dcg_expression_node* bare = c_dcg_node_new_expr(2, DCG_NODE_BINARY, NULL);
+    DCG_CHECK(bare != NULL);
+#if DCG_EVAL_DIRECT_HOOKS
+    DCG_CHECK(bare->base.eval_ctx.type_eval_fn == c_dcg_node_expr_eval_refuse);
+#endif
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&bare->base, NULL), DCG_ERR_TYPE); /* no operator, no operands */
+    DCG_CHECK_INT(c_dcg_node_expr_set_op(bare, DCG_OP_SUB), DCG_OK);
+    DCG_CHECK_INT(bare->op, DCG_OP_SUB);
+#if DCG_EVAL_DIRECT_HOOKS
+    DCG_CHECK(bare->base.eval_ctx.type_eval_fn == c_dcg_node_expr_eval_sub);
+#endif
+    c_dcg_node_free_expr(bare);
+
+    /* And the runtime dispatchers, which serve a caller with a code and no node,
+     * reach the kernels the rules call - the same answer by the two ways in. */
+    dcg_expression_node* node = c_dcg_node_new_expr_binary(DCG_OP_SUB, &lhs->base, &rhs->base, NULL);
+    dcg_var_t            a;
+    dcg_var_t            b;
+    dcg_var_t            through_the_code;
+    (void) c_dcg_var_init_int(&a, 9);
+    (void) c_dcg_var_init_int(&b, 4);
+
+    DCG_CHECK_INT(c_dcg_node_expr_apply_binary(&through_the_code, DCG_OP_SUB, &a, &b), DCG_OK);
+    DCG_CHECK_INT(c_dcg_var_as_int(&through_the_code), 5);
+    DCG_CHECK_INT(c_dcg_node_expr_eval(&node->base, NULL), DCG_OK);
+    DCG_CHECK_INT(c_dcg_var_as_int(&node->base.out), -1); /* 6 - 7, by the family's own entry */
+    c_dcg_node_free_expr(node);
+
+    /* An operator no arity has a kernel for: refused, with the code the
+     * dispatchers have always reported for it. */
+    DCG_CHECK_INT(c_dcg_node_expr_apply_unary(&through_the_code, DCG_OP_ADD, &a), DCG_ERR_TYPE);
+    DCG_CHECK_INT(c_dcg_node_expr_apply_binary(&through_the_code, DCG_OP_NEG, &a, &b), DCG_ERR_TYPE);
+
+    c_ap_decref(&lhs->base);
+    c_ap_decref(&rhs->base);
+}
+
 int main(void) {
     (void) printf("test_c_expr\n");
     DCG_RUN(test_lifecycle);
@@ -320,9 +543,11 @@ int main(void) {
     DCG_RUN(test_operator_codes);
     DCG_RUN(test_repr_styles);
     DCG_RUN(test_bound_operands);
+    DCG_RUN(test_operand_references);
     DCG_RUN(test_folded_constants);
     DCG_RUN(test_binding);
     DCG_RUN(test_eval_style_loop);
+    DCG_RUN(test_every_op_keeps_its_own_rule);
     DCG_SUMMARY("test_c_expr");
     return dcg_test_failures == 0 ? 0 : 1;
 }

@@ -5,7 +5,7 @@
 
 #include <decision_graph/decision_tree/bake/c_node.h>
 
-#include <decision_graph/decision_tree/bake/c_collection.h>
+#include <decision_graph/decision_tree/bake/c_collections.h>
 #include <decision_graph/decision_tree/bake/c_const.h>
 #include <decision_graph/decision_tree/bake/c_expr.h>
 
@@ -83,7 +83,7 @@ static void test_hook_context_is_a_struct(void) {
 
     /* A fresh node has no hooks and no data. */
     DCG_CHECK(node->eval_ctx.pre_eval_fn == NULL);
-    DCG_CHECK(node->eval_ctx.eval_fn == NULL);
+    DCG_CHECK(!dcg_t_has_caller_hook(node));
     DCG_CHECK(node->eval_ctx.post_eval_fn == NULL);
     DCG_CHECK(node->eval_ctx.user_data == NULL);
     DCG_CHECK_INT(node->eval_ctx.visits, 0);
@@ -209,7 +209,7 @@ static void      self_unregistering_callback(dcg_node_event event, dcg_node* sel
 }
 
 static void test_callback_registration(void) {
-    dcg_node* node    = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* node    = dcg_t_node_plain("list");
     uintptr_t first   = 0;
     uintptr_t second  = 0;
     int       payload = 0;
@@ -239,7 +239,7 @@ static void test_callback_registration(void) {
 static void test_callback_events(void) {
     (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
 
-    dcg_node* parent      = dcg_t_node_collection(DCG_NODE_LIST, "parent");
+    dcg_node* parent      = dcg_t_node_plain("parent");
     dcg_node* child       = dcg_t_node_double("child", 1.0);
     dcg_node* replacement = dcg_t_node_double("replacement", 2.0);
     dcg_node* grandchild  = dcg_t_node_double("grandchild", 3.0);
@@ -281,18 +281,18 @@ static void test_callback_events(void) {
     (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
     DCG_CHECK_INT(c_dcg_node_clear_children(parent), 2); /* the child and its own child */
     DCG_CHECK_INT(g_cb_log.calls, 1);
-    DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_CLEARED);
+    DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_CHILD_CLEARED);
 
-    /* Teardown announces itself before the buf is zeroed. */
+    /* Teardown is SILENT: no callback fires for a node's own free. The
+     * allocator protocol reports that already, and running one on a block about
+     * to be released would hand its observer a dying node. */
     (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
     c_dcg_node_free(parent);
-    DCG_CHECK_INT(g_cb_log.calls, 1);
-    DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_FREED);
-    DCG_CHECK_INT(g_cb_log.last_seq_id, (uint64_t) -1); /* lifecycle has no caller to suppress */
+    DCG_CHECK_INT(g_cb_log.calls, 0);
 }
 
 static void test_callback_self_unregistration(void) {
-    dcg_node* node = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* node = dcg_t_node_plain("list");
 
     g_self_unregister_node  = node;
     g_self_unregister_calls = 0;
@@ -316,7 +316,7 @@ static void test_callback_seq_id(void) {
      * ignore - the mutation it caused itself. */
     (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
 
-    dcg_node* node  = dcg_t_node_collection(DCG_NODE_LIST, "list");
+    dcg_node* node  = dcg_t_node_plain("list");
     uint64_t  my_id = c_dcg_node_gen_seq_id(node);
     uintptr_t id    = 0;
 

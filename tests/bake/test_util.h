@@ -131,6 +131,17 @@ static inline void dcg_t_trace_var(const char* what, const dcg_var_t* var) {
 
 #if defined(C_DCG_BAKE_NODE_H)
 
+/**
+ * Whether a node carries an eval hook a CALLER installed.
+ *
+ * The rule a node's type gives it lives in a slot of its own (see
+ * DCG_EVAL_DIRECT_HOOKS); a caller's hook is the one in eval_fn, whether the
+ * layer was built with the switch on or off.
+ */
+static inline bool dcg_t_has_caller_hook(const dcg_node* node) {
+    return node && node->eval_ctx.eval_fn != NULL;
+}
+
 /*
  * Node fixtures. Each family header has its own constructors, which is right
  * for a builder but noisy inside a test; these wrap the call a suite makes and
@@ -142,8 +153,17 @@ static inline dcg_node* dcg_t_node(dcg_node_type ntype, const char* repr) {
 }
 
 /*
+ * A plain node to hang children on. The hierarchy suites need a carrier that is
+ * not itself the thing under test, and a literal is the flat type that holds
+ * one.
+ */
+static inline dcg_node* dcg_t_node_plain(const char* repr) {
+    return c_dcg_node_new(DCG_NODE_TRUE, repr, NULL);
+}
+
+/*
  * Traces. The assertions say whether the code is right; a trace says what it was
- * asked to do - the kind, the repr it composed, the value it holds - so a run log
+ * asked to do - the type, the repr it composed, the value it holds - so a run log
  * can be read on its own, without opening the suite that produced it.
  */
 static inline void dcg_t_trace_node(const char* what, const dcg_node* node) {
@@ -163,22 +183,15 @@ static inline void dcg_t_trace_tree(const char* what, const dcg_node* root) {
 
 #if defined(C_DCG_BAKE_HIERARCHY_H)
 
-/* The graph's own kinds: a kind and a repr, and nothing to release. */
+/* The graph's own types: a type and a repr, and nothing to release. The repr
+ * goes in at construction - NULL takes each type's own default. */
 static inline dcg_node* dcg_t_node_root(const char* repr) {
-    dcg_root_node* node = c_dcg_node_new_root(NULL);
-    if (node && repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
-        c_dcg_node_free(&node->base);
-        return NULL;
-    }
+    dcg_root_node* node = c_dcg_node_new_root(repr, NULL);
     return node ? &node->base : NULL;
 }
 
 static inline dcg_node* dcg_t_node_breakpoint(const char* repr) {
-    dcg_breakpoint_node* node = c_dcg_node_new_breakpoint(NULL);
-    if (node && repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
-        c_dcg_node_free(&node->base);
-        return NULL;
-    }
+    dcg_breakpoint_node* node = c_dcg_node_new_breakpoint(NULL, repr, NULL);
     return node ? &node->base : NULL;
 }
 
@@ -187,19 +200,19 @@ static inline dcg_node* dcg_t_node_breakpoint(const char* repr) {
 
 #if defined(C_DCG_BAKE_ACTION_H)
 
-/* The action family: a kind, a repr, and the builder's two fields. */
+/* The action family: a type, a repr, and the builder's two fields. */
 
 static inline dcg_node* dcg_t_node_placeholder(const char* repr) {
-    dcg_action_node* node = c_dcg_node_new_action_placeholder(false, NULL); /* a stand-in, never auto-connected */
-    if (node && repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
-        c_dcg_node_free(&node->base);
+    dcg_node* node = c_dcg_node_new_placeholder(NULL); /* a stand-in, never auto-connected */
+    if (node && repr && c_dcg_node_set_repr(node, repr) != DCG_OK) {
+        c_dcg_node_free(node);
         return NULL;
     }
-    return node ? &node->base : NULL;
+    return node;
 }
 
 static inline dcg_node* dcg_t_node_action(dcg_node_type action_type, const char* repr) {
-    dcg_action_node* node = c_dcg_node_new_action(action_type, repr, true, 0, NULL, NULL); /* no signal, no payload */
+    dcg_action_node* node = c_dcg_node_new_action(action_type, repr, 0, NULL, NULL); /* no signal, no payload */
     return node ? &node->base : NULL;
 }
 
@@ -272,8 +285,12 @@ static inline void dcg_t_trace_expr(const char* what, const dcg_expression_node*
 }
 
 /*
- * Expression fixtures: built over constant inputs, which the binding folds in,
- * so the expression the fixture returns is self-contained.
+ * Expression fixtures: built over constant inputs, which the binding folds in.
+ *
+ * Each one gives its own reference to the input back after the binding - the
+ * expression holds the operand now - and it does so with a DECREF rather than
+ * the layer's release: a literal has nothing behind its base header to tear
+ * down, and this header is included by suites that do not reach the dispatcher.
  */
 static inline dcg_expression_node* dcg_t_expr(size_t n_args, dcg_node_type ntype) {
     return c_dcg_node_new_expr(n_args, ntype, NULL);
@@ -282,7 +299,7 @@ static inline dcg_expression_node* dcg_t_expr(size_t n_args, dcg_node_type ntype
 static inline dcg_node* dcg_t_node_unary(dcg_op_code op, const char* repr) {
     dcg_constant_node*   one  = c_dcg_node_new_const_int(1, NULL);
     dcg_expression_node* node = c_dcg_node_new_expr_unary(op, &one->base, NULL);
-    c_dcg_node_free_const(one); /* the operand took the value, not the node */
+    c_ap_decref(one); /* the expression holds the operand now */
 
     if (!node) return NULL;
     if (repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
@@ -296,7 +313,7 @@ static inline dcg_node* dcg_t_node_call(const char* repr) {
     dcg_constant_node*   one    = c_dcg_node_new_const_int(1, NULL);
     dcg_node*            inputs[1] = {&one->base};
     dcg_expression_node* node   = c_dcg_node_new_expr_call(DCG_OP_NONE, inputs, 1, repr, NULL);
-    c_dcg_node_free_const(one); /* the operand took the value, not the node */
+    c_ap_decref(one); /* the expression holds the operand now */
 
     return node ? &node->base : NULL;
 }
@@ -305,8 +322,8 @@ static inline dcg_node* dcg_t_node_binary(dcg_op_code op, const char* repr) {
     dcg_constant_node*   lhs  = c_dcg_node_new_const_double(1.0, NULL);
     dcg_constant_node*   rhs  = c_dcg_node_new_const_double(2.0, NULL);
     dcg_expression_node* node = c_dcg_node_new_expr_binary(op, &lhs->base, &rhs->base, NULL);
-    c_dcg_node_free_const(lhs);
-    c_dcg_node_free_const(rhs);
+    c_ap_decref(lhs);
+    c_ap_decref(rhs);
 
     if (!node) return NULL;
     if (repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
@@ -318,38 +335,67 @@ static inline dcg_node* dcg_t_node_binary(dcg_op_code op, const char* repr) {
 
 #endif  // C_DCG_BAKE_EXPR_H
 
-#if defined(C_DCG_BAKE_COLLECTION_H)
+#if defined(C_DCG_BAKE_COLLECTIONS_H)
 
-/** Trace a mapping: every key, the slot it holds, and what sits in that slot. */
-static inline void dcg_t_trace_mapping(const char* what, const dcg_mapping_node* node) {
-    (void) printf("    %-26s mapping  slots=%zu/%zu\n", what ? what : "", node ? node->n_slots : 0, node ? node->capacity : 0);
-    if (!node) return;
+/** Trace a mapping group: every key, the slot it holds, and what sits in that slot. */
+static inline void dcg_t_trace_mapping(const char* what, const dcg_mapping_lgroup* lgroup) {
+    (void) printf("    %-26s mapping \"%s\"  slots=%zu/%zu\n", what ? what : "", lgroup && lgroup->base.name ? lgroup->base.name : "", lgroup ? lgroup->n_slots : 0, lgroup ? lgroup->capacity : 0);
+    if (!lgroup) return;
 
-    for (const bytemap_entry* entry = c_bytemap_first(&node->idx_mapping); entry; entry = c_bytemap_next(entry)) {
+    for (const bytemap_entry* entry = c_bytemap_first(&lgroup->idx_mapping); entry; entry = c_bytemap_next(entry)) {
         size_t index = (size_t) c_bytemap_entry_value_as_uintptr(entry);
-        dcg_t_trace_var(entry->key, index < node->n_slots ? &node->slots[index] : NULL);
+        dcg_t_trace_var(entry->key, index < lgroup->n_slots ? &lgroup->slots[index] : NULL);
     }
 }
 
-/* Collection fixtures: a mapping owns its index and slots, a list is base-only. */
-static inline dcg_mapping_node* dcg_t_mapping(size_t capacity, const char* repr) {
-    dcg_mapping_node* node = c_dcg_node_new_mapping(capacity, NULL);
-    if (!node) return NULL;
-    if (repr && c_dcg_node_set_repr(&node->base, repr) != DCG_OK) {
-        c_dcg_node_free_mapping(node);
-        return NULL;
-    }
-    return node;
+/* The collection fixture: a mapping owns its two indexes and its slots. */
+static inline dcg_mapping_lgroup* dcg_t_mapping_lgroup(size_t capacity, const char* name) {
+    return c_dcg_mapping_lgroup_new(name, capacity, NULL);
 }
 
-static inline dcg_node* dcg_t_node_collection(dcg_node_type ntype, const char* repr) {
-    if (ntype == DCG_NODE_MAPPING) {
-        dcg_mapping_node* map = dcg_t_mapping(0, repr);
-        return map ? &map->base : NULL;
-    }
-    return c_dcg_node_new(ntype, repr, NULL); /* a list is the base node alone */
+#endif  // C_DCG_BAKE_COLLECTIONS_H
+
+#if defined(C_DCG_BAKE_CONST_H)
+
+/* The variable fixture: a key, a slot to reflect, and the group the entry
+ * lives in. The value is the caller's, which is why it comes in by pointer. */
+static inline dcg_variable_node* dcg_t_node_var(const char* key, dcg_var_t* value, dcg_logic_group* group) {
+    return c_dcg_node_new_var(key, key, strlen(key), value, group, NULL);
 }
 
-#endif  // C_DCG_BAKE_COLLECTION_H
+#endif  // C_DCG_BAKE_CONST_H
+
+#if defined(C_DCG_BAKE_LOGIC_GROUP_H)
+
+/** Trace a group: its type, its name and its parent. */
+static inline void dcg_t_trace_group(const char* what, const dcg_logic_group* group) {
+    (void) printf(
+        "    %-26s %-8s name=\"%s\"  parent=\"%s\"\n",
+        what ? what : "",
+        group ? c_dcg_logic_group_type_name(group->lgtype) : "(null)",
+        group && group->name ? group->name : "",
+        group && group->parent && group->parent->name ? group->parent->name : ""
+    );
+}
+
+/** Trace the manager's three stacks, innermost group and node first. */
+static inline void dcg_t_trace_lgm(const char* what, const dcg_logic_group_manager* mgr) {
+    (void) printf("    %-26s groups=%zu nodes=%zu breakpoints=%zu shelved=%zu\n", what ? what : "", mgr ? mgr->n_groups : 0, mgr ? mgr->n_nodes : 0, mgr ? mgr->n_breakpoints : 0, mgr ? mgr->n_shelved : 0);
+    if (!mgr) return;
+
+    for (size_t i = 0; i < mgr->n_groups; i++) (void) printf("      group[%zu] %s\n", i, mgr->groups[i]->name ? mgr->groups[i]->name : "(unnamed)");
+    for (size_t i = 0; i < mgr->n_nodes; i++) (void) printf("      node[%zu]  %s\n", i, mgr->nodes[i]->repr ? mgr->nodes[i]->repr : "(unrepr)");
+}
+
+/* The group fixture: a base group, and a manager with its blocks made. */
+static inline dcg_logic_group* dcg_t_lgroup(const char* name) {
+    return c_dcg_logic_group_new(DCG_LG_BASE, name, NULL);
+}
+
+static inline int dcg_t_lgm(dcg_logic_group_manager* mgr) {
+    return c_dcg_lgm_init(mgr, NULL);
+}
+
+#endif  // C_DCG_BAKE_LOGIC_GROUP_H
 
 #endif  // C_DCG_TEST_UTIL_H

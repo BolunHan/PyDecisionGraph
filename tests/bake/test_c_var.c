@@ -249,7 +249,48 @@ static void test_type_names(void) {
     DCG_CHECK_STR(c_dcg_var_type_name(VAR_TYPE_STRING_REF_REF), "string_ref_ref");
     DCG_CHECK_STR(c_dcg_var_type_name(VAR_TYPE_DOUBLE_REF), "double_ref");
     DCG_CHECK_STR(c_dcg_var_type_name(VAR_TYPE_D_MATRIX_REF_REF), "d_matrix_ref_ref");
+    DCG_CHECK_STR(c_dcg_var_type_name(VAR_TYPE_RESERVED), "reserved");
+    DCG_CHECK_STR(c_dcg_var_type_name(VAR_TYPE_INFERRED), "inferred");
     DCG_CHECK_STR(c_dcg_var_type_name((dcg_var_type) 99), "invalid");
+}
+
+static void test_the_reserved_tag(void) {
+    /* An entry created before its value: the slot is there, nothing says what
+     * it will hold, and it reads as absent until something lands in it. */
+    dcg_var_t reserved;
+    DCG_CHECK_INT(c_dcg_var_init_reserved(&reserved), DCG_OK);
+    DCG_CHECK_INT(reserved.dtype, VAR_TYPE_RESERVED);
+    DCG_CHECK(c_dcg_var_is_null(&reserved));
+    DCG_CHECK(!c_dcg_var_is_numeric(&reserved));
+    DCG_CHECK(!c_dcg_var_is_truthy(&reserved));
+
+    /* A reference to one is INFERRED: the type is the slot's to say, and the
+     * level still counts the hop. Pointing at it is what an entered build does
+     * with an entry that has not been written yet. */
+    dcg_var_t slot;
+    DCG_CHECK_INT(c_dcg_var_init_reserved(&slot), DCG_OK);
+
+    dcg_var_t read;
+    DCG_CHECK_INT(c_dcg_var_init_ref(&read, &slot), DCG_OK);
+    DCG_CHECK_INT(read.dtype, VAR_TYPE_INFERRED);
+    DCG_CHECK_INT(c_dcg_var_ref_level(read.dtype), 1);
+    DCG_CHECK_INT(c_dcg_var_ref_base(read.dtype), VAR_TYPE_RESERVED);
+    DCG_CHECK(c_dcg_var_is_ref(read.dtype));
+    DCG_CHECK(c_dcg_var_is_null(&read)); /* a reference to an empty slot holds nothing either */
+
+    /* Reading THROUGH it is the evaluator's move, and lands with the evaluator:
+     * a target whose type is not decided yet is not guessed at. What is settled
+     * here is the tag that says so - the reader that follows it asks the slot
+     * at the moment of the read. */
+
+    /* Nothing to convert: a reserved slot has no type to cast from, and the
+     * refusal is an error rather than an abort. */
+    dcg_var_t out;
+    DCG_CHECK_INT(c_dcg_var_cast(&out, &reserved, VAR_TYPE_DOUBLE), DCG_ERR_TYPE);
+
+    char text[16];
+    DCG_CHECK_INT(c_dcg_var_format(&reserved, text, sizeof(text)), 10);
+    DCG_CHECK_STR(text, "(reserved)");
 }
 
 static void test_reference_tags(void) {
@@ -926,6 +967,7 @@ int main(void) {
     DCG_RUN(test_matrices);
     DCG_RUN(test_container_values);
     DCG_RUN(test_type_names);
+    DCG_RUN(test_the_reserved_tag);
     DCG_RUN(test_reference_tags);
     DCG_RUN(test_reference_raw);
     DCG_RUN(test_reference_to_value);

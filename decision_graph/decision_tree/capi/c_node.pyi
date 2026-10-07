@@ -111,7 +111,7 @@ class RootLogicNode(LogicNode):
             TooManyChildren: If a child is already attached to the root.
         """
 
-    def to_html(self, file_name: str = 'root.html', with_eval: bool = True) -> None:
+    def to_html(self, file_name: str | None = None, with_eval: bool = True) -> None:
         """Render the decision tree to an HTML file.
 
         This method generates a standalone HTML file visualizing the
@@ -120,7 +120,8 @@ class RootLogicNode(LogicNode):
         in the rendering.
 
         Args:
-            file_name: Output HTML file name.
+            file_name: Output HTML file name; when omitted, the file is named
+                after the root's ``repr``.
             with_eval: Whether to include evaluation results in the rendering.
         """
 
@@ -131,7 +132,7 @@ class RootLogicNode(LogicNode):
         arguments are passed to the underlying rendering flask engine.
 
         Arguments:
-            **kwargs: keyword arguments passed into ``decision_graph.decision_tree.webui.show`` method.
+            **kwargs: keyword arguments passed into ``decision_graph.webui.capi.show`` method.
         """
 
     def watch(self, **kwargs):
@@ -142,7 +143,7 @@ class RootLogicNode(LogicNode):
         and displayed in an interactive web page.
 
         Arguments:
-            **kwargs: keyword arguments passed into ``decision_graph.decision_tree.webui.watch`` method.
+            **kwargs: keyword arguments passed into ``decision_graph.webui.capi.watch`` method.
         """
 
     @property

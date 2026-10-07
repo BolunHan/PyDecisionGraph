@@ -138,9 +138,10 @@ def test_evaluate_built_tree_in_inspection_mode():
 
         value, path = root.eval_recursively()
         assert value is child_true  # Since expression is True
-        assert len(path) == 2  # root and child
-        assert path[0] is root
-        assert path[1] is child_true
+        # The path records the nodes the walk descended INTO. The root is the
+        # entry the walk starts from, not one of them.
+        assert len(path) == 1
+        assert path[0] is child_true
         print("Evaluate built tree in inspection mode test passed.")
     finally:
         LGM.inspection_mode = original_mode
@@ -242,14 +243,14 @@ def test_build_tree_withctx_inspection_mode():
         # Evaluate
         value, path = root.eval_recursively()
         assert value is expected_final_node
-        assert len(path) == 7  # root, c1_t, c1_1_t, c1_1_1_t, LongAction
-        assert path[0] is root
-        assert path[1] is c1_t
-        assert path[2] is c1_1_t
-        assert path[3] is c1_1_1_t
-        assert isinstance(path[4], BreakpointNode)
-        assert path[5] is c1_f
-        assert path[6] is expected_final_node
+        # root excluded: c1_t, c1_1_t, c1_1_1_t, the breakpoint, c1_f, the leaf.
+        assert len(path) == 6
+        assert path[0] is c1_t
+        assert path[1] is c1_1_t
+        assert path[2] is c1_1_1_t
+        assert isinstance(path[3], BreakpointNode)
+        assert path[4] is c1_f
+        assert path[5] is expected_final_node
     finally:
         LGM.inspection_mode = original_mode
 
@@ -290,8 +291,8 @@ def test_build_tree_withctx_inspection_mode_second():
         # Evaluate
         value, path = start.eval_recursively()
         assert isinstance(value, LongAction)  # True branch
-        assert path[0] is start
-        assert path[1] is branch1
+        assert path[0] is branch1
+        assert isinstance(path[1], LongAction)
 
         print("Build second tree with context in inspection mode test passed.")
     finally:

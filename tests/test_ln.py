@@ -1,4 +1,4 @@
-from decision_graph.decision_tree.c_abc import LGM, LogicNode, LongAction, ShortAction, NoAction, LogicGroup
+from decision_graph.decision_tree.capi.c_abc import LGM, LogicNode, LongAction, ShortAction, NoAction, LogicGroup
 from random import choice
 
 

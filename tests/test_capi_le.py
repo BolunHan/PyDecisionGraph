@@ -64,7 +64,7 @@ class TestLogicExpression(unittest.TestCase):
         le = LogicExpression.cast(f)
         self.assertEqual(le.eval(), 42)
         rep = repr(le)
-        self.assertIn("LogicExpression(", rep)
+        self.assertIn("<LogicExpression>(", rep)
 
     def test_cast_idempotent(self):
         le = LogicExpression.cast(7)

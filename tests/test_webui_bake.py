@@ -256,5 +256,63 @@ class TestTheOfflineExport(unittest.TestCase):
             bake_ui.to_html(object(), 'nowhere.html')
 
 
+class TestTheServerRoutes(unittest.TestCase):
+    """The served page, exercised through Flask's test client - no socket."""
+
+    def _ui(self, root):
+        ui = BakeWebUi(host='127.0.0.1', port=0, debug=False)
+        ui.node = root
+        ui.with_eval = True
+        ui.current_tree_data = ui._convert_tree_to_format(root, None)
+        ui.current_tree_id = str(root.uuid)
+        return ui, ui.app.test_client()
+
+    def test_01_the_page_is_served_with_its_controls(self):
+        root, store = build_tree()
+        ui, client = self._ui(root)
+        response = client.get('/')
+        self.assertEqual(response.status_code, 200)
+        body = response.data.decode()
+        for marker in ('Bake Graph', 'ctl-orientation', 'ctl-theme', 'btn-copy-path',
+                       'btn-load-path', 'btn-export-svg', 'id="tree-data"'):
+            self.assertIn(marker, body)
+
+    def test_02_the_tree_is_served_as_json(self):
+        root, store = build_tree()
+        ui, client = self._ui(root)
+        payload = client.get('/api/tree_data').get_json()
+        self.assertEqual(payload['tree_id'], str(root.uuid))
+        self.assertEqual(payload['tree_data']['root']['type'], 'ROOT')
+
+    def test_03_evaluating_walks_the_graph_and_answers_with_the_path(self):
+        root, store = build_tree()
+        root.bake()
+        store['signal'] = 5
+        ui, client = self._ui(root)
+        payload = client.post('/api/evaluate').get_json()
+        self.assertEqual(payload['code'], 'OK')
+        self.assertTrue(payload['active_ids'])
+        self.assertIsNotNone(payload['leaf'])
+
+    def test_04_a_walk_that_fails_answers_with_the_failure_not_a_500(self):
+        root, store = build_tree()
+        root.bake()
+        # The store is never fed, so the graph's reads have nothing to answer
+        # with: the walk fails, and what the page gets is that failure.
+        ui, client = self._ui(root)
+        response = client.post('/api/evaluate')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertNotEqual(payload.get('code'), 'OK')
+        self.assertIn('error', payload)
+        self.assertIsNotNone(payload.get('failed'), 'the failure names the node that reported it')
+
+    def test_05_evaluating_without_a_root_is_refused(self):
+        ui = BakeWebUi(host='127.0.0.1', port=0, debug=False)
+        response = ui.app.test_client().post('/api/evaluate')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('error', response.get_json())
+
+
 if __name__ == '__main__':
     unittest.main()

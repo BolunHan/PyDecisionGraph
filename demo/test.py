@@ -4,7 +4,7 @@ __package__ = 'decision_graph.demo'
 def node_test():
     from decision_graph.decision_tree import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
 
-    LogicMapping.AttrExpression = AttrExpression
+    # LogicMapping.AttrExpression = AttrExpression
     state = {
         "exposure": 0,
         "working_order": 0,
@@ -66,9 +66,38 @@ def node_test():
     LOGGER.info(root())
 
 
+def node_test2():
+    from decision_graph.decision_tree import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
+
+    # LogicMapping.AttrExpression = AttrExpression
+    state = {
+        "exposure": 0,
+        "working_order": 0,
+        "up_prob": 0.8,
+        "down_prob": 0.2,
+        "volatility": 0.24,
+        "ttl": 15.3
+    }
+    with RootLogicNode() as root:
+        with LogicMapping(name='Root', data=state) as lg_root:
+            lg_root: LogicMapping
+            with lg_root.exposure == 0:
+                NoAction()
+                with lg_root.exposure == 1:
+                    with lg_root.exposure == 2:
+                        ShortAction()
+                    ShortAction()
+
+    root.to_html()
+    LOGGER.info(root())
+
+
+
+
 def main():
     # skippable_context_test()
-    node_test()
+    # node_test()
+    node_test2()
 
 
 if __name__ == '__main__':

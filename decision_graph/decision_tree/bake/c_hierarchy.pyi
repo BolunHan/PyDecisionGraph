@@ -162,6 +162,38 @@ class RootLogicNode(LogicNode):
         """
         ...
 
+    def to_html(self, file_name: str | None = None, with_eval: bool = True) -> None:
+        """Render this graph to a standalone HTML file.
+
+        The file carries the stylesheet, the script and D3 inside it, so it
+        opens anywhere with no server and no network.
+
+        Args:
+            file_name: Output HTML file name; when omitted, the file is named
+                after the root's ``repr``.
+            with_eval: Whether to include the last evaluation in the rendering.
+        """
+        ...
+
+    def show(self, **kwargs: Any) -> None:
+        """Serve this graph in the layer's own web viewer and open a browser.
+
+        Arguments:
+            **kwargs: keyword arguments passed into ``decision_graph.webui.bake.show`` method.
+        """
+        ...
+
+    def watch(self, **kwargs: Any) -> None:
+        """Stream this graph's changes to the layer's own web viewer.
+
+        The root is re-evaluated on a timer, and what changed between runs is
+        sent to the page as it happens.
+
+        Arguments:
+            **kwargs: keyword arguments passed into ``decision_graph.webui.bake.watch`` method.
+        """
+        ...
+
     @property
     def inherit_contexts(self) -> bool:
         """Whether this root takes the groups around it rather than shelving them.

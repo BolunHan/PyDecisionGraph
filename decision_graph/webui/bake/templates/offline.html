@@ -51,6 +51,33 @@
         </section>
 
         <section class="panel">
+            <h2 class="panel-title">Presentation</h2>
+            <label class="slider-row">
+                <span class="slider-label">Level gap</span>
+                <input type="range" id="pres-level" min="0" max="240" step="2" value="84">
+                <output class="slider-value" id="pres-level-out">84</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Sibling gap</span>
+                <input type="range" id="pres-sibling" min="0" max="200" step="2" value="48">
+                <output class="slider-value" id="pres-sibling-out">48</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Card size</span>
+                <input type="range" id="pres-scale" min="60" max="170" step="5" value="100">
+                <output class="slider-value" id="pres-scale-out">100%</output>
+            </label>
+            <label class="slider-row">
+                <span class="slider-label">Edge width</span>
+                <input type="range" id="pres-edge" min="10" max="60" step="5" value="16">
+                <output class="slider-value" id="pres-edge-out">1.6</output>
+            </label>
+            <div class="btn-row">
+                <button type="button" class="btn" id="btn-pres-reset" title="Back to the defaults">Reset</button>
+            </div>
+        </section>
+
+        <section class="panel">
             <h2 class="panel-title">Walk</h2>
             <label class="switch-row" id="row-highlight">
                 <input type="checkbox" id="ctl-highlight" checked>
@@ -117,13 +144,18 @@
         <div><dt>family</dt><dd id="ins-family">—</dd></div>
         <div><dt>labels</dt><dd id="ins-labels">—</dd></div>
         <div><dt>out</dt><dd id="ins-out">—</dd></div>
+        <div><dt>value</dt><dd id="ins-self">—</dd></div>
         <div><dt>hooks</dt><dd id="ins-hooks">—</dd></div>
         <div><dt>subtree</dt><dd id="ins-size">—</dd></div>
         <div><dt>autogen</dt><dd id="ins-autogen">—</dd></div>
     </dl>
-    <div class="inspector-arms">
+    <div class="inspector-block">
         <span class="field-label">arms</span>
         <ul id="ins-arms"></ul>
+    </div>
+    <div class="inspector-block">
+        <span class="field-label">operands <span class="field-note">(not children)</span></span>
+        <ul id="ins-operands"></ul>
     </div>
 </aside>
 

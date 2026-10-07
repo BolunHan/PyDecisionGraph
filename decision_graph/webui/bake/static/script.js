@@ -12,12 +12,14 @@
     'use strict';
 
     // ---- Card geometry. The grid the layout snaps to. ----
+    //
+    // The card's own coordinates are fixed and its size is a transform on the
+    // group, so a card scales as one piece - band, text, the lot - instead of
+    // every offset inside it having to know about the slider.
     const CARD_W = 216;
     const CARD_H = 84;
     const BAND_H = 22;
     const CARD_PAD = 12;
-    const CELL_X = CARD_W + 48;
-    const CELL_Y = CARD_H + 46;
     const REPR_LINE_H = 16;
     const MAX_REPR_LINES = 2;
     const CHARS_PER_LINE = 30;
@@ -30,6 +32,21 @@
     const ZOOM_STEP = 1.25;
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    // ---- Presentation: what the sliders drive. ----
+    const PRESENTATION_DEFAULTS = {
+        levelGap: 84,     // Between one level and the next: the edge's length.
+        siblingGap: 48,   // Between two cards of the same level.
+        scale: 1,         // Card size, as a factor of the card's own coordinates.
+        edgeWidth: 1.6,   // Stroke width of a link.
+    };
+    const presentation = { ...PRESENTATION_DEFAULTS };
+
+    /** The size a card ends up on screen, and the cell it takes with it. */
+    const cardW = () => CARD_W * presentation.scale;
+    const cardH = () => CARD_H * presentation.scale;
+    const cellX = () => cardW() + presentation.siblingGap;
+    const cellY = () => cardH() + presentation.levelGap;
 
     // ---- State ----
     const state = {
@@ -63,6 +80,7 @@
         groups: document.getElementById('ctl-groups'),
         inspector: document.getElementById('inspector'),
         arms: document.getElementById('ins-arms'),
+        operands: document.getElementById('ins-operands'),
         pathBox: document.getElementById('ctl-path'),
         clipboardHint: document.getElementById('clipboard-hint'),
         outCode: document.getElementById('out-code'),
@@ -162,9 +180,9 @@
         hierarchy.each((d) => {
             const breadth = d.x;
             const depth = d.y;
-            const cx = (horizontal ? breadth : depth) * CELL_X;
-            const cy = (horizontal ? depth : breadth) * CELL_Y;
-            d.card = { x: cx - CARD_W / 2, y: cy - CARD_H / 2 };
+            const cx = (horizontal ? breadth : depth) * cellX();
+            const cy = (horizontal ? depth : breadth) * cellY();
+            d.card = { x: cx - cardW() / 2, y: cy - cardH() / 2 };
             placed.push(d);
         });
         return { hierarchy, placed, horizontal };
@@ -244,12 +262,12 @@
 
         if (horizontal) {
             // Depth runs down the screen: leave the bottom, arrive at the top.
-            p0 = { x: a.x + CARD_W / 2, y: a.y + CARD_H };
-            p3 = { x: b.x + CARD_W / 2, y: b.y };
+            p0 = { x: a.x + cardW() / 2, y: a.y + cardH() };
+            p3 = { x: b.x + cardW() / 2, y: b.y };
         } else {
             // Depth runs across: leave the right side, arrive at the left.
-            p0 = { x: a.x + CARD_W, y: a.y + CARD_H / 2 };
-            p3 = { x: b.x, y: b.y + CARD_H / 2 };
+            p0 = { x: a.x + cardW(), y: a.y + cardH() / 2 };
+            p3 = { x: b.x, y: b.y + cardH() / 2 };
         }
 
         const span = horizontal ? p3.y - p0.y : p3.x - p0.x;
@@ -267,8 +285,11 @@
     function drawCard(parentGroup, placed) {
         const rec = placed.data.record;
         const group = svgEl('g', {
-            class: `card fam-${rec.family || 'OTHER'}`,
-            transform: `translate(${placed.card.x},${placed.card.y})`,
+            // The TYPE as well as the family: a family says where a node sits,
+            // the type says what it does, and for the action family that is the
+            // whole of what a reader wants off the card.
+            class: `card fam-${rec.family || 'OTHER'} type-${rec.type || 'UNKNOWN'}`,
+            transform: `translate(${placed.card.x},${placed.card.y}) scale(${presentation.scale})`,
         });
         group.dataset.id = rec.id;
 
@@ -291,6 +312,7 @@
         const badges = [];
         if (rec.autogen) badges.push('autogen');
         if (rec.await_connection) badges.push('waiting');
+        if (rec.operands && rec.operands.length) badges.push(`${rec.operands.length} ops`);
         if (rec.hooks && rec.hooks.length) badges.push(rec.hooks.join(','));
         if (badges.length) {
             const badge = svgEl('text', { class: 'card-badge-text', x: CARD_W - CARD_PAD, y: BAND_H / 2 + 1 });
@@ -312,6 +334,10 @@
         // produced, and how much hangs below it.
         const meta = [];
         if (rec.labels && rec.labels.length) meta.push(rec.labels.join(','));
+        // What the node holds ITSELF comes before what it produced: a literal's
+        // value and a read's entry are the node's meaning, the output is a
+        // consequence of it.
+        if (rec.self_value !== null && rec.self_value !== undefined) meta.push(`=${rec.self_value}`);
         if (rec.out !== null && rec.out !== undefined) meta.push(`out=${rec.out}`);
         if (rec.size > 1) meta.push(`${rec.size} nodes`);
         if (meta.length) {
@@ -379,11 +405,11 @@
         // Source's far side to the target's near side, the same way a child edge
         // runs: the reference leaves the node it hangs off the way a branch does.
         const p0 = horizontal
-            ? { x: a.x + CARD_W / 2, y: a.y + CARD_H }
-            : { x: a.x + CARD_W, y: a.y + CARD_H / 2 };
+            ? { x: a.x + cardW() / 2, y: a.y + cardH() }
+            : { x: a.x + cardW(), y: a.y + cardH() / 2 };
         const p3 = horizontal
-            ? { x: b.x + CARD_W / 2, y: b.y }
-            : { x: b.x, y: b.y + CARD_H / 2 };
+            ? { x: b.x + cardW() / 2, y: b.y }
+            : { x: b.x, y: b.y + cardH() / 2 };
         const curve = horizontal
             ? `M${p0.x},${p0.y} C${p0.x},${(p0.y + p3.y) / 2} ${p3.x},${(p0.y + p3.y) / 2} ${p3.x},${p3.y}`
             : `M${p0.x},${p0.y} C${(p0.x + p3.x) / 2},${p0.y} ${(p0.x + p3.x) / 2},${p3.y} ${p3.x},${p3.y}`;
@@ -429,25 +455,39 @@
         paint();
     }
 
+    /** Is this node outside the store group the sidebar picked? */
+    function filteredOut(id) {
+        if (state.group === '*') return false;
+        const rec = state.byId.get(id);
+        return !rec || !(rec.labels || []).includes(state.group);
+    }
+
     /** Apply the filters and the selection to what is already drawn. */
     function paint() {
         const walked = state.highlight && state.hasWalk;
+
+        const onPath = (id) => walked && state.activeIds.has(id);
+
         state.cards.forEach((group, id) => {
-            const rec = state.byId.get(id);
-            const dimmed =
-                (state.group !== '*' && !(rec.labels || []).includes(state.group)) ||
-                (walked && !state.activeIds.has(id));
-            group.classList.toggle('is-active', walked && state.activeIds.has(id));
-            group.classList.toggle('is-dim', dimmed);
+            group.classList.toggle('is-active', onPath(id));
+            group.classList.toggle('is-dim', filteredOut(id) || (walked && !onPath(id)));
             group.classList.toggle('is-selected', state.selected === id);
             group.classList.toggle('is-failed', state.failedId === id);
         });
 
+        // A link follows what it joins: it dims when either end does, and lights
+        // when BOTH ends are on the walk - which is what makes the path read as
+        // one line rather than as a set of lit cards. The condition chip is part
+        // of the link, so it goes with it.
         state.edges.forEach((entry) => {
-            const onPath = walked && entry.source && entry.target &&
-                state.activeIds.has(entry.source) && state.activeIds.has(entry.target);
-            entry.path.classList.toggle('is-active', onPath);
-            entry.path.classList.toggle('is-dim', walked && !onPath);
+            const lit = onPath(entry.source) && onPath(entry.target);
+            const dim = filteredOut(entry.source) || filteredOut(entry.target) || (walked && !lit);
+            entry.path.classList.toggle('is-active', lit);
+            entry.path.classList.toggle('is-dim', dim);
+            if (entry.chip) {
+                entry.chip.classList.toggle('is-active', lit);
+                entry.chip.classList.toggle('is-dim', dim);
+            }
         });
     }
 
@@ -502,6 +542,7 @@
         'ins-family': (rec) => rec.family,
         'ins-labels': (rec) => (rec.labels && rec.labels.length ? rec.labels.join(', ') : '—'),
         'ins-out': (rec) => (rec.out === null || rec.out === undefined ? '—' : rec.out),
+        'ins-self': (rec) => (rec.self_value === null || rec.self_value === undefined ? '—' : rec.self_value),
         'ins-hooks': (rec) => (rec.hooks && rec.hooks.length ? rec.hooks.join(', ') : '—'),
         'ins-size': (rec) => `${rec.size} node(s)`,
         'ins-autogen': (rec) => (rec.autogen ? 'yes' : 'no'),
@@ -532,6 +573,31 @@
             item.appendChild(key);
             item.appendChild(name);
             el.arms.appendChild(item);
+        });
+
+        // The operands: nodes this one reads, which are NOT its children and
+        // so are not the cards below it.
+        const operands = rec.operands || [];
+        el.operands.textContent = '';
+        if (!operands.length) {
+            const item = document.createElement('li');
+            const name = document.createElement('span');
+            name.className = 'arm-name is-own';
+            name.textContent = 'none — this node has no operands';
+            item.appendChild(name);
+            el.operands.appendChild(item);
+        }
+        operands.forEach((operand, index) => {
+            const item = document.createElement('li');
+            const key = document.createElement('span');
+            key.className = 'arm-key';
+            key.textContent = String(index);
+            const name = document.createElement('span');
+            name.className = 'arm-name';
+            name.textContent = `${operand.type} — ${operand.repr}`;
+            item.appendChild(key);
+            item.appendChild(name);
+            el.operands.appendChild(item);
         });
 
         el.inspector.hidden = false;
@@ -673,11 +739,13 @@
     // ======================================================================
 
     const THEME_VARS = [
-        '--bg', '--bg-grid', '--panel', '--panel-2', '--item', '--line',
+        '--bg', '--bg-grid', '--grid-line', '--panel', '--panel-2', '--item', '--line',
         '--text', '--text-dim', '--text-faint', '--accent', '--accent-soft',
         '--ok', '--warn', '--bad',
         '--card-bg', '--card-line', '--card-repr', '--card-meta', '--card-active-ring',
         '--fam-input', '--fam-op', '--fam-action', '--fam-special', '--fam-other', '--fam-on',
+        '--act-long', '--act-short', '--act-none', '--act-cancel', '--act-clear', '--act-placeholder',
+        '--edge-width',
         '--font-ui', '--font-mono',
     ];
 
@@ -821,6 +889,85 @@
         return sorted.length;
     }
 
+    // ---- The presentation sliders: what each drives, and how it reads. ----
+    // A slider's units are its own (percent for a card, tenths for a stroke),
+    // so each one says how to translate in and out of what it drives.
+    const SLIDERS = {
+        'pres-level': {
+            key: 'levelGap', out: 'pres-level-out',
+            fromSlider: Number, toSlider: (v) => Math.round(v), format: (v) => String(Math.round(v)),
+        },
+        'pres-sibling': {
+            key: 'siblingGap', out: 'pres-sibling-out',
+            fromSlider: Number, toSlider: (v) => Math.round(v), format: (v) => String(Math.round(v)),
+        },
+        'pres-scale': {
+            key: 'scale', out: 'pres-scale-out',
+            fromSlider: (raw) => raw / 100, toSlider: (v) => Math.round(v * 100),
+            format: (v) => `${Math.round(v * 100)}%`,
+        },
+        'pres-edge': {
+            key: 'edgeWidth', out: 'pres-edge-out',
+            fromSlider: (raw) => raw / 10, toSlider: (v) => Math.round(v * 10),
+            format: (v) => v.toFixed(1),
+        },
+    };
+
+    let presentationFrame = 0;
+
+    function syncSlider(id) {
+        const spec = SLIDERS[id];
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.value = String(spec.toSlider(presentation[spec.key]));
+        document.getElementById(spec.out).textContent = spec.format(presentation[spec.key]);
+    }
+
+    function applyEdgeWidth() {
+        document.documentElement.style.setProperty('--edge-width', String(presentation.edgeWidth));
+    }
+
+    /**
+     * Re-draw on the next frame, once.
+     *
+     * A drag fires an event per pixel and the drawing is rebuilt from scratch
+     * every time, so the work is collapsed to one redraw per frame.
+     */
+    function scheduleRender() {
+        if (presentationFrame) return;
+        presentationFrame = requestAnimationFrame(() => {
+            presentationFrame = 0;
+            render();
+        });
+    }
+
+    function wirePresentation() {
+        for (const id in SLIDERS) {
+            const spec = SLIDERS[id];
+            const input = document.getElementById(id);
+            if (!input) continue;
+            syncSlider(id);
+            input.addEventListener('input', () => {
+                presentation[spec.key] = spec.fromSlider(Number(input.value));
+                document.getElementById(spec.out).textContent = spec.format(presentation[spec.key]);
+                applyEdgeWidth();
+                scheduleRender();
+            });
+        }
+
+        const reset = document.getElementById('btn-pres-reset');
+        if (reset) {
+            reset.addEventListener('click', () => {
+                Object.assign(presentation, PRESENTATION_DEFAULTS);
+                for (const id in SLIDERS) syncSlider(id);
+                applyEdgeWidth();
+                scheduleRender();
+            });
+        }
+
+        applyEdgeWidth();
+    }
+
     function wire() {
         document.querySelectorAll('#ctl-orientation button').forEach((button) => {
             button.addEventListener('click', () => setOrientation(button.dataset.orientation));
@@ -894,6 +1041,7 @@
 
         buildGroupChips();
         wire();
+        wirePresentation();
 
         viewport = svgEl('g', { id: 'bake-viewport' });
         el.svg.appendChild(viewport);

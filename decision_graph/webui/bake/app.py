@@ -167,6 +167,40 @@ class BakeWebUi(object):
         return repr(value) if isinstance(value, str) else str(value)
 
     @classmethod
+    def _own_value(cls, node: LogicNode) -> str | None:
+        """The payload a leaf carries itself: a literal's value, a read's entry.
+
+        Asked of the layer rather than inferred from the display text, and
+        guarded: only the input family answers it, and a node that is not one
+        refuses the question.
+        """
+        try:
+            value = node.value
+        except Exception:
+            return None
+        if value is None:
+            return None
+        return repr(value) if isinstance(value, str) else str(value)
+
+    @classmethod
+    def _operands_of(cls, node: LogicNode) -> list[dict[str, Any]]:
+        """The nodes an expression was built over.
+
+        An operand is NOT a child: it is reachable in C through the node's own
+        argument array, and a walk over ``children`` alone goes straight past it.
+        This is what the card needs to say what the arithmetic is over, rather
+        than leaving it to be read out of the display text.
+        """
+        try:
+            operands = node.operands
+        except Exception:
+            return []
+        return [
+            {"id": str(operand.uuid), "type": operand.type, "repr": operand.repr}
+            for operand in operands if operand is not None
+        ]
+
+    @classmethod
     def _condition_to_dict(cls, condition: Any) -> dict[str, Any]:
         """An edge's condition, in the four shapes the front end draws.
 
@@ -215,6 +249,8 @@ class BakeWebUi(object):
             "size": int(node.size),
             "address": int(node.address),
             "out": cls._var_to_text(node),
+            "self_value": cls._own_value(node),
+            "operands": cls._operands_of(node),
             "hooks": list(node.eval_hooks),
             "_children": [],
             "activated": activated_node_ids is None or node_id in activated_node_ids,

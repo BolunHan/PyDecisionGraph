@@ -47,9 +47,17 @@ time and an export is the picture on screen rather than a second drawing of it.
 - **Theme** — dark and light are one attribute on ``<html>``, and everything the
   drawing uses is a custom property, so an export can snapshot the values it
   finds and the SVG is styled by the same names the page is.
-- **The card** carries the type, the display text (which is where the operands
-  show, since an operand is not a child), the store labels, the value the node
-  last produced, and the size of its subtree.
+- **The card** carries the type, the display text, the store labels, the value
+  the node holds itself (a literal's value, a read's entry), the value it last
+  produced, and the size of its subtree. Its band is coloured by type where the
+  type says more than the family does: an action is green to go long, red to go
+  short, yellow to cancel, grey to do nothing.
+- **Operands** are not children, and are listed as their own thing: an
+  expression reads nodes the tree does not reach, so the inspector names them
+  and the card counts them.
+- **Presentation** — the level gap, the sibling gap, the card size and the edge
+  width are sliders, because how much of a graph fits on a screen is the
+  reader's call rather than the layout's.
 - **Scaffolding** — a breakpoint a split build stopped at, and a stand-in a
   branch reserved, are what an un-baked graph still carries and a baked one does
   not. The title bar counts them, because that count is what tells the two

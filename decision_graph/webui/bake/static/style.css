@@ -26,6 +26,9 @@
 :root[data-theme="dark"] {
     --bg: #0e1015;
     --bg-grid: #171a21;
+    /* The paper the cards sit on: a step off the background, not an edge. At
+       the line colour it reads as a second graph drawn behind the first. */
+    --grid-line: #1b1f28;
     --panel: #14171e;
     --panel-2: #1b1f28;
     --item: #222733;
@@ -52,12 +55,22 @@
     --fam-special: #ec4899;
     --fam-other: #64748b;
     --fam-on: #0b0e14;
+
+    /* The action family says more than "it is an action": what it DOES is the
+       colour, so a leaf is read at a glance without reading its text. */
+    --act-long: #22c55e;
+    --act-short: #ef4444;
+    --act-none: #6b7280;
+    --act-cancel: #eab308;
+    --act-clear: #14b8a6;
+    --act-placeholder: #4b5563;
 }
 
 /* ---- Light ---- */
 :root[data-theme="light"] {
     --bg: #eef1f6;
     --bg-grid: #e3e7ee;
+    --grid-line: #e8ebf1;
     --panel: #ffffff;
     --panel-2: #f7f9fc;
     --item: #eceff5;
@@ -84,6 +97,13 @@
     --fam-special: #db2777;
     --fam-other: #64748b;
     --fam-on: #ffffff;
+
+    --act-long: #16a34a;
+    --act-short: #dc2626;
+    --act-none: #64748b;
+    --act-cancel: #ca8a04;
+    --act-clear: #0d9488;
+    --act-placeholder: #94a3b8;
 }
 
 * { box-sizing: border-box; }
@@ -408,6 +428,44 @@ body {
     flex: 0 0 72px;
 }
 
+/* ---- Sliders ---- */
+
+.slider-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 3px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+.slider-row:last-of-type {
+    margin-bottom: 8px;
+}
+
+.slider-label {
+    grid-column: 1;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.slider-value {
+    grid-column: 2;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.slider-row input[type="range"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
 /* ---- Chips ---- */
 
 .chips {
@@ -480,12 +538,11 @@ body {
     position: relative;
     overflow: hidden;
     background-color: var(--bg-grid);
-    /* The grid the cards are laid out on, drawn faintly behind them. */
+    /* The grid the cards are laid out on: paper, not edges. */
     background-image:
-        linear-gradient(var(--line) 1px, transparent 1px),
-        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 24px 24px, 24px 24px;
-    opacity: 1;
 }
 
 #canvas {
@@ -531,13 +588,14 @@ body {
 .edge {
     fill: none;
     stroke: var(--line);
-    stroke-width: 1.6;
-    transition: stroke var(--t-slow), stroke-width var(--t-slow);
+    /* Set from the presentation slider; the active line is a multiple of it. */
+    stroke-width: var(--edge-width, 1.6);
+    transition: stroke var(--t-slow), stroke-width var(--t-slow), opacity var(--t-slow);
 }
 
 .edge.is-active {
     stroke: var(--card-active-ring);
-    stroke-width: 2.6;
+    stroke-width: calc(var(--edge-width, 1.6) * 1.6);
 }
 
 .edge.is-dim {
@@ -547,9 +605,31 @@ body {
 .vlink {
     fill: none;
     stroke: var(--fam-special);
-    stroke-width: 1.6;
+    stroke-width: var(--edge-width, 1.6);
     stroke-dasharray: 6 5;
     opacity: 0.75;
+    transition: opacity var(--t-slow);
+}
+
+.vlink.is-dim {
+    opacity: 0.18;
+}
+
+.edge-chip {
+    transition: opacity var(--t-slow);
+}
+
+.edge-chip.is-dim {
+    opacity: 0.25;
+}
+
+.edge-chip.is-active .edge-chip-bg {
+    stroke: var(--card-active-ring);
+    stroke-width: 1.6;
+}
+
+.edge-chip.is-active .edge-chip-text {
+    fill: var(--card-active-ring);
 }
 
 .edge-chip-bg {
@@ -594,6 +674,16 @@ body {
 .card.fam-SPECIAL .card-band { fill: var(--fam-special); }
 .card.fam-OTHER .card-band { fill: var(--fam-other); }
 
+/* An action node's own colour, on top of its family's: the family says where
+   it sits, the type says what it does. These follow the family rules, so the
+   order here is what gives them the last word. */
+.card.type-LONGACTION .card-band { fill: var(--act-long); }
+.card.type-SHORTACTION .card-band { fill: var(--act-short); }
+.card.type-NOACTION .card-band { fill: var(--act-none); }
+.card.type-CANCELACTION .card-band { fill: var(--act-cancel); }
+.card.type-CLEARACTION .card-band { fill: var(--act-clear); }
+.card.type-PLACEHOLDER .card-band { fill: var(--act-placeholder); }
+
 .card-type {
     fill: var(--fam-on);
     font-family: var(--font-ui);
@@ -604,7 +694,10 @@ body {
 }
 
 .card-badge-text {
-    fill: var(--card-meta);
+    /* The band's own contrast colour, not the card's: a badge sits ON the band,
+       and a grey band under grey text is a badge nobody can read. */
+    fill: var(--fam-on);
+    opacity: 0.72;
     font-family: var(--font-ui);
     font-size: 9px;
     dominant-baseline: middle;
@@ -710,13 +803,21 @@ body {
     color: var(--accent);
 }
 
-.inspector-arms {
+.inspector-block {
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--line);
 }
 
-#ins-arms {
+.field-note {
+    color: var(--text-faint);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+#ins-arms,
+#ins-operands {
     margin: 6px 0 0;
     padding: 0;
     list-style: none;
@@ -728,13 +829,15 @@ body {
     color: var(--text-dim);
 }
 
-#ins-arms li {
+#ins-arms li,
+#ins-operands li {
     display: flex;
     gap: 6px;
     align-items: baseline;
 }
 
-#ins-arms .arm-key {
+#ins-arms .arm-key,
+#ins-operands .arm-key {
     flex: 0 0 auto;
     padding: 1px 6px;
     border-radius: var(--radius-sm);
@@ -746,7 +849,12 @@ body {
 #ins-arms .arm-key.is-false { color: var(--bad); }
 #ins-arms .arm-key.is-else { color: var(--warn); }
 
-#ins-arms .arm-name {
+#ins-arms .arm-name,
+#ins-operands .arm-name {
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+#ins-operands .arm-name.is-own {
+    color: var(--text);
 }

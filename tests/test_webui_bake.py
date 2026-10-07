@@ -132,6 +132,31 @@ class TestTheCardModel(unittest.TestCase):
         self.assertEqual(card['hooks'], [])
         self.assertIsNone(card['out'], 'a node nobody has walked holds nothing')
 
+    def test_04_an_operator_carries_the_operands_it_is_over(self):
+        root, store = build_tree()
+        payload = BakeWebUi._convert_tree_to_format(root)
+        top = payload['root']['_children'][0]['node']
+        self.assertEqual(top['type'], 'BINARY')
+
+        # The operands are NOT the arms below it: they are the nodes the
+        # comparison reads, which a walk over `children` goes straight past.
+        self.assertEqual(len(top['operands']), 2)
+        self.assertIn('VARIABLE', [operand['type'] for operand in top['operands']])
+        self.assertIn('INT', [operand['type'] for operand in top['operands']])
+        for operand in top['operands']:
+            self.assertTrue(operand['id'] and operand['repr'])
+
+    def test_05_a_node_that_holds_a_payload_carries_it(self):
+        from decision_graph.decision_tree.bake.c_const import ConstantNode
+
+        literal = ConstantNode(7)
+        self.assertEqual(BakeWebUi._convert_tree_to_format(literal)['root']['self_value'], '7')
+        self.assertEqual(BakeWebUi._convert_tree_to_format(literal)['root']['operands'], [])
+
+        root, store = build_tree()
+        payload = BakeWebUi._convert_tree_to_format(root)
+        self.assertIsNone(payload['root']['self_value'], 'a root holds no payload of its own')
+
     def test_03_the_root_names_itself_and_counts_what_is_drawn(self):
         root, store = build_tree()
         payload = BakeWebUi._convert_tree_to_format(root)

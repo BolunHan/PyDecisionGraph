@@ -489,6 +489,20 @@
 
     const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 
+    /**
+     * What an element settles at once the animation lets go of it.
+     *
+     * Read BEFORE the animation writes an opacity of its own, and read off the
+     * stylesheet rather than assumed to be 1: a card arriving into a dimmed
+     * graph is muted by its class, and an inline opacity that ran to 1 would
+     * override that for the length of the fade - so the muting would land
+     * afterwards, as a change of its own rather than as part of the arrival.
+     */
+    function restingOpacity(el) {
+        const value = Number(getComputedStyle(el).opacity);
+        return Number.isFinite(value) ? value : 1;
+    }
+
     // Superseding token: a second change while one is running calls off the
     // first, which would otherwise go on writing to nodes nobody can see.
     let animationRun = 0;
@@ -559,8 +573,8 @@
             const now = positions.get(id);
             if (!now) return;
             if (!was) {
+                arrivingCards.push({ el: group, to: restingOpacity(group) });
                 group.style.opacity = '0';
-                arrivingCards.push(group);
                 return;
             }
             if (was.x === now.x && was.y === now.y) return;
@@ -568,15 +582,16 @@
             moves.set(id, { group, from: was, to: now });
         });
 
+        const arrivingLinks = arrivingEdges.map((entry) => ({ el: entry.path, to: restingOpacity(entry.path) }));
+        arrivingLinks.forEach(({ el }) => { el.style.opacity = '0'; });
+
         // A link is a path: it has no position of its own to travel from, so it
         // is redrawn each frame along the two ends it joins - and only the ones
         // that actually join a card on the move are redrawn at all.
         const travelling = state.edges.filter((entry) =>
             moves.has(entry.source.data.record.id) || moves.has(entry.target.data.record.id));
 
-        arrivingEdges.forEach((entry) => { entry.path.style.opacity = '0'; });
-
-        if (!moves.size && !arrivingCards.length && !arrivingEdges.length && !leaving) return;
+        if (!moves.size && !arrivingCards.length && !arrivingLinks.length && !leaving) return;
 
         const at = (entry, id, t) => {
             const move = moves.get(id);
@@ -589,8 +604,8 @@
 
         // The values the animation drives are also the ones the stylesheet
         // fades, so the stylesheet is stood down for the length of it.
-        const fading = [...arrivingCards, ...arrivingEdges.map((entry) => entry.path), ...(leaving ? [ghost] : [])];
-        fading.forEach((el) => { el.style.transition = 'none'; });
+        const fading = [...arrivingCards, ...arrivingLinks, ...(leaving ? [{ el: ghost }] : [])];
+        fading.forEach(({ el }) => { el.style.transition = 'none'; });
 
         runAnimation((t) => {
             moves.forEach((move) => {
@@ -606,15 +621,18 @@
                 entry.path.setAttribute('d', drawn.d);
                 placeChip(entry, drawn.mid);
             });
-            arrivingCards.forEach((group) => { group.style.opacity = String(t); });
-            arrivingEdges.forEach((entry) => { entry.path.style.opacity = String(t); });
+            // Each fades to where its own class says it belongs: an arriving
+            // card in a dimmed graph is muted from the moment it starts to
+            // appear, rather than brightening and then being muted.
+            arrivingCards.forEach(({ el, to }) => { el.style.opacity = String(to * t); });
+            arrivingLinks.forEach(({ el, to }) => { el.style.opacity = String(to * t); });
             if (leaving) ghost.style.opacity = String(1 - t);
         }, ms, () => {
             // Hand every node back to its markup: an inline value left behind
             // would fight the next render, and the position belongs to the
             // transform attribute.
             moves.forEach((move) => move.group.setAttribute('transform', `translate(${move.to.x},${move.to.y})`));
-            fading.forEach((el) => { el.style.transition = ''; el.style.opacity = ''; });
+            fading.forEach(({ el }) => { el.style.transition = ''; el.style.opacity = ''; });
             if (leaving) ghost.remove();
         });
     }

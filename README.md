@@ -23,58 +23,37 @@ For detailed documentation, visit https://pydecisiongraph.readthedocs.io/.
 Here is a quick demo on how to use `PyDecisionGraph` for building a decision tree based on various conditions:
 
 ```python
-from decision_graph.decision_tree import LogicNode, LOGGER, AttrExpression, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
+from decision_graph.decision_tree import LOGGER, LongAction, ShortAction, NoAction, RootLogicNode, LogicMapping
 
 # Mapping of attribute names to their values
-LogicMapping.AttrExpression = AttrExpression
-
 state = {
     "exposure": 0,  # Current exposure
     "working_order": 0,  # Current working order
     "up_prob": 0.8,  # Probability of price going up
     "down_prob": 0.2,  # Probability of price going down
-    "volatility": 0.24,  # Current market volatility
+    "volatility": 0.26,  # Current market volatility
     "ttl": 15.3  # Time to live (TTL) of the decision tree
 }
 
-# Root of the logic tree
-with RootLogicNode() as root:
-    # Define root logic mapping with state data
-    with LogicMapping(name='Root', data=state) as lg_root:
-        lg_root: LogicMapping
-
+# The store the conditions read from, entered for the scope the tree is built in
+with LogicMapping(name='Root', data=state) as lg:
+    # Root of the logic tree
+    with RootLogicNode() as root:
         # Condition for zero exposure
-        with lg_root.exposure == 0:
-            root: LogicNode
-            with LogicMapping(name='check_open', data=state) as lg:
-                with lg.working_order != 0:
-                    break_point = NoAction()  # No action if there's a working order
-                    lg.break_(scope=lg)  # Exit the current scope
+        with lg.exposure == 0:
+            with lg.volatility > 0.25:  # Check if volatility is high
+                with lg.down_prob > 0.1:  # Action for down probability
+                    LongAction()
 
-                with lg.volatility > 0.25:  # Check if volatility is high
-                    with lg.down_prob > 0.1:  # Action for down probability
-                        LongAction()
+                with lg.up_prob < -0.1:  # Action for up probability
+                    ShortAction()
 
-                    with lg.up_prob < -0.1:  # Action for up probability
-                        ShortAction()
-
-        # Condition when TTL is greater than 30
-        with lg_root.ttl > 30:
-            with lg_root.working_order > 0:
-                ShortAction()  # Action to short if working order exists
-            LongAction()  # Always take long action
-            lg_root.break_(scope=lg_root)  # Exit scope
-
-        # Closing logic based on exposure and probabilities
-        with LogicMapping(name='check_close', data=state) as lg:
-            with (lg.exposure > 0) & (lg.down_prob > 0.):
-                ShortAction()  # Short action for positive exposure and down probability
-
-            with (lg.exposure < 0) & (lg.up_prob > 0.):
-                LongAction()  # Long action for negative exposure and up probability
+            # No action if there's a working order
+            with lg.working_order != 0:
+                NoAction()
 
 # Visualize the decision tree
-root.to_html()
+root.to_html('tree.html')
 
 # Log the evaluation result
 LOGGER.info(root())
@@ -83,27 +62,29 @@ LOGGER.info(root())
 ## Explanation of the Script:
 
 - LogicNode & LogicMapping:
-    - LogicNode: Represents a node in the decision tree where conditions are evaluated.
-    - LogicMapping: Associates logical conditions with the state (data) used in decision-making.
+    - LogicNode: Represents a node in the decision tree where conditions are evaluated. A node evaluates its condition and takes one of its two arms.
+    - LogicMapping: The named store the conditions read from, holding the state used in decision-making. Feed it a new value and the next walk moves.
 
 - State:
     - A dictionary containing the variables used for decision-making, such as exposure, working_order, up_prob, etc.
 
 - RootLogicNode:
-    - The entry point for the decision tree where all logical decisions are linked.
+    - The entry point for the decision tree; its single child is the top of the tree.
 
 - Decision Conditions:
     - Inside each with block, logical conditions are evaluated (e.g., lg.volatility > 0.25, lg.up_prob < -0.1) to determine which action to take.
+    - Each with block nests one level deeper; the first block under a node is its true arm, the second its false arm.
     - Actions like LongAction() or ShortAction() are taken based on the conditions.
 
 - Action Handling:
     - LongAction(), ShortAction(), and NoAction() represent different actions you can trigger in the decision tree based on the conditions.
+    - An arm left empty is filled with a NoAction when the tree is evaluated.
 
 - Logging:
     - The result of the tree evaluation is logged using the LOGGER object, which outputs to the console.
 
 - Visualization:
-    - root.to_html() generates an HTML representation of the decision tree for visualization.
+    - root.to_html('tree.html') generates a standalone HTML page visualizing the decision tree. Drop the file name and the page is named after the root.
 
 # Features
 
@@ -111,6 +92,7 @@ LOGGER.info(root())
 - Actionable outcomes like LongAction, ShortAction, and NoAction.
 - Log outputs for debugging and tracking.
 - Visualize decision paths through HTML export.
+- Bake a finished tree once (root.bake()) and let it decide in a hot loop.
 
 ---
 

@@ -335,6 +335,12 @@ class TestRestoration(unittest.TestCase):
         self.assertIs(type(again), ConstantNode)
 
 
+@unittest.skipUnless(
+    hasattr(os, 'fork'),
+    'the child is a fork of the builder: the map is shared only with forks '
+    '(the allocator unlinks its region on map, so a fresh process maps a '
+    'region of its own and the address would name nothing there)',
+)
 class TestAcrossProcesses(unittest.TestCase):
     """Contract: a graph in shared memory is reachable from a process that did not build it.
 

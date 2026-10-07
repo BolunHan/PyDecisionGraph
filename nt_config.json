@@ -1,0 +1,44 @@
+{
+    "connection": {
+        "host": "<windows-vm-ip>",
+        "port": 22,
+        "user": "<domain>\\<username>",
+        "identity_file": "~/.ssh/<keyfile>.pem"
+    },
+    "windows": {
+        "python_path": "C:\\Program Files\\Python313\\python.exe",
+        "venv_path": "C:\\Users\\<username>\\Projects\\venv_313",
+        "proxy": "<proxy-host>:<proxy-port>"
+    },
+    "project": {
+        "remote_root": "C:\\Users\\<username>\\Projects\\PyDecisionGraph",
+        "local_root": "/home/<username>/Projects/PyDecisionGraph"
+    },
+    "sync": {
+        "exclude_patterns": [
+            ".git",
+            "__pycache__",
+            "*.pyc",
+            ".pytest_cache",
+            "*.egg-info",
+            "build",
+            "decision_graph/includes",
+            "macros.json",
+            ".idea",
+            ".vscode",
+            ".claude",
+            "*.so",
+            "*.cpython-*.so",
+            "decision_graph/decision_tree/bake/*.c",
+            "decision_graph/decision_tree/capi/*.c",
+            "tests/bake_eval_probe.c",
+            "tests/bake_c_evaluator.c",
+            "tests/bake/build*",
+            "tests/bake/artifacts",
+            "tests/bake_parity/artifacts",
+            "tests/artifacts",
+            "docs/_build",
+            "docs/doxygen"
+        ]
+    }
+}

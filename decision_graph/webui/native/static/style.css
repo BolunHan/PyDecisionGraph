@@ -1,0 +1,656 @@
+/* ===== Dracula & Alucard Palettes ===== */
+:root {
+    /* Alucard (Light Mode) */
+    --alucard-background:           hsl( 48, 100%,  96%);
+    --alucard-currentline:          hsl( 49,  18%,  36%);
+    --alucard-selection:            hsl(240,  18%,  84%);
+    --alucard-foreground:           hsl(  0,   0%,  12%);
+    --alucard-comment:              hsl( 49,  18%,  36%);
+    --alucard-red:                  hsl(  6,  66%,  48%);
+    --alucard-orange:               hsl( 24,  78%,  36%);
+    --alucard-yellow:               hsl( 48,  73%,  30%);
+    --alucard-green:                hsl(114,  84%,  24%);
+    --alucard-cyan:                 hsl(198,  96%,  30%);
+    --alucard-purple:               hsl(252,  54%,  54%);
+    --alucard-pink:                 hsl(336,  78%,  36%);
+
+    /* Alucard Brights (for accents) */
+    --alucard-bright-background:    hsl(220,  20%,  97%);
+    --alucard-bright-currentline:   hsl( 49,   9%,  62%);
+    --alucard-bright-selection:     hsl(227,  18%,  90%);
+    --alucard-bright-foreground:    hsl(228,  15%,  34%);
+    --alucard-bright-comment:       hsl(224,  12%,  68%);
+    --alucard-bright-red:           hsl(  0,  75%,  65%);
+    --alucard-bright-orange:        hsl( 17, 100%,  74%);
+    --alucard-bright-yellow:        hsl( 46,  83%,  70%);
+    --alucard-bright-green:         hsl(120,  73%,  75%);
+    --alucard-bright-cyan:          hsl(195,  53%,  79%);
+    --alucard-bright-blue:          hsl(214,  41%,  78%);
+    --alucard-bright-purple:        hsl(262,  38%,  66%);
+    --alucard-bright-pink:          hsl(312,  58%,  71%);
+
+    /* Dracula (Dark Mode) */
+    --dracula-background:           hsl(231,  15%,  18%);
+    --dracula-currentline:          hsl(225,  27%,  51%);
+    --dracula-selection:            hsl(232,  14%,  31%);
+    --dracula-foreground:           hsl( 60,  30%,  96%);
+    --dracula-comment:              hsl(225,  27%,  51%);
+    --dracula-red:                  hsl(  0,  78%,  72%);
+    --dracula-orange:               hsl( 31, 100%,  71%);
+    --dracula-yellow:               hsl( 65,  92%,  76%);
+    --dracula-green:                hsl(135,  94%,  65%);
+    --dracula-cyan:                 hsl(191,  97%,  77%);
+    --dracula-purple:               hsl(265,  89%,  78%);
+    --dracula-pink:                 hsl(326, 100%,  74%);
+
+    /* Dracula Dulls (for accents) */
+    --dracula-dull-background:      hsl(231,  15%,  26%);
+    --dracula-dull-currentline:     hsl(225,  26%,  25%);
+    --dracula-dull-selection:       hsl(232,  14%,  23%);
+    --dracula-dull-foreground:      hsl( 60,  30%,  27%);
+    --dracula-dull-comment:         hsl(225,  26%,  25%);
+    --dracula-dull-red:             hsl(  0, 100%,  40%);
+    --dracula-dull-orange:          hsl( 31, 100%,  40%);
+    --dracula-dull-yellow:          hsl( 65,  92%,  42%);
+    --dracula-dull-green:           hsl(135,  94%,  42%);
+    --dracula-dull-cyan:            hsl(191,  96%,  42%);
+    --dracula-dull-blue:            hsl(214,  76%,  57%);
+    --dracula-dull-purple:          hsl(265,  89%,  39%);
+    --dracula-dull-pink:            hsl(326, 100%,  39%);
+
+    /* ===== Default Theme: Alucard (Light) ===== */
+    --bg:                           #FFFFFF;
+    --panel-bg:                     var(--alucard-bright-background);
+    --text-color:                   var(--alucard-foreground);
+    --header-bg:                    var(--dracula-currentline);
+    --header-text:                  #FFFFFF;
+    --tabs-bg:                      var(--alucard-bright-background);
+    --tab-active-bg:                var(--alucard-cyan);
+    --tab-active-text:              #FFFFFF;
+    --muted-border:                 #CCCCCC;
+    --link-text:                    var(--alucard-foreground);
+    --control-bg:                   #EEEEEE;
+    --link-bg:                      rgba(255, 255, 255, 0.9);
+    --link-stroke:                  rgba(0, 0, 0, 0.3);
+
+    /* Node Colors – Alucard */
+    --logicnode-fill:               var(--alucard-bright-cyan);
+    --logicnode-stroke:             var(--alucard-cyan);
+    --actionnode-fill:              var(--alucard-bright-selection);
+    --noaction-fill:                var(--alucard-bright-comment);
+    --longaction-fill:              var(--alucard-bright-green);
+    --shortaction-fill:             var(--alucard-bright-red);
+    --cancelaction-fill:            var(--alucard-bright-orange);
+    --clearaction-fill:             var(--alucard-bright-red);
+    --rootlogicnode-fill:           #63CB91;
+    --breakpointnode-fill:          var(--alucard-bright-red);
+    --defaultnode-fill:             var(--alucard-bright-cyan);
+    --node-text:                    #000000;
+    --link-default:                 var(--alucard-bright-comment);
+
+    /* Switches – Alucard */
+    --switch-off-bg:                var(--alucard-bright-comment);
+    --switch-on-bg:                 hsl(213, 70%, 53%);
+    --switch-knob-bg:               #FFFFFF;
+}
+
+/* ===== Dark Theme: Dracula ===== */
+.dark-mode {
+    /* UI Base */
+    --bg:                           var(--dracula-dull-background);
+    --panel-bg:                     var(--dracula-background);
+    --text-color:                   #FFFFFF;
+    --header-bg:                    var(--dracula-currentline);
+    --header-text:                  #FFFFFF;
+    --tabs-bg:                      var(--dracula-background);
+    --tab-active-bg:                var(--dracula-selection);
+    --tab-active-text:              var(--dracula-foreground);
+    --muted-border:                 var(--dracula-dull-background);
+    --link-text:                    var(--dracula-foreground);
+    --control-bg:                   var(--dracula-dull-selection);
+    --link-bg:                      rgba(40, 42, 54, 0.85);
+    --link-stroke:                  rgba(255, 255, 255, 0.15);
+
+    /* Node Colors – Dracula (base fills + bright strokes) */
+    --logicnode-fill:               var(--dracula-dull-cyan);
+    --logicnode-stroke:             var(--dracula-cyan);
+    --actionnode-fill:              var(--dracula-dull-selection);
+    --noaction-fill:                var(--dracula-dull-comment);
+    --longaction-fill:              var(--dracula-dull-green);
+    --shortaction-fill:             var(--dracula-dull-red);
+    --cancelaction-fill:            var(--dracula-dull-orange);
+    --clearaction-fill:             var(--dracula-dull-red);
+    --rootlogicnode-fill:           var(--dracula-dull-purple);
+    --breakpointnode-fill:          var(--dracula-dull-pink);
+    --defaultnode-fill:             var(--dracula-dull-cyan);
+    --node-text:                    #FFFFFF;
+    --link-default:                 #BBBBBB;
+
+    /* Switches – Dracula */
+    --switch-off-bg:                var(--dracula-comment);
+    --switch-on-bg:                 var(--dracula-green);
+    --switch-knob-bg:               var(--dracula-background);
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: var(--bg);
+    color: var(--text-color);
+    overflow: hidden;
+}
+
+#header {
+    flex: 0 0 auto;
+    background-color: var(--header-bg);
+    color: var(--header-text);
+    padding: 10px 20px;
+}
+
+#main {
+    flex: 1 1 auto;
+    display: flex;
+    width: 100%;
+    min-height: 0;
+}
+
+#content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+#logic-group-tabs {
+    width: 220px;
+    min-width: 160px;
+    max-width: 320px;
+    background-color: var(--tabs-bg);
+    border-right: 1px solid var(--muted-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    overflow-y: auto;
+}
+
+.tab-button {
+    padding: 6px 12px;
+    border: 1px solid var(--muted-border);
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+#logic-group-tabs .tab-button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+}
+
+.tab-button.active {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    border-color: var(--tab-active-bg);
+}
+
+#controls-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 8px 12px;
+    gap: 12px;
+    border-bottom: 1px solid var(--muted-border);
+    background-color: var(--panel-bg);
+    align-content: flex-start; /* ensure wrapped lines stack from the top */
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#controls-bar .right-controls {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.control-button {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--muted-border);
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+/* Apply same styles on hover as when the .hover class is present */
+.control-button:hover {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+    border-color: var(--tab-active-bg);
+}
+
+#tree-container {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+#tree-container > svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.node {
+    cursor: pointer;
+}
+
+.node.LogicNode .node-rect {
+    fill: var(--logicnode-fill);
+    stroke: var(--logicnode-stroke);
+    stroke-width: 1.5px;
+}
+
+.node.ActionNode .node-rect {
+    fill: var(--actionnode-fill);
+}
+
+.node.NoAction .node-rect {
+    fill: var(--noaction-fill);
+}
+
+.node.LongAction .node-rect {
+    fill: var(--longaction-fill);
+}
+
+.node.ShortAction .node-rect {
+    fill: var(--shortaction-fill);
+}
+
+.node.CancelAction .node-rect {
+    fill: var(--cancelaction-fill);
+}
+
+.node.ClearAction .node-rect {
+    fill: var(--clearaction-fill);
+}
+
+.node.RootLogicNode .node-rect {
+    fill: var(--rootlogicnode-fill);
+}
+
+.node.BreakpointNode .node-rect {
+    fill: var(--breakpointnode-fill);
+}
+
+.node .node-rect {
+    fill: var(--defaultnode-fill);
+}
+
+.node-rect-inactive {
+    fill-opacity: 0.3;
+    stroke-opacity: 0.4;
+}
+
+.node-text-inactive {
+    fill-opacity: 0.4;
+}
+
+.node-text {
+    fill: var(--node-text);
+}
+
+.link {
+    fill: none;
+    stroke: var(--link-default);
+    stroke-width: 1.5px;
+}
+
+.link.virtual_parent {
+    stroke: #ff0000;
+    stroke-dasharray: 5, 5;
+}
+
+.link-condition {
+    font-size: 10px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+    fill: var(--link-text);
+}
+
+.link-condition-bg {
+    fill: var(--link-bg);
+    stroke: var(--link-stroke);
+    stroke-width: 0.6;
+    opacity: 1;
+}
+
+.link-condition-group.true .link-condition-bg {
+    fill: rgba(0, 255, 0, 0.5);
+}
+
+.link-condition-group.false .link-condition-bg {
+    fill: rgba(255, 0, 0, 0.5);
+}
+
+.link-condition-group.unconditional .link-condition-bg {
+    fill: rgba(0, 0, 255, 0.5);
+}
+
+.link-condition-group.else .link-condition-bg {
+    fill: rgba(255, 255, 0, 0.5);
+}
+
+.link-inactive {
+    stroke-opacity: 0.3 !important;
+}
+
+.link-condition-bg-inactive {
+    opacity: 0.2 !important;
+}
+
+.link-condition-text-inactive {
+    fill-opacity: 0.3 !important;
+}
+
+#highlight-control {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--control-bg);
+    color: var(--text-color);
+}
+
+#highlight-control label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#highlight-toggle {
+    opacity: 0;
+    position: absolute;
+    width: 0;
+    height: 0;
+}
+
+.highlight-switch-slider {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+}
+
+.highlight-switch-slider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--switch-off-bg);
+    border-radius: 10px;
+    transition: background-color 0.2s;
+}
+
+.highlight-switch-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background-color: var(--switch-knob-bg);
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+#highlight-toggle:checked + .highlight-switch-slider::before {
+    background-color: var(--switch-on-bg);
+}
+
+#highlight-toggle:checked + .highlight-switch-slider::after {
+    transform: translateX(16px);
+}
+
+#watch-control {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--control-bg);
+    color: var(--text-color);
+}
+
+#watch-control label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#watch-toggle {
+    opacity: 0;
+    position: absolute;
+    width: 0;
+    height: 0;
+}
+
+.watch-switch-slider {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+}
+
+.watch-switch-slider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--switch-off-bg);
+    border-radius: 10px;
+    transition: background-color 0.2s;
+}
+
+.watch-switch-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background-color: var(--switch-knob-bg);
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+#watch-toggle:checked + .watch-switch-slider::before {
+    background-color: var(--switch-on-bg);
+}
+
+#watch-toggle:checked + .watch-switch-slider::after {
+    transform: translateX(16px);
+}
+
+#from-clipboard-control {
+    padding: 0 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--control-bg);
+    color: var(--text-color);
+}
+
+.from-clipboard-input {
+    min-width: 220px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--muted-border);
+    background: var(--panel-bg);
+    color: var(--text-color);
+    outline: none;
+    transition: box-shadow 0.12s ease, border-color 0.12s ease;
+    font-size: 0.95em;
+}
+
+.from-clipboard-input::placeholder {
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.dark-mode .from-clipboard-input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.from-clipboard-input:focus {
+    border-color: var(--tab-active-bg);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+/* ensure controls don't overflow on small screens */
+@media (max-width: 700px) {
+    .from-clipboard-input {
+        min-width: 120px;
+    }
+}
+
+#node-info {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: fit-content;
+    max-width: 1000px;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--muted-border);
+    border-radius: 10px;
+    padding: 0;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.30);
+    z-index: 1000;
+    font-size: 1em;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: stretch;
+    box-sizing: border-box;
+    cursor: grab;
+}
+
+.node-info-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px 8px 20px;
+    background-color: rgba(0, 0, 0, 0.07);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+
+.node-info-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+    font-weight: 800;
+    color: var(--node-text);
+}
+
+#node-info-pin {
+    background: none;
+    border: none;
+    font-size: 1.5em;
+    cursor: pointer;
+    margin-left: 1em;
+    transition: color 0.2s, filter 0.2s;
+    color: #888;
+    filter: grayscale(60%);
+}
+
+#node-info-pin.active {
+    color: #e67e22;
+    filter: none;
+}
+
+.node-info-body {
+    background-color: var(--panel-bg);
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 18px 20px 20px 20px;
+}
+
+.node-info-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 0.5em;
+}
+
+.node-info-label {
+    width: fit-content;
+    text-align: left;
+    color: var(--node-text);
+    font-weight: 300;
+    padding-right: 1em;
+}
+
+.node-info-value {
+    width: max-content;
+    text-align: right;
+    color: var(--node-text);
+    font-weight: 600;
+    font-size: 1.1em;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.node-info-value.autogen-true {
+    color: #E74C3C;
+}
+
+.node-info-value.autogen-false {
+    color: #27AE60;
+}
+
+body, #header, #logic-group-tabs, #tree-container, #from-clipboard-control, #highlight-control, #watch-control, .tab-button, .tab-button.active,
+.node-text, .link-condition, .link-condition-bg, .link {
+    transition: background-color 320ms ease, color 320ms ease, fill 320ms ease, stroke 320ms ease, opacity 320ms ease, border-color 320ms ease;
+}
+
+@media (max-width: 800px) {
+    #logic-group-tabs {
+        width: 140px;
+    }
+
+    #controls-bar {
+        padding: 6px;
+    }
+}
+
+#from-clipboard-control, #highlight-control, #watch-control, .control-button {
+    height: 40px;
+    border-radius: 8px;
+}
+
+.from-clipboard-btn {
+    height: 32px;
+    padding: 6px 10px;
+}

@@ -2,7 +2,7 @@ import time
 
 from sympy import rotations
 
-from decision_graph.decision_tree import RootLogicNode, LogicMapping, NoAction, LongAction, ShortAction, LGM
+from decision_graph.decision_tree.capi import RootLogicNode, LogicMapping, NoAction, LongAction, ShortAction, LGM
 
 
 def build(state):

@@ -26,10 +26,12 @@ except Exception:
 
 if not USING_CAPI:
     from .native import *
+    from ..webui.native import DecisionTreeWebUi, show, to_html
+    from ..webui import native as webui
 else:
     from .capi import *
-
-from .webui import DecisionTreeWebUi, show, to_html
+    from ..webui.capi import DecisionTreeWebUi, show, to_html
+    from ..webui import capi as webui
 
 
 def set_logger(logger: logging.Logger):
@@ -78,6 +80,6 @@ __all__ = [
     # .capi.c_collection or .native.collection
     'LogicMapping', 'LogicSequence', 'LogicGenerator',
 
-    # .webui
+    # ..webui.capi or ..webui.native
     'DecisionTreeWebUi', 'show', 'to_html'
 ]

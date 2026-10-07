@@ -1,4 +1,4 @@
-# decision_graph/decision_tree/webui/main.py
+# decision_graph/webui/native/main.py
 
 import argparse
 import logging

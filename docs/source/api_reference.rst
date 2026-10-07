@@ -6,4 +6,6 @@ API Reference
 
    decision_tree/api
    decision_tree/fallback
-   logic_group/api
+   webui
+   logic_group/delayed_confirmation
+   logic_group/instant_confirmation

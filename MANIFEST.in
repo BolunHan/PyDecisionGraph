@@ -2,5 +2,10 @@ include LICENSE
 include README.md
 include decision_graph/decision_tree/capi/*.pyx
 include decision_graph/decision_tree/capi/*.pxd
-include decision_graph/decision_tree/webui/static/*
-include decision_graph/decision_tree/webui/templates/*.html
+include decision_graph/decision_tree/bake/*.pyx
+include decision_graph/decision_tree/bake/*.pxd
+include decision_graph/decision_tree/bake/*.h
+recursive-include decision_graph/includes *.h
+recursive-include decision_graph/includes *.c
+recursive-include decision_graph/includes *.cpp
+recursive-include decision_graph/webui *.js *.css *.html

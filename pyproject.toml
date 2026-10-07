@@ -31,8 +31,16 @@ Repository = "https://github.com/BolunHan/PyDecisionGraph"
 Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
 [tool.setuptools.package-data]
-"decision_graph.decision_tree.capi" = ["*.h", "*.pxd", "*.pyx"]
-"decision_graph.decision_tree.webui" = ["templates/*.html", "static/*.css", "static/*.js"]
+"decision_graph.decision_tree.capi" = ["*.h", "*.pxd", "*.pyx", "*.pyi"]
+"decision_graph.decision_tree.bake" = ["*.h", "*.pxd", "*.pyx", "*.pyi"]
+"decision_graph.webui.capi" = ["templates/*.html", "static/*.css", "static/*.js"]
+"decision_graph.webui.native" = ["templates/*.html", "static/*.css", "static/*.js"]
+"decision_graph.webui.bake" = ["templates/*.html", "static/*.css", "static/*.js"]
+"decision_graph" = [
+    "includes/**/*.h",
+    "includes/**/*.c",
+    "includes/**/*.cpp",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "decision_graph.__version__" }

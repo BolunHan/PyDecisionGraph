@@ -8,7 +8,13 @@ import time
 from typing import Any
 
 from . import LOGGER
-from .. import LogicNode, ActionNode, BreakpointNode, TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION, RootLogicNode
+# Scoped on purpose: this UI draws what the C API layer built, and reaches it
+# by name rather than through the package that re-exports whichever layer won.
+from decision_graph.decision_tree.capi import (
+    LogicNode, ActionNode, BreakpointNode,
+    TRUE_CONDITION, FALSE_CONDITION, ELSE_CONDITION, NO_CONDITION,
+    RootLogicNode,
+)
 
 
 class DecisionTreeWebUi(object):

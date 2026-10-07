@@ -1,11 +1,18 @@
+"""The web UI of the C API layer (``decision_graph.decision_tree.capi``).
+
+The tree it draws is a capi ``LogicNode`` tree, read through the capi surface
+alone — see ``.app`` for the one place that surface is named.
+"""
+
 import logging
 
-from .. import LOGGER, RootLogicNode
+from .. import LOGGER
+from decision_graph.decision_tree.capi import LogicNode, RootLogicNode
 
-LOGGER = LOGGER.getChild('WebUI')
+LOGGER = LOGGER.getChild('WebUI.CAPI')
 
+from . import app
 from .app import DecisionTreeWebUi
-from .. import LogicNode
 
 
 def show(root: LogicNode, with_eval: bool = True, **kwargs):
@@ -43,5 +50,5 @@ def to_html(root: LogicNode, file_name: str, with_eval: bool = True):
 
 def set_logger(logger: logging.Logger):
     global LOGGER
-    LOGGER = logger.getChild('WebUI')
+    LOGGER = logger.getChild('WebUI.CAPI')
     app.LOGGER = LOGGER

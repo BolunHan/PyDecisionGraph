@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decision Tree Visualizer (Offline)</title>
+    <style>
+        {{ css_content | safe }}
+    </style>
+    <script>{{ d3_content | safe }}</script>
+</head>
+<body>
+<div id="header">
+    <h1>Decision Tree Visualization (Offline)</h1>
+</div>
+
+<!-- Main layout: vertical sidebar (logic groups) + content -->
+<div id="main">
+    <!-- Vertical nav sidebar for logic groups -->
+    <aside id="logic-group-tabs" role="region" aria-label="Logic groups">
+        <button class="tab-button active" data-group="*">All</button>
+        <!-- Other tabs inserted by JS -->
+    </aside>
+
+    <!-- Content area: controls bar + tree -->
+    <div id="content">
+        <!-- Controls bar: left = highlight toggle, right = export/theme buttons -->
+        <div id="controls-bar">
+            <!-- highlight-control will be injected by JS if window.with_eval is true -->
+            <!-- export controls will be injected here by script.js -->
+        </div>
+
+        <!-- Tree Container (no native scrollbars; zoom/pan handles navigation) -->
+        <div id="tree-container"
+             data-initial-tree='{{ initial_tree_data | tojson | e }}'
+             data-tree-id="offline">
+        </div>
+    </div>
+</div>
+
+<div id="node-info" style="display: none;">
+    <div class="node-info-header">
+        <h3>Node Details</h3>
+        <button id="node-info-pin" title="Pin">&#128204;</button>
+    </div>
+    <div class="node-info-body">
+        <table class="node-info-table">
+            <tbody>
+            <tr>
+                <td class="node-info-label">ID</td>
+                <td class="node-info-value" id="info-id"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Name</td>
+                <td class="node-info-value" id="info-name"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Repr</td>
+                <td class="node-info-value" id="info-repr"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Type</td>
+                <td class="node-info-value" id="info-type"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Labels</td>
+                <td class="node-info-value" id="info-labels"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Autogen</td>
+                <td class="node-info-value" id="info-autogen"></td>
+            </tr>
+            <tr>
+                <td class="node-info-label">Expression</td>
+                <td class="node-info-value" id="info-expr"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    window.with_eval = {{ 'true' if with_eval else 'false' }};
+    window.with_watch = false;
+</script>
+<script>
+    {{ js_content | safe }}
+    const container = d3.select("#tree-container");
+    const initialTreeData = JSON.parse(container.attr("data-initial-tree"));
+    const treeId = container.attr("data-tree-id");
+    visualizeTree(initialTreeData);
+</script>
+</body>
+</html>

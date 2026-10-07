@@ -1,0 +1,11 @@
+# Runtime and test dependencies. The build tools (cython / setuptools /
+# wheel) are installed by the caller, the way PyCyBase's pipeline does it.
+PyCyBase
+PyAlgoEngine
+
+# The suite
+pytest
+
+# The web UIs (also declared as the "visualization" extra)
+flask
+jinja2

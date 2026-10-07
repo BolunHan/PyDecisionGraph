@@ -155,10 +155,11 @@ typedef struct dcg_breakpoint_node {
 
 // Lifecycle
 static inline dcg_root_node*       c_dcg_node_new_root(const char* repr, allocator_protocol* allocator);
-static inline int                   c_dcg_node_ctx_enter_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr);
+static inline int                  c_dcg_node_ctx_enter_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr);
+static inline int                  c_dcg_node_ctx_exit_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr);
 static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* break_from, const char* repr, allocator_protocol* allocator);
 static inline dcg_breakpoint_node* c_dcg_node_get_breakpoint(const dcg_node* node);
-static inline int                   c_dcg_node_resolve_breakpoint(dcg_node* node);
+static inline int                  c_dcg_node_resolve_breakpoint(dcg_node* node);
 static inline void                 c_dcg_node_free_root(dcg_root_node* node);
 static inline void                 c_dcg_node_free_breakpoint(dcg_breakpoint_node* node);
 
@@ -229,13 +230,17 @@ static inline dcg_breakpoint_node* c_dcg_node_new_breakpoint(dcg_logic_group* br
     node->base.eval_ctx.flags |= DCG_EVAL_FLAG_BREAKPOINT;
 
     /*
-     * What entering a breakpoint means, armed here with everything else the type
-     * is built with. The table in c_node.h cannot give it: its body needs the
-     * breakpoint struct, and that is this header - one the table's header sits
-     * below. A node is what its constructor makes it, so this is where the
-     * answer belongs, and nothing has to correct the node afterwards.
+     * What entering and leaving a breakpoint mean, armed here with everything
+     * else the type is built with. The table in c_node.h cannot give them: their
+     * bodies need the breakpoint struct, and that is this header - one the
+     * table's header sits below. A node is what its constructor makes it, so
+     * this is where the answers belong, and nothing has to correct the node
+     * afterwards - neither the manager's fallback exit (which is the closing a
+     * binary node gets, and the wrong one for a breakpoint: see
+     * c_dcg_node_ctx_exit_breakpoint) nor the enter's own override.
      */
     node->base.ctx_ops.enter_fn = c_dcg_node_ctx_enter_breakpoint;
+    node->base.ctx_ops.exit_fn  = c_dcg_node_ctx_exit_breakpoint;
 
     node->base.autogen     = true;
     node->await_connection = false;
@@ -303,7 +308,7 @@ static inline int c_dcg_node_resolve_breakpoint(dcg_node* node) {
      * the false arm and swap the two around. Detaching first keeps the slot: the
      * branch goes on meaning what it meant.
      */
-    int ret = c_dcg_node_detach(continuation);
+    int                            ret = c_dcg_node_detach(continuation);
     if (ret != DCG_OK) return ret;
 
     ret = c_dcg_node_replace(node, continuation);
@@ -371,6 +376,34 @@ static inline int c_dcg_node_ctx_enter_breakpoint(dcg_node* node, dcg_logic_grou
         c_dcg_node_free(arm);
         return ret;
     }
+    return DCG_OK;
+}
+
+/**
+ * @brief Leave a breakpoint: retire its stand-ins, and fill NOTHING.
+ *
+ * The closing every other type gets is c_dcg_node_ctx_exit_closed, and the half
+ * of it a breakpoint must not have is the auto fill. That fill reads an ELSE arm
+ * as a fallback whose TRUE arm is missing and supplies one - the rule for a node
+ * that decides between two branches, which is exactly what a breakpoint is not.
+ * A breakpoint's ELSE is "the branch carried on here" (see the enter above), so
+ * there is no arm missing and nothing to supply: inventing one puts a child under
+ * scaffolding the bake then takes down, and a node under a detached block is a
+ * node nothing walks to and nothing frees.
+ *
+ * What it keeps is the other half: whatever is STILL a placeholder when the
+ * build leaves becomes a no-action, so a graph that has closed holds no stand-in
+ * - a breakpoint a build entered and did not carry on from included.
+ *
+ * @param node  Node being left.
+ * @param mgr   Manager holding the build (unused: closing is the node's own).
+ * @return DCG_OK, or DCG_ERR_INVALID_ARG.
+ */
+static inline int c_dcg_node_ctx_exit_breakpoint(dcg_node* node, dcg_logic_group_manager* mgr) {
+    (void) mgr;
+    if (!node) return DCG_ERR_INVALID_ARG;
+
+    c_dcg_node_consolidate_placeholder(node);
     return DCG_OK;
 }
 

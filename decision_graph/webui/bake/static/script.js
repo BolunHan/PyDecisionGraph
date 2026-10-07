@@ -39,6 +39,7 @@
         cardWidth: 232,    // What a display text wraps to.
         cardHeight: 100,   // How much of it fits.
         edgeWidth: 1.6,    // Stroke width of a link.
+        animSpeed: 100,    // Percent: 100 is the base duration, 1 is a hundredth.
     };
     const presentation = { ...PRESENTATION_DEFAULTS };
 
@@ -52,9 +53,10 @@
     const charsPerLine = () => Math.max(6, Math.floor((cardW() - CARD_PAD * 2) / CHAR_W));
     const reprLines = () => Math.max(1, Math.floor((cardH() - BAND_H - META_ROW_H) / REPR_LINE_H));
 
-    // How long a card's own animation runs, and the easing it runs on.
-    const ANIM_MS = 260;
-    const ANIM_EASE = 'cubic-bezier(.2,.7,.3,1)';
+    // How long a layout animation runs at speed x1. The slider scales it: x0.01
+    // is a hundred times slower, which is a debugging speed rather than a
+    // viewing one.
+    const ANIM_BASE_MS = 300;
 
     // ---- State ----
     const state = {
@@ -446,75 +448,114 @@
     // Render
     // ======================================================================
 
+    /** The duration of the next layout animation, from the speed slider. */
+    function animationMs() {
+        return ANIM_BASE_MS * (100 / Math.max(1, presentation.animSpeed));
+    }
+
+    const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+    // Superseding token: a second change while one is running calls off the
+    // first, which would otherwise go on writing to nodes nobody can see.
+    let animationRun = 0;
+
+    /**
+     * Drive a value from 0 to 1 over `ms`, on the frame clock.
+     *
+     * The animation is written here rather than handed to CSS on purpose. A
+     * transition needs the browser to have committed a "before" value, and the
+     * nodes it would run on were made a moment earlier in the same turn - so
+     * whether the browser sees two states or one coalesced write is its choice,
+     * not ours, and the answer differs between them. Setting the value per
+     * frame is the same work and none of the guessing.
+     */
+    function runAnimation(frame, ms, done) {
+        const run = ++animationRun;
+        const started = performance.now();
+
+        const step = (now) => {
+            if (run !== animationRun) return;   // called off: leave the nodes be
+            const travelled = Math.min(1, (now - started) / ms);
+            frame(easeOut(travelled));
+            if (travelled < 1) requestAnimationFrame(step);
+            else done();
+        };
+        requestAnimationFrame(step);
+    }
+
     /**
      * Carry the cards from where they were to where they now are.
      *
      * The layout is recomputed from scratch on every change, so a card that
-     * moved would jump straight there. This puts each one back where it was and
-     * lets it travel, and fades in the ones that were not on screen before. A
-     * link has no position of its own to animate - its shape is a path - so the
-     * links cross-fade instead.
+     * moved would jump straight there. Three things have to be put right:
+     *
+     *   - a card that MOVED is set back where it was and travels;
+     *   - a card that ARRIVED fades in;
+     *   - a card - or a link, which is redrawn wholesale and so is never "the
+     *     same link" twice - that has LEFT keeps a copy on screen to fade away,
+     *     because it is out of the drawing by then and nothing can animate it.
      */
     function animateLayout(previous, positions, previousCards, previousEdges) {
-        // What is GONE gets a departure rather than a disappearance: a copy of
-        // each vanished card - and of the links, which are redrawn wholesale and
-        // so are never "the same link" twice - stays exactly where it was for
-        // the length of the transition and fades. Without this a collapse is a
-        // blink, because the drawing is rebuilt rather than moved.
+        const ms = animationMs();
+
         const ghost = svgEl('g', { class: 'ghost-layer' });
         if (previousEdges) ghost.appendChild(previousEdges.cloneNode(true));
         previousCards.forEach((group, id) => {
             if (positions.has(id)) return;   // it survives, and travels instead
             ghost.appendChild(group.cloneNode(true));
         });
-        if (ghost.childNodes.length) {
+        const leaving = ghost.childNodes.length > 0;
+        if (leaving) {
+            ghost.style.opacity = '1';
             viewport.appendChild(ghost);
-            requestAnimationFrame(() => {
-                ghost.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
-                ghost.style.opacity = '0';
-            });
-            setTimeout(() => ghost.remove(), ANIM_MS + 60);
         }
 
+        const moving = [];
+        const arriving = [];
         state.cards.forEach((group, id) => {
             const was = previous.get(id);
             const now = positions.get(id);
             if (!now) return;
-
             if (!was) {
                 group.style.opacity = '0';
-                requestAnimationFrame(() => {
-                    group.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
-                    group.style.opacity = '';
-                });
-                setTimeout(() => { group.style.transition = ''; }, ANIM_MS + 60);
+                arriving.push(group);
                 return;
             }
-
-            const dx = was.x - now.x;
-            const dy = was.y - now.y;
-            if (!dx && !dy) return;
-
-            group.style.transform = `translate(${now.x + dx}px, ${now.y + dy}px)`;
-            requestAnimationFrame(() => {
-                group.style.transition = `transform ${ANIM_MS}ms ${ANIM_EASE}`;
-                group.style.transform = `translate(${now.x}px, ${now.y}px)`;
-            });
-            setTimeout(() => {
-                // Hand the position back to the attribute: an inline transform
-                // left behind would fight the next render.
-                group.style.transition = '';
-                group.style.transform = '';
-            }, ANIM_MS + 60);
+            if (was.x === now.x && was.y === now.y) return;
+            group.setAttribute('transform', `translate(${was.x},${was.y})`);
+            moving.push({ group, from: was, to: now });
         });
 
-        state.edges.forEach((entry) => {
-            entry.path.style.opacity = '0';
-            requestAnimationFrame(() => {
-                entry.path.style.transition = `opacity ${ANIM_MS}ms ${ANIM_EASE}`;
-                entry.path.style.opacity = '';
+        // Taken now rather than read from the state each frame: a redraw while
+        // this runs replaces the list, and the animation is about the nodes it
+        // started with.
+        const links = state.edges.map((entry) => entry.path);
+        links.forEach((path) => { path.style.opacity = '0'; });
+
+        if (!moving.length && !arriving.length && !links.length && !leaving) return;
+
+        // The values the animation drives are also the ones the stylesheet
+        // fades, so the stylesheet is stood down for the length of it.
+        const driven = [...arriving, ...links, ...(leaving ? [ghost] : [])];
+        driven.forEach((el) => { el.style.transition = 'none'; });
+
+        runAnimation((t) => {
+            moving.forEach(({ group, from, to }) => {
+                group.setAttribute(
+                    'transform',
+                    `translate(${from.x + (to.x - from.x) * t},${from.y + (to.y - from.y) * t})`,
+                );
             });
-            setTimeout(() => { entry.path.style.transition = ''; }, ANIM_MS + 60);
+            arriving.forEach((group) => { group.style.opacity = String(t); });
+            links.forEach((path) => { path.style.opacity = String(t); });
+            if (leaving) ghost.style.opacity = String(1 - t);
+        }, ms, () => {
+            // Hand every node back to its markup: an inline value left behind
+            // would fight the next render, and the position belongs to the
+            // transform attribute.
+            moving.forEach(({ group, to }) => group.setAttribute('transform', `translate(${to.x},${to.y})`));
+            driven.forEach((el) => { el.style.transition = ''; el.style.opacity = ''; });
+            if (leaving) ghost.remove();
         });
     }
 
@@ -1022,6 +1063,14 @@
             fromSlider: (raw) => raw / 10, toSlider: (v) => Math.round(v * 10),
             format: (v) => v.toFixed(1),
         },
+        'pres-anim': {
+            key: 'animSpeed', out: 'pres-anim-out',
+            fromSlider: Number, toSlider: (v) => Math.round(v),
+            format: (v) => `×${(v / 100).toFixed(2)}`,
+            // The speed changes nothing about the drawing, so changing it does
+            // not redraw one.
+            redraws: false,
+        },
     };
 
     let presentationFrame = 0;
@@ -1062,7 +1111,7 @@
                 presentation[spec.key] = spec.fromSlider(Number(input.value));
                 document.getElementById(spec.out).textContent = spec.format(presentation[spec.key]);
                 applyEdgeWidth();
-                scheduleRender();
+                if (spec.redraws !== false) scheduleRender();
             });
         }
 

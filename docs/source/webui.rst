@@ -66,7 +66,13 @@ time and an export is the picture on screen rather than a second drawing of it.
   controls a reader reaches for once, not the ones they keep open.
 - **Collapsing a node animates.** The drawing is rebuilt rather than moved, so
   a card that has changed place is put back where it was and allowed to travel,
-  and one that has left keeps a copy on screen to fade away.
+  and one that has left keeps a copy on screen to fade away. The frames are
+  written by the page rather than handed to CSS: a transition needs the browser
+  to have committed a value to travel FROM, and these nodes were made a moment
+  earlier in the same turn — so whether it sees two states or one coalesced
+  write is the browser's choice, and browsers differ. The animation slider
+  scales the duration, from ×2 down to ×0.01, which is slow enough to watch a
+  single card travel.
 - **Scaffolding** — a breakpoint a split build stopped at, and a stand-in a
   branch reserved, are what an un-baked graph still carries and a baked one does
   not. The title bar counts them, because that count is what tells the two

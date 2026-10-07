@@ -376,7 +376,7 @@ cdef class LogicNode:
     cdef str c_render(self, int max_depth, bint show_labels, bint show_out, str style):
         cdef dcg_render_opts opts
         cdef size_t cap = DCG_RENDER_BUFSIZE
-        cdef size_t used
+        cdef int ret
         cdef bytes buffer
         cdef char* out
 
@@ -388,10 +388,12 @@ cdef class LogicNode:
 
         buffer = PyBytes_FromStringAndSize(NULL, <Py_ssize_t> cap)
         out = PyBytes_AsString(buffer)
-        used = c_dcg_node_render_to_string(self.header, out, cap, &opts)
-        if used >= cap:
-            raise BufferError(f'The render needs {used} bytes; the {cap}-byte buffer is too small.')
-        return PyUnicode_FromStringAndSize(out, used)
+        ret = c_dcg_node_render_to_string(self.header, out, cap, &opts)
+        if ret == dcg_ret_code.DCG_ERR_FULL:
+            raise BufferError(f'The render does not fit the {cap}-byte buffer.')
+        if ret < 0:
+            raise RuntimeError(f'c_dcg_node_render_to_string failed with err code: {ret}')
+        return PyUnicode_FromStringAndSize(out, ret)
 
     # === Python Dunders ===
 

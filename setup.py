@@ -1,3 +1,4 @@
+import json
 import os
 import platform
 import re
@@ -15,7 +16,7 @@ from setuptools.command.build_ext import build_ext
 # Setup Configuration
 # ==============================
 
-BUILD_SCRIPT_VERSION = "1.0.0"
+BUILD_SCRIPT_VERSION = "1.1.0"
 PACKAGE_NAME = "decision_graph"
 DISPLAY_NAME = "PyDecisionGraph"
 
@@ -31,6 +32,29 @@ CBASE_INCLUDE = cbase.get_include()
 
 ext_modules = []
 cython_extension = []
+
+
+def overridable_macros() -> list:
+    """Every macro a build may flip from the environment: the probe's inventory.
+
+    ``probe.py`` writes ``macros.json`` — the ``#define``s the C layer's own
+    headers declare, each with its default. A name in that inventory (and
+    ``DEBUG``) is overridable with an environment variable of the same name —
+    ``DCG_VIGILANT=0 python setup.py build_ext --inplace`` — and a macro left
+    unset keeps its header default. The inventory is a cache, regenerated with
+    ``python probe.py``; with none present only ``DEBUG`` is overridable.
+    """
+    names = ["DEBUG"]
+    inventory = Path(REPO_ROOT) / "macros.json"
+    if inventory.exists():
+        try:
+            names += [
+                m["name"]
+                for m in json.loads(inventory.read_text(encoding="utf-8")).get("macros", [])
+            ]
+        except (OSError, ValueError) as exc:
+            print(f"[build_py] Warning: macros.json unreadable ({exc}) - only DEBUG is overridable")
+    return names
 
 
 # ==============================
@@ -57,7 +81,7 @@ class BuildExtWithConfig(build_ext):
 
     def build_extensions(self):
         macros = []
-        for macro in ["DEBUG"]:
+        for macro in overridable_macros():
             val = os.environ.get(macro)
             if val:
                 print(f'[build_py] Compile-time variable {macro} overridden with value {val}')

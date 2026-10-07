@@ -743,7 +743,7 @@ class LogicNode(LogicExpression):
         for condition, child in self.children.items():
             if child.condition_to_parent is not condition:
                 raise EdgeValueError('Child node condition does not match registered condition.')
-            if node not in self.subordinates:
+            if child not in self.subordinates:
                 raise ValueError(f"LogicNode {child} not found in stack")
 
     def _eval_recursively(self, path: list | None = None, default: Any = NO_DEFAULT) -> tuple[Any, list]:

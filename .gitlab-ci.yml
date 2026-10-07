@@ -1,0 +1,150 @@
+# GitLab CI/CD pipeline — the same shape as PyCyBase's, which this mirrors:
+#   test:linux / test:windows   build the extensions, then run the suite
+#   docs:build / pages          doxygen + sphinx, deployed as GitLab Pages
+#   publish:posix / publish:nt  cibuildwheel builds wheels, twine uploads
+#
+# Required CI/CD variables (Settings -> CI/CD -> Variables):
+#   PYPI_TOKEN   PyPI API token, masked + protected
+#
+# Publish jobs upload with TWINE_USERNAME=__token__ and
+# TWINE_PASSWORD=$PYPI_TOKEN, mirroring the GitHub Actions workflow.
+#
+# GITLAB_CI=true is predefined, so setup.py drops -march=native here just like
+# GITHUB_ACTIONS=true does on GitHub.
+
+stages:
+    - test
+    - docs
+    - publish
+
+# Only create pipelines for main, MRs, version tags, and manual triggers.
+workflow:
+    rules:
+        -   if: '$CI_PIPELINE_SOURCE == "web"'          # manual pipeline trigger
+        -   if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+        -   if: '$CI_COMMIT_BRANCH == "main"'
+        -   if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# ---------------------------------------------------------------- Tests ----
+# build_ext --inplace, then pytest. The C suites are not run here: the bake
+# Makefile compiles against a PyCyBase checkout, and the parity suite (which
+# IS run, through pytest's own subprocesses) covers the same C walks.
+.test:
+    stage: test
+    rules:
+        -   if: '$CI_COMMIT_TAG'
+            when: never
+        -   when: on_success
+    before_script:
+        - python -m pip install --upgrade pip
+        - pip install cython setuptools wheel
+        - pip install -r requirements.txt
+    script:
+        - python setup.py build_ext --inplace
+        - python -m pytest tests/ -q
+
+test:linux:
+    extends: .test
+    image: $PYTHON_IMAGE
+    parallel:
+        matrix:
+            -   PYTHON_IMAGE: [ "python:3.12", "python:3.13", "python:3.14" ]
+
+# GitLab.com's shared Windows runner (beta): preinstalled Python, PowerShell
+# shell. Adjust the tag for self-managed runners.
+test:windows:
+    extends: .test
+    tags: [ saas-windows-medium-amd64 ]
+
+# ----------------------------------------------------------------- Docs ----
+# Doxygen parses the .pyi stubs into XML for Breathe, then Sphinx renders the
+# tree. GitLab's equivalent of GitHub Pages deploy is a job named "pages"
+# publishing a "public/" artifact.
+.docs:
+    stage: docs
+    image: python:3.13
+    before_script:
+        - apt-get update && apt-get install -y --no-install-recommends doxygen
+        - python -m pip install --upgrade pip
+        - pip install cython setuptools wheel
+        - pip install -r requirements.txt
+        - pip install sphinx furo breathe
+        - python setup.py build_ext --inplace --verbose --force
+        - pip install -U . --no-build-isolation
+    script:
+        - cd docs && doxygen Doxyfile
+        - cd source && sphinx-build -M html . ../_build
+
+docs:build:
+    extends: .docs
+    needs: [ ]
+    rules:
+        -   if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+pages:
+    extends: .docs
+    needs: [ ]
+    rules:
+        # Deploy docs on every main push and version tag; never from MR pipelines.
+        -   if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+            when: never
+        -   when: on_success
+    artifacts:
+        paths: [ public ]
+    script:
+        - cd docs && doxygen Doxyfile
+        - cd source && sphinx-build -M html . ../_build
+        - cd ../../ && mv docs/_build/html public
+
+# -------------------------------------------------------------- Publish ----
+# cibuildwheel builds the platform wheels, then twine uploads them to PyPI.
+# The build imports cbase at setup.py time, so PyCyBase goes into the build
+# environment; PyAlgoEngine is imported by the package itself.
+.publish:
+    stage: publish
+    needs: [ ]
+    rules:
+        -   if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+        -   if: '$CI_PIPELINE_SOURCE == "web"'
+            when: manual
+    variables:
+        TWINE_USERNAME: "__token__"
+        TWINE_PASSWORD: "$PYPI_TOKEN"   # masked + protected CI/CD variable
+    before_script:
+        - python -m pip install --upgrade pip setuptools wheel cibuildwheel
+        - pip install -r requirements.txt
+    script:
+        - python -m cibuildwheel --output-dir wheelhouse
+        - pip install twine
+        - twine upload wheelhouse/*
+
+publish:posix:
+    extends: .publish
+    image: python:3.13
+    # Make a docker daemon available for cibuildwheel's manylinux builds
+    # (recipe from cibuildwheel's own .gitlab-ci.yml).
+    services:
+        -   name: docker:dind
+            entrypoint: [ "env", "-u", "DOCKER_HOST" ]
+            command: [ "dockerd-entrypoint.sh" ]
+    variables:
+        DOCKER_HOST: "tcp://docker:2375/"
+        DOCKER_DRIVER: overlay2
+        DOCKER_TLS_CERTDIR: ""
+        CIBW_SKIP: "pp*"
+        CIBW_BUILD: "cp3*-manylinux*"
+        CIBW_BEFORE_BUILD: "rm -rf /project/build && find /project/decision_graph -name '*.so' -delete; pip install PyCyBase PyAlgoEngine"
+        CIBW_ENVIRONMENT: "GITLAB_CI=true"
+    before_script:
+        - curl -sSL https://get.docker.com/ | sh
+        - python -m pip install --upgrade pip setuptools wheel cibuildwheel
+        - pip install -r requirements.txt
+
+publish:nt:
+    extends: .publish
+    tags: [ saas-windows-medium-amd64 ]
+    variables:
+        CIBW_SKIP: "pp*"
+        CIBW_BUILD: "cp3*-win_amd64"
+        CIBW_BEFORE_BUILD: "pip install PyCyBase PyAlgoEngine"
+        CIBW_ENVIRONMENT: "GITLAB_CI=true"

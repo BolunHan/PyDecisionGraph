@@ -45,6 +45,20 @@ cdef class RootLogicNode(LogicNode):
     def __call__(self):
         return self.eval()
 
+    # === Web UI ===
+
+    def to_html(self, str file_name=None, bint with_eval=True):
+        from ...webui.bake import to_html
+        to_html(self, file_name or f'{self.repr}.html', with_eval)
+
+    def show(self, **kwargs):
+        from ...webui.bake import show
+        show(self, **kwargs)
+
+    def watch(self, **kwargs):
+        from ...webui.bake import watch
+        watch(self, **kwargs)
+
     # === Bake Protocol ===
 
     cpdef object bake(self, bint validate_only=False):

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-orientation="top-down">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bake Graph — Decision Graph</title>
+    <style>{{ css_content }}</style>
+    <script>{{ d3_content }}</script>
+</head>
+<body>
+
+<header id="titlebar">
+    <div class="brand">
+        <span class="brand-mark">&#8990;</span>
+        <span class="brand-name">Bake Graph</span>
+    </div>
+    <div class="graph-title" id="title-name">—</div>
+    <div class="title-stats">
+        <span class="stat"><b id="stat-nodes">0</b> nodes</span>
+        <span class="stat"><b id="stat-walked">0</b> walked</span>
+        <span class="stat" id="stat-mode">unbaked</span>
+    </div>
+</header>
+
+<div id="shell">
+    <aside id="sidebar" role="region" aria-label="Controls">
+        <section class="panel">
+            <h2 class="panel-title">View</h2>
+            <div class="field">
+                <span class="field-label">Orientation</span>
+                <div class="segmented" id="ctl-orientation">
+                    <button type="button" data-orientation="top-down" class="active">Top&nbsp;&#8594;&nbsp;Bottom</button>
+                    <button type="button" data-orientation="left-right">Left&nbsp;&#8594;&nbsp;Right</button>
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">Theme</span>
+                <div class="segmented" id="ctl-theme">
+                    <button type="button" data-theme="dark" class="active">Dark</button>
+                    <button type="button" data-theme="light">Light</button>
+                </div>
+            </div>
+            <div class="field">
+                <span class="field-label">Zoom</span>
+                <div class="btn-row">
+                    <button type="button" class="btn" id="btn-zoom-out" title="Zoom out">&#8722;</button>
+                    <button type="button" class="btn" id="btn-zoom-reset" title="Fit the graph">Fit</button>
+                    <button type="button" class="btn" id="btn-zoom-in" title="Zoom in">+</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Walk</h2>
+            <label class="switch-row" id="row-highlight">
+                <input type="checkbox" id="ctl-highlight" checked>
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text">Highlight the walked path</span>
+            </label>
+            <div class="btn-row">
+                <button type="button" class="btn btn-primary" id="btn-evaluate" title="Walk the graph now">Evaluate</button>
+            </div>
+            <dl class="readout">
+                <div><dt>code</dt><dd id="out-code">—</dd></div>
+                <div><dt>length</dt><dd id="out-length">—</dd></div>
+                <div><dt>leaf</dt><dd id="out-leaf">—</dd></div>
+            </dl>
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Store groups</h2>
+            <div class="chips" id="ctl-groups"></div>
+            <p class="hint">A read's label is the store it reads; picking one dims every other store's nodes.</p>
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Clipboard</h2>
+            <div class="btn-row">
+                <button type="button" class="btn" id="btn-copy-path" title="Copy the walked path as JSON">Copy path</button>
+                <button type="button" class="btn" id="btn-paste-path" title="Read the clipboard into the box">Paste</button>
+            </div>
+            <textarea id="ctl-path" class="textarea" rows="3" spellcheck="false"
+                      placeholder='["uid", "uid", …]'></textarea>
+            <div class="btn-row">
+                <button type="button" class="btn" id="btn-load-path" title="Highlight the ids in the box">Load</button>
+                <button type="button" class="btn" id="btn-clear-path" title="Drop the loaded ids">Clear</button>
+            </div>
+            <p class="hint" id="clipboard-hint"></p>
+        </section>
+
+        <section class="panel">
+            <h2 class="panel-title">Export</h2>
+            <div class="btn-row">
+                <button type="button" class="btn" id="btn-export-svg">SVG</button>
+                <button type="button" class="btn" id="btn-export-png">PNG</button>
+            </div>
+        </section>
+    </aside>
+
+    <main id="stage">
+        <div id="canvas">
+            <svg id="graph" role="img" aria-label="Bake graph"></svg>
+            <div id="empty-note" hidden>Nothing to draw — the viewer is holding no graph.</div>
+        </div>
+    </main>
+</div>
+
+<aside id="inspector" hidden aria-label="Node details">
+    <div class="inspector-head">
+        <span class="inspector-type" id="ins-type">—</span>
+        <button type="button" class="icon-btn" id="ins-close" title="Close">&#10005;</button>
+    </div>
+    <dl class="readout readout-wide">
+        <div><dt>repr</dt><dd id="ins-repr">—</dd></div>
+        <div><dt>id</dt><dd id="ins-id">—</dd></div>
+        <div><dt>address</dt><dd id="ins-address">—</dd></div>
+        <div><dt>family</dt><dd id="ins-family">—</dd></div>
+        <div><dt>labels</dt><dd id="ins-labels">—</dd></div>
+        <div><dt>out</dt><dd id="ins-out">—</dd></div>
+        <div><dt>hooks</dt><dd id="ins-hooks">—</dd></div>
+        <div><dt>subtree</dt><dd id="ins-size">—</dd></div>
+        <div><dt>autogen</dt><dd id="ins-autogen">—</dd></div>
+    </dl>
+    <div class="inspector-arms">
+        <span class="field-label">arms</span>
+        <ul id="ins-arms"></ul>
+    </div>
+</aside>
+
+<script type="application/json" id="tree-data">{{ initial_tree_data | tojson }}</script>
+<script>
+    window.bake_viewer = {
+        tree_id: "offline",
+        with_eval: {{ 'true' if with_eval else 'false' }},
+        with_watch: false,
+        offline: true
+    };
+</script>
+<script>{{ js_content }}</script>
+</body>
+</html>

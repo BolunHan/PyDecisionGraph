@@ -29,8 +29,34 @@ The capi and native modules expose the same three doors:
 - ``to_html(node, file_name, with_eval=True)`` — writes a self-contained offline
   HTML file with the CSS, JS and D3 bundled into it.
 
-The bake module's doors are described in its own section below, because a baked
-graph is immutable and an un-baked one is not yet walkable.
+The bake module exposes ``show``, ``watch`` and ``to_html`` with the same
+signatures, and a ``RootLogicNode`` of that layer carries ``show()``,
+``watch()`` and ``to_html()`` of its own. Only the drawing differs.
+
+How the bake viewer draws
+-------------------------
+
+A node is a card, and the cards are laid out on a grid: the tree layout supplies
+each node's place in its sibling order and its depth, and those two indices are
+multiplied by a fixed cell size, so the same graph lands in the same place every
+time and an export is the picture on screen rather than a second drawing of it.
+
+- **Orientation** — which axis depth runs along. Top-to-bottom puts the breadth
+  on x, left-to-right puts it on y; the arm order and the condition chips are
+  the same either way.
+- **Theme** — dark and light are one attribute on ``<html>``, and everything the
+  drawing uses is a custom property, so an export can snapshot the values it
+  finds and the SVG is styled by the same names the page is.
+- **The card** carries the type, the display text (which is where the operands
+  show, since an operand is not a child), the store labels, the value the node
+  last produced, and the size of its subtree.
+- **Scaffolding** — a breakpoint a split build stopped at, and a stand-in a
+  branch reserved, are what an un-baked graph still carries and a baked one does
+  not. The title bar counts them, because that count is what tells the two
+  states of a graph apart.
+- **Clipboard** — the walked path is a list of node ids, and it crosses between
+  a session and the page in that form: *Copy path* writes it, the box takes one
+  pasted in, and *Load* highlights the ids it names.
 
 How a tree reaches the page
 ---------------------------
@@ -76,6 +102,11 @@ API reference (autodoc)
    :show-inheritance:
 
 .. automodule:: decision_graph.webui.native.app
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: decision_graph.webui.bake.app
    :members:
    :undoc-members:
    :show-inheritance:

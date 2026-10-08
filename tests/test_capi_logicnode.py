@@ -10,8 +10,10 @@ from decision_graph.decision_tree.capi.c_abc import (
     ShortAction,
     LogicGroup,
     TRUE_CONDITION,
-    FALSE_CONDITION, BreakpointNode, NoAction,
+    FALSE_CONDITION, BreakpointNode, NoAction, PlaceholderNode,
 )
+from decision_graph.decision_tree.capi.c_collection import LogicMapping
+from decision_graph.decision_tree.capi.c_node import RootLogicNode
 
 
 def node(name: str, v: bool = None):
@@ -297,6 +299,58 @@ def test_build_tree_withctx_inspection_mode_second():
         print("Build second tree with context in inspection mode test passed.")
     finally:
         LGM.inspection_mode = original_mode
+
+
+def test_self_returning_nodes_are_truthy():
+    """A node value is truthy when it points at a node (c_dcg_var_is_truthy).
+
+    Action leaves hand themselves back from their eval, so asking the truth of
+    the value recursively re-entered __bool__ until the C stack ran out.
+    """
+    assert bool(NoAction(auto_connect=False)) is True
+    assert bool(LongAction(auto_connect=False)) is True
+    assert bool(PlaceholderNode(auto_connect=False)) is True
+
+
+def test_breakpoint_resume_outside_inspection_mode():
+    """A breakpoint retrieved after the build carries the branch on when entered.
+
+    Entering it runs the breakpoint's entry check, which evaluates the node it
+    is linked to - a self-returning leaf. This is the 15-line reproduction of
+    the SIGSEGV, as a test.
+    """
+    book = LogicMapping(name='bp_resume_book', data={'exposure': 2, 'up_prob': 0.6})
+    root = RootLogicNode(name='bp_resume_root')
+
+    with root:
+        with book:
+            exposure = book['exposure']
+            with LogicGroup(name='bp_resume_checks') as checks:
+                with exposure > 0:
+                    BreakpointNode.break_(break_from=checks)
+
+    bp = root.get_breakpoint()
+    assert isinstance(bp, BreakpointNode)
+    assert bp.linked_to is None
+
+    original_mode = LGM.inspection_mode
+    LGM.inspection_mode = False  # The build is over: the entry check runs for real.
+    try:
+        with bp:
+            with book:
+                up = book['up_prob']
+                with up > 0.5:
+                    LongAction()
+    finally:
+        LGM.inspection_mode = original_mode
+
+    # The continuation took the break's arm, and the walk reaches it.
+    assert bp.linked_to is not None
+    assert isinstance(bp.linked_to.children[TRUE_CONDITION], LongAction)
+
+    value, path = root.eval_recursively()
+    assert isinstance(value, LongAction)
+    assert path[-1] is value
 
 
 # Simple runner for direct invocation: python tests/test_logicnode.py

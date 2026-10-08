@@ -10,7 +10,7 @@ from decision_graph.decision_tree.native.abc import (
     ShortAction,
     LogicGroup,
     TRUE_CONDITION,
-    FALSE_CONDITION, BreakpointNode, NoAction,
+    FALSE_CONDITION, BreakpointNode, NoAction, PlaceholderNode,
 )
 
 
@@ -322,6 +322,61 @@ def test_mapping_attribute_read_builds_and_walks():
     decision = root()
     assert isinstance(decision, LongAction)
     assert branch.parent is not None
+
+
+def test_self_returning_nodes_are_truthy():
+    """A node value is truthy when it points at a node (c_dcg_var_is_truthy).
+
+    Action leaves hand themselves back from their eval, so asking the truth of
+    the value recursed until the interpreter hit its recursion limit.
+    """
+    assert bool(NoAction(auto_connect=False)) is True
+    assert bool(LongAction(auto_connect=False)) is True
+    assert bool(PlaceholderNode(auto_connect=False)) is True
+
+
+def test_breakpoint_resume_outside_inspection_mode():
+    """A breakpoint retrieved after the build carries the branch on when entered.
+
+    Entering it runs the breakpoint's entry check, which evaluates the node it
+    is linked to - a self-returning leaf - and drops the breakpoint from the
+    manager's pending list, which list.remove used to refuse to do.
+    """
+    from decision_graph.decision_tree.native.collection import LogicMapping
+    from decision_graph.decision_tree.native.node import RootLogicNode
+
+    book = LogicMapping(name='native_bp_resume_book', data={'exposure': 2, 'up_prob': 0.6})
+    root = RootLogicNode(name='native_bp_resume_root')
+
+    with root:
+        with book:
+            exposure = book['exposure']
+            with LogicGroup(name='native_bp_resume_checks') as checks:
+                with exposure > 0:
+                    BreakpointNode.break_(break_from=checks)
+
+    bp = root.get_breakpoint()
+    assert isinstance(bp, BreakpointNode)
+    assert bp.linked_to is None
+
+    original_mode = LGM.inspection_mode
+    LGM.inspection_mode = False  # The build is over: the entry check runs for real.
+    try:
+        with bp:
+            with book:
+                up = book['up_prob']
+                with up > 0.5:
+                    LongAction()
+    finally:
+        LGM.inspection_mode = original_mode
+
+    # The continuation took the break's arm, and the walk reaches it.
+    assert bp.linked_to is not None
+    assert isinstance(bp.linked_to.children[TRUE_CONDITION], LongAction)
+
+    value, path = root.eval_recursively()
+    assert isinstance(value, LongAction)
+    assert path[-1] is value
 
 
 # Simple runner for direct invocation: python tests/test_logicnode.py

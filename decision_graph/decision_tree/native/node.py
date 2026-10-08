@@ -214,14 +214,14 @@ class AttrExpression(ContextLogicExpression):
             dtype: type = None,
             repr: str = None
     ):
+        self.attr = attr
+
         super().__init__(
             expression=self.eval if expression is None else expression,
             logic_group=logic_group,
             dtype=dtype,
-            repr=f'{self.logic_group.name}.{attr}' if repr is None else repr
+            repr=f'{logic_group.name}.{attr}' if repr is None else repr
         )
-
-        self.attr = attr
 
     def _eval(self, enforce_dtype: bool) -> Any:
         if isinstance(self.logic_group, LogicMapping):
@@ -250,14 +250,14 @@ class AttrNestedExpression(ContextLogicExpression):
             dtype: type = None,
             repr: str = None
     ):
+        self.attrs = attrs
+
         super().__init__(
             expression=self.eval if expression is None else expression,
             logic_group=logic_group,
             dtype=dtype,
-            repr=f'{self.logic_group.name}.{".".join(attrs)}' if repr is None else repr
+            repr=f'{logic_group.name}.{".".join(attrs)}' if repr is None else repr
         )
-
-        self.attrs = attrs
 
     def _eval(self, enforce_dtype: bool) -> Any:
         if isinstance(self.logic_group, LogicMapping):

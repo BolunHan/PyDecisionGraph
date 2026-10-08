@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "cython"]
+requires = ["PyCyBase", "cython", "setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -16,13 +16,16 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
-keywords = ["decision tree", "decision graph", "rules", "cython"]
+keywords = ["decision tree", "decision graph", "rules", "cython", "HFT"]
 dependencies = []
 
 [project.optional-dependencies]
 visualization = [
     "flask",
     "jinja2"
+]
+session_time_support = [
+    "PyAlgoEngine"
 ]
 
 [project.urls]

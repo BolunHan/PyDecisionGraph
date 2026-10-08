@@ -96,6 +96,27 @@ runner:
 A build is considered clean when it prints no warnings. Compiler warnings from
 this repository's sources are defects, not noise.
 
+The documentation
+-----------------
+
+The prose under ``docs/source`` is hand-written; the **API reference pages are
+generated** from the ``.pyi`` stubs, which is where the docstrings live.
+
+.. code-block:: bash
+
+    python docs/gen_reference.py                          # rewrite the reference pages
+    cd docs/source && sphinx-build -M html . ../_build    # then build
+
+Each page declares one class per ``.. py:class::`` and one directive per member,
+with every annotation resolved to the layer that declares it. That is what keeps
+a member's name unique to its class: two layers document a ``BreakpointNode``,
+so an unqualified name would be described twice and Sphinx would refuse the
+second. Regenerate after any change to a stub, and expect a build with no
+warnings.
+
+The reference no longer goes through doxygen. ``docs/Doxyfile`` still works and
+the CI job still runs it, but nothing consumes the XML any more.
+
 CI
 --
 

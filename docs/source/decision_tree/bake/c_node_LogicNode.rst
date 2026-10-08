@@ -1,6 +1,322 @@
 LogicNode
 =========
 
-.. doxygenclass:: decision_graph::decision_tree::bake::c_node::LogicNode
-   :project: DecisionGraph API
-   :members:
+.. py:module:: decision_graph.decision_tree.bake.c_node
+   :no-index:
+
+.. py:class:: LogicNode
+
+      A node of a bake graph: a block in C, wrapped here.
+
+      Building is the ``with`` statement: entering a node reserves the arms its
+      branches will be filled into, and whatever a build leaves reserved is closed
+      by the C layer on the way out. A node reached from C - a child the C layer
+      grew, a node named by an address - is turned back into a wrapper by
+      ``c_reconstruct``, which is the only place a node's class is decided.
+
+      **The evaluation protocol.** Evaluating a graph walks it from the top down,
+      one node at a time, and comes to rest on a single leaf: each node's value is
+      produced (from its type, or from a hook), the value selects which edge the
+      walk follows, and the node that had no edge to follow is where the walk
+      stops. A node off that path keeps the value it had.
+
+      A subclass may take part in that, at any of three points around the value:
+
+      - ``pre_eval_fn`` runs before the node's value is produced. A refusal here
+        stops the node where it stands.
+      - ``eval_fn`` produces the node's value, and is what a subclass overrides to
+        compute rather than to react. A subclass that overrides neither this nor
+        its Cython counterpart evaluates by the rule for its type.
+      - ``post_eval_fn`` runs after the value is produced, so it reacts to a value
+        that is already in the slot.
+
+      Each hook answers with the code the node ends with: return ``None`` to let
+      the evaluation continue, or a negative ``DCG_ERR_*`` code to refuse it. An
+      exception raised inside a hook is reported as that exception rather than as a
+      code - the hook's failure is the hook's to describe.
+
+      Hooks are installed **once, when the node is built**, and only for the hooks
+      a subclass has actually overridden: a node that overrides none carries no
+      hooks at all, so the evaluator has nothing to call. What that means is that a
+      hook cannot be added to a node that is already built, and that a wrapper
+      which does **not own** its node cannot carry one at all - the C node would
+      end up holding a pointer to a Python object nothing keeps alive. A read built
+      by a store is the store's, so it is the one kind of node that cannot hook.
+
+      The same three points exist one level down, as ``cdef`` hooks
+      (``c_pre_eval_fn``, ``c_eval_fn``, ``c_post_eval_fn``), which a subclass
+      written in Cython overrides to keep the hook on the C side of the call. Those
+      answer with a ``DCG_ERR_*`` code too, and a node whose class overrides both
+      runs the Cython one first.
+
+      A hook is an OVERRIDE of what the node would do anyway, and most types have
+      no work to do at all: a literal's value, a read's entry, an action's
+      self-reference and a root's truth are all settled when the node is BUILT, so
+      evaluating one is nothing. What an evaluation actually runs is an operator
+      node's rule - and a hook, where a subclass has one, is reached instead.
+
+   .. py:method:: __init__(self, *, repr: str | None = None, uid: Any | None = None, **kwargs: Any) -> None
+
+      Initialize a node of no particular type, which is refused.
+
+      :param repr: Display text to copy.
+      :param uid: Stable identity, minted when it is not given.
+
+      :raises NodeTypeError: Always - the base has no node type to build.
+
+   .. py:method:: get_manager() -> ~decision_graph.decision_tree.bake.c_logic_group.LogicGroupManager
+      :staticmethod:
+
+      The manager this layer builds through.
+
+      :returns: The process-wide logic group manager.
+
+   .. py:method:: __repr__(self) -> str
+
+      The wrapper's own text: its class and its display text.
+
+   .. py:method:: __rshift__(self, other: ~decision_graph.decision_tree.bake.c_node.LogicNode) -> ~decision_graph.decision_tree.bake.c_node.LogicNode
+
+      Link a child under the inherited edge, and answer with the child.
+
+      :param other: Node to link under this one.
+
+      :returns: The child, so a shift chain reads as the graph it builds.
+
+   .. py:method:: __enter__(self) -> Self
+
+      Enter the node as a scope a build continues inside.
+
+      :returns: This node.
+
+   .. py:method:: __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> bool
+
+      Leave the node, closing whatever the build left reserved.
+
+      :returns: False, so an exception raised inside the block keeps travelling.
+
+   .. py:method:: append(self, child: ~decision_graph.decision_tree.bake.c_node.LogicNode, condition: ~decision_graph.decision_tree.bake.c_edge.NodeEdgeCondition = AUTO_CONDITION) -> None
+
+      Link a child under an explicit edge, or under an inferred one.
+
+      The default is the auto edge, which hands the arm to the PARENT to work
+      out - the same edge ``>>`` links by - so ``node.append(child)`` and
+      ``node >> child`` add a child the same way. A build that knows which arm
+      it is filling passes the edge, and one that is filling a branch's second
+      arm normally should not have to say so.
+
+      The edge is what a build settles, not what a graph runs: an auto edge is
+      resolved when the child joins, and what the parent ends up holding is the
+      arm itself - which is what ``children`` is keyed by and what a
+      reconstruction restores.
+
+      :param child: Node to link.
+      :param condition: Edge to link it by; the auto edge when not given.
+
+      :raises RuntimeError: When the C layer refuses the link - an arm the parent
+          has no room for, or one the child cannot take.
+      :raises TypeError: When ``condition`` is not a ``NodeEdgeCondition``.
+
+   .. py:method:: overwrite(self, new_node: ~decision_graph.decision_tree.bake.c_node.LogicNode, condition: ~decision_graph.decision_tree.bake.c_edge.NodeEdgeCondition) -> None
+
+      Put a node into an edge another node already holds.
+
+      :param new_node: Node to place.
+      :param condition: The edge to place it on.
+
+      :raises KeyError: When no child hangs by that edge.
+
+   .. py:method:: replace(self, original_node: ~decision_graph.decision_tree.bake.c_node.LogicNode, new_node: ~decision_graph.decision_tree.bake.c_node.LogicNode) -> None
+
+      Put a node where another one is, inheriting its edge and position.
+
+      :param original_node: Node being displaced.
+      :param new_node: Node taking its place.
+
+   .. py:method:: detach(self) -> None
+
+      Unlink this node from its parent, keeping its own subtree.
+
+   .. py:method:: label(self, name: str) -> None
+
+      Add a label to this node.
+
+      :param name: Label to add.
+
+   .. py:method:: unlabel(self, name: str) -> None
+
+      Remove a label from this node.
+
+      :param name: Label to remove.
+
+   .. py:method:: has_label(self, name: str) -> bool
+
+      Whether this node carries a label.
+
+      :param name: Label to look for.
+
+      :returns: True when the label is on this node.
+
+   .. py:method:: render(self, max_depth: int = 0, show_labels: bool = True, show_out: bool = False, style: str = 'unicode') -> str
+
+      Render the subtree as text.
+
+      :param max_depth: How deep to walk; 0 for the layer's own limit.
+      :param show_labels: Whether to print each node's labels.
+      :param show_out: Whether to print each node's value.
+      :param style: ``'unicode'`` for box-drawing, anything else for ASCII.
+
+      :returns: The tree, one node per line.
+
+      :raises BufferError: When the tree does not fit the render buffer.
+
+   .. py:method:: validate(self) -> tuple[int, int, int, int] | None
+
+      Check the graph this node heads.
+
+      :returns: None when the graph is well formed, else the report as
+                ``(code, errors, nodes, depth)``.
+
+   .. py:method:: pre_eval_fn(self) -> None
+
+      Run before this node's value is produced.
+
+      Override to set a node up, or to refuse it: returning a negative
+      ``DCG_ERR_*`` code stops the node where it stands, and so does raising.
+      The default does nothing.
+
+      :returns: None, so the evaluation goes on to produce the value.
+
+   .. py:method:: eval_fn(self) -> None
+
+      Produce this node's value.
+
+      Override to compute the value rather than to take it from the node's
+      type. A hook written in Python watches the value rather than setting it -
+      the slot is the C layer's to write, which is what the ``c_eval_fn`` hook
+      next to this one is for. The default does nothing, which lets the
+      built-in rule for the node's type produce the value.
+
+      :returns: None, so the evaluation goes on to the post stage.
+
+   .. py:method:: post_eval_fn(self) -> None
+
+      Run after this node's value has been produced.
+
+      Override to react to a value that is already in the slot. The default
+      does nothing.
+
+      :returns: None, so the evaluation goes on to select the next edge.
+
+   .. py:method:: eval(self) -> Any
+
+      Evaluate this node - and only this node - for the value it holds.
+
+      The node's three stages run and the slot keeps what they produced, but
+      nothing else is written and no child is reached: the node's stage bits,
+      error code, run id, depth and visit count are left exactly as they were,
+      so a node can be asked between two walks without disturbing them.
+
+      Whether the value makes sense on its own is the node's own business. A
+      literal answers with itself, an action with the node itself (an action
+      *is* what it decides), a read with what its store entry holds now, and an
+      expression with its operands evaluated and applied - which is why a read
+      of an entry nothing has landed in reports ``UNBOUND`` rather than a
+      value, and an expression over one of those stops at the read.
+
+      :returns: The value the node came to hold, as a Python object.
+
+      :raises EvalFailureError: When the node cannot produce a value - an
+          unevaluable type, an operand outside its operator's domain, a
+          read of an entry with no value in it, or a hook that refused the
+          node. It carries the node that refused, the code it ended with,
+          the stage that failed, what was running then and the run it
+          happened in, and a hook's own exception travels as its cause.
+
+   .. py:method:: dry_run(self) -> Any
+
+      Ask this node what it WOULD evaluate to, and leave it as it was.
+
+      The same three stages run as in ``eval``, and then the node is put back
+      the way it was found: the value the evaluation produced comes back to the
+      caller instead of staying in the slot, and the slot keeps what it held.
+      The node's own outcome is still written - how far it got and what it
+      ended with - since that is about this evaluation; nothing about a run is,
+      because this is not one.
+
+      This is the question a build asks about a node it does not want to
+      disturb: what a branch says before a subtree under it is walked, and what
+      a node a walk has already valued says now.
+
+      It is ONE node, like ``eval`` on every node but a root: asking a root this
+      way asks for the root's own value, not for the decision its graph reaches.
+      A walk is ``RootLogicNode.eval``.
+
+      :returns: The value the node would come to hold, as a Python object.
+
+      :raises EvalFailureError: When the node cannot produce a value, with the
+          fields and the message ``eval`` reports.
+
+   .. py:property:: repr(self) -> str
+
+      The node's display text.
+
+   .. py:property:: type(self) -> str
+
+      The node's type name, as the C layer reports it.
+
+   .. py:property:: uuid(self) -> UUID
+
+      The node's stable identity, minted when the node was built.
+
+   .. py:property:: autogen(self) -> bool
+
+      Whether the builder generated this node rather than a caller.
+
+   .. py:property:: is_leaf(self) -> bool
+
+      Whether the node has no children.
+
+   .. py:property:: labels(self) -> list[str]
+
+      The labels on this node, in the order they were added.
+
+   .. py:property:: size(self) -> int
+
+      How many nodes the subtree under this one holds, itself included.
+
+   .. py:property:: out(self) -> VarView
+
+      A read-only view of the value this node holds.
+
+      Every node has one output slot, and what is in it depends on the node: a
+      literal holds its value there (which is what makes a constant a valid
+      place to take a view from), an evaluated node holds what it last produced,
+      and a node that has not run holds nothing. The view reads the slot live
+      and keeps it alive only through this node.
+
+   .. py:property:: eval_hooks(self) -> tuple[str, ...]
+
+      The eval hooks this node carries, by the name of the method that runs.
+
+      What is installed is decided once, when the node is built: the hooks a
+      subclass overrode, and only those. The names tell the two levels apart -
+      ``'pre_eval_fn'`` is the Python hook and ``'c_pre_eval_fn'`` its
+      Cython counterpart - and an empty tuple means the node has no hooks at all, so
+      the built-in rule for its type is what produces its value.
+
+   .. py:property:: address(self) -> int
+
+      The C block's address, which is what the registry is keyed by.
+
+   .. py:property:: parent(self) -> ~decision_graph.decision_tree.bake.c_node.LogicNode | None
+
+      The node this one hangs from, or None for a parentless node.
+
+   .. py:property:: children(self) -> dict[~decision_graph.decision_tree.bake.c_edge.NodeEdgeCondition, ~decision_graph.decision_tree.bake.c_node.LogicNode]
+
+      The children, keyed by the edge each one hangs by.
+
+   .. py:property:: condition_to_parent(self) -> ~decision_graph.decision_tree.bake.c_edge.NodeEdgeCondition
+
+      The edge this node hangs by - unconditional when it has no parent.

@@ -31,10 +31,15 @@ The two comparable layers
   a plain ``bool`` in native. The differences are listed on
   :doc:`../decision_tree/fallback`; the test suite pins each layer's own
   behaviour rather than pretending they are identical.
-- The **capi layer's breakpoint resumption crashes** today: entering a
-  breakpoint obtained from ``root.get_breakpoint()`` (``with breakpoint:``)
-  segfaults in capi. The bake layer performs the same flow correctly — build
-  split graphs with the bake layer (see :doc:`examples`) until this is fixed.
+- **A breakpoint is scaffolding only in the bake layer.** Both layers let a
+  build stop at a breakpoint and be carried on from it — ``break_(…)`` where
+  the branch should stop, then ``root.get_breakpoint()`` and ``with
+  breakpoint:`` in the function that carries on — but the walk sees different
+  graphs: capi keeps the breakpoint and walks through it, while ``bake()``
+  takes it down and the continuation takes its place.
+- **A capi breakpoint holds exactly ONE continuation.** Entering it and
+  building two sibling ``with`` blocks links the second and leaves the first
+  unlinked; write the continuation as one block, or use the bake layer.
 
 The bake layer
 --------------

@@ -314,7 +314,10 @@ class LogicExpression(SkipContextsBlock):
         raise TypeError(f"Unsupported type for LogicExpression conversion: {type(value)}.")
 
     def __bool__(self) -> bool:
-        return bool(self.eval())
+        value = self.eval()
+        if isinstance(value, LogicExpression):
+            return True
+        return bool(value)
 
     def __and__(self, other: Self | bool) -> Self:
         other_expr = self.cast(value=other, dtype=bool)
@@ -962,7 +965,7 @@ class BreakpointNode(LogicNode):
         self.await_connection = False
         try:
             LGM._breakpoint_nodes.remove(self)
-        except NodeNotFountError as _:
+        except ValueError:  # list.remove, not the C stack's NodeNotFountError
             pass
         self._append(PlaceholderNode(auto_connect=False), NO_CONDITION)
         LGM._active_nodes.insert(0, self)

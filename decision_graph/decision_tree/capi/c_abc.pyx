@@ -383,7 +383,10 @@ cdef class LogicExpression(SkipContextsBlock):
         return LogicExpression.c_cast(value, dtype)
 
     def __bool__(self) -> bool:
-        return bool(self.eval())
+        cdef object value = self.eval()
+        if isinstance(value, LogicExpression):
+            return True
+        return bool(value)
 
     def __and__(self, object other) -> LogicExpression:
         other_expr = self.cast(value=other, dtype=bool)

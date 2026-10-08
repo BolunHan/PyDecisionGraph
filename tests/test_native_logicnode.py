@@ -299,6 +299,31 @@ def test_build_tree_withctx_inspection_mode_second():
         LGM.inspection_mode = original_mode
 
 
+def test_mapping_attribute_read_builds_and_walks():
+    """A read taken as an attribute of a store, then walked.
+
+    This is the constructor path every ``store.attr`` read takes: the default
+    repr is built from the store's name, which used to read a field the
+    constructor had not set yet and recursed through __getattr__ instead.
+    """
+    from decision_graph.decision_tree.native.collection import LogicMapping
+    from decision_graph.decision_tree.native.node import RootLogicNode
+
+    with LogicMapping(name='native_attr_read', data={"volatility": 0.26}) as store:
+        read = store.volatility
+        assert read.repr == 'native_attr_read.volatility'
+
+        with RootLogicNode(name='Entry') as root:
+            with store.volatility > 0.25:
+                with node('branch', True) as branch:
+                    LongAction()
+                    ShortAction()
+
+    decision = root()
+    assert isinstance(decision, LongAction)
+    assert branch.parent is not None
+
+
 # Simple runner for direct invocation: python tests/test_logicnode.py
 if __name__ == "__main__":
     import inspect

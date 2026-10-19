@@ -5,6 +5,10 @@ import logging
 import os
 import sys
 
+from ._cython_link import ensure_cython_include_link as _ensure_cython_include_link
+
+_ensure_cython_include_link()
+
 LOGGER = logging.getLogger("DecisionGraph")
 LOGGER.setLevel(logging.INFO)
 

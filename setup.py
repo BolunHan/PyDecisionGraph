@@ -8,6 +8,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import cbase
+from cbase.cython_injection import inject_cython_includes as _inject_cython_includes
 from Cython.Build import cythonize
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
@@ -16,7 +17,7 @@ from setuptools.command.build_ext import build_ext
 # Setup Configuration
 # ==============================
 
-BUILD_SCRIPT_VERSION = "1.1.0"
+BUILD_SCRIPT_VERSION = "1.2.1"
 PACKAGE_NAME = "decision_graph"
 DISPLAY_NAME = "PyDecisionGraph"
 
@@ -65,6 +66,9 @@ def overridable_macros() -> list:
 class BuildExtWithConfig(build_ext):
     __cy_modules__ = [
         "decision_graph.decision_tree.bake",
+        "decision_graph.decision_tree.capi",
+        "decision_graph.decision_tree",
+        "decision_graph"
     ]
 
     def initialize_options(self):
@@ -100,6 +104,9 @@ class BuildExtWithConfig(build_ext):
 
         # Inject the generated includes/ mirror into build_lib so it gets packaged
         self.inject_sources()
+
+        # Expose the package to Cython's include path in this environment
+        self.inject_cython_link()
 
     @classmethod
     def collect_sources(cls) -> None:
@@ -139,6 +146,14 @@ class BuildExtWithConfig(build_ext):
 
         shutil.copytree(mirror_root, dest_root)
         print(f"[build_py] <{DISPLAY_NAME}> injected includes mirror -> {dest_root.relative_to(Path(self.build_lib))}")
+
+    def inject_cython_link(self) -> None:
+        status = _inject_cython_includes(
+            PACKAGE_NAME,
+            source=Path(REPO_ROOT) / PACKAGE_NAME,
+            editable=bool(getattr(self, "inplace", False)),
+        )
+        print(f"[build_py] <{DISPLAY_NAME}> Cython include injection: {status}")
 
     @classmethod
     def remove_pxd(cls) -> None:

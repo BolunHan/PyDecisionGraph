@@ -1,8 +1,9 @@
-__version__ = "0.3.2"
+__version__ = "0.3.2.post1"
 
 import functools
 import logging
 import os
+import pathlib
 import sys
 
 LOGGER = logging.getLogger("DecisionGraph")
@@ -20,7 +21,19 @@ from . import logic_group as logic_group  # noqa: E402
 
 
 @functools.cache
-def get_include():
-    res_dir = os.path.dirname(__file__)
+def get_include() -> list[str]:
+    res_dir = pathlib.Path(__file__).parent
     LOGGER.info(f'Building with <PyDecisionGraph> version: "{__version__}", resource directory: "{res_dir}".')
-    return res_dir
+
+    src_dirs = [
+        os.path.realpath(res_dir),
+        os.path.realpath(res_dir / 'decision_tree'),
+        os.path.realpath(res_dir / 'decision_tree' / 'bake'),
+        os.path.realpath(res_dir / 'decision_tree' / 'capi'),
+    ]
+
+    include_root = os.path.realpath(res_dir / 'includes')
+    if os.path.isdir(include_root):
+        src_dirs.append(include_root)
+
+    return src_dirs

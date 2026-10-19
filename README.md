@@ -12,12 +12,9 @@ pip install PyDecisionGraph
 
 ## Cython headers
 
-When Cython is installed in the same environment, PyDecisionGraph exposes itself
-to `cimport` by linking `decision_graph` into `Cython/Includes`. The link is
-created during the build, and on the first import for installs a build cannot
-see (wheels, isolated builds, copied trees). Set `DCG_NO_CYTHON_LINK=1` to
-disable it. `pip uninstall PyDecisionGraph` cannot remove a link it did not
-record; the next import recreates or repairs it.
+When Cython is installed in the same environment, the build links
+`decision_graph` into `Cython/Includes` through `cbase.cython_injection`, so
+downstream projects can `cimport decision_graph`.
 
 # Requirements
 

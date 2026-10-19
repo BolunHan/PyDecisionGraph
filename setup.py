@@ -106,7 +106,12 @@ class BuildExtWithConfig(build_ext):
         self.inject_sources()
 
         # Expose the package to Cython's include path in this environment
-        self.inject_cython_link()
+        status = _inject_cython_includes(
+            PACKAGE_NAME,
+            source=Path(REPO_ROOT) / PACKAGE_NAME,
+            editable=bool(getattr(self, "inplace", False)),
+        )
+        print(f"[build_py] <{DISPLAY_NAME}> Cython include injection: {status}")
 
     @classmethod
     def collect_sources(cls) -> None:
@@ -146,14 +151,6 @@ class BuildExtWithConfig(build_ext):
 
         shutil.copytree(mirror_root, dest_root)
         print(f"[build_py] <{DISPLAY_NAME}> injected includes mirror -> {dest_root.relative_to(Path(self.build_lib))}")
-
-    def inject_cython_link(self) -> None:
-        status = _inject_cython_includes(
-            PACKAGE_NAME,
-            source=Path(REPO_ROOT) / PACKAGE_NAME,
-            editable=bool(getattr(self, "inplace", False)),
-        )
-        print(f"[build_py] <{DISPLAY_NAME}> Cython include injection: {status}")
 
     @classmethod
     def remove_pxd(cls) -> None:

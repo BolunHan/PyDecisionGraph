@@ -5,10 +5,6 @@ import logging
 import os
 import sys
 
-from ._cython_link import ensure_cython_include_link as _ensure_cython_include_link
-
-_ensure_cython_include_link()
-
 LOGGER = logging.getLogger("DecisionGraph")
 LOGGER.setLevel(logging.INFO)
 
@@ -19,8 +15,8 @@ if not LOGGER.hasHandlers():
     ch.setFormatter(formatter)
     LOGGER.addHandler(ch)
 
-from . import decision_tree
-from . import logic_group
+from . import decision_tree as decision_tree  # noqa: E402
+from . import logic_group as logic_group  # noqa: E402
 
 
 @functools.cache

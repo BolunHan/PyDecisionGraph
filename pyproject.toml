@@ -40,6 +40,7 @@ Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 "decision_graph.webui.native" = ["templates/*.html", "static/*.css", "static/*.js"]
 "decision_graph.webui.bake" = ["templates/*.html", "static/*.css", "static/*.js"]
 "decision_graph" = [
+    "*.pyx", "*.pxd", "*.h", "*.c",
     "includes/**/*.h",
     "includes/**/*.c",
     "includes/**/*.cpp",

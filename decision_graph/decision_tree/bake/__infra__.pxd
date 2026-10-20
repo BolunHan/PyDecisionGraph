@@ -10,7 +10,7 @@ from .c_var cimport (
     dcg_d_matrix_t,
     dcg_var_variant,
     dcg_var_t,
-    dcg_node,
+
     c_dcg_d_vector_new,
     c_dcg_d_vector_new_child,
     c_dcg_d_vector_free,
@@ -79,20 +79,16 @@ from .c_var cimport (
     c_dcg_var_format,
     c_dcg_var_print,
     c_dcg_var_pypack,
-    c_dcg_var_pyunpack
+    c_dcg_var_pyunpack,
+
+    VarView,
 )
 
 from .c_edge cimport (
-    DCG_NODE_STRING_MAXLEN,
-    C_NO_CONDITION,
-    C_ELSE_CONDITION,
-    C_AUTO_CONDITION,
-    C_TRUE_CONDITION,
-    C_FALSE_CONDITION,
-    EDGE_REGISTRY,
     DCG_EDGE_REPR_MAXLEN,
     dcg_node_edge_type,
     dcg_node_edge_condition,
+
     c_dcg_condition_init_globals,
     c_dcg_condition_is_sentinel,
     c_dcg_condition_is_none,
@@ -110,28 +106,30 @@ from .c_edge cimport (
     c_dcg_condition_repr,
     c_dcg_condition_format,
     c_dcg_condition_print,
+
+    NodeEdgeCondition,
     ConditionAny,
     ConditionElse,
     ConditionAuto,
     BinaryCondition,
     ConditionTrue,
     ConditionFalse,
+    EdgeConditionRegistry,
+
+    C_NO_CONDITION,
+    C_ELSE_CONDITION,
+    C_AUTO_CONDITION,
+    C_TRUE_CONDITION,
+    C_FALSE_CONDITION,
     NO_CONDITION,
     ELSE_CONDITION,
     AUTO_CONDITION,
     TRUE_CONDITION,
-    FALSE_CONDITION
+    FALSE_CONDITION,
+    EDGE_REGISTRY,
 )
 
 from .c_node cimport (
-    dcg_node_ctx_ops,
-    dcg_logic_group_manager,
-    c_dcg_lgm_enter_node,
-    c_dcg_lgm_exit_node,
-    c_dcg_node_free_generic,
-    c_dcg_node_get_placeholder,
-    C_LGM,
-    NODE_REGISTRY,
     DCG_NODE_STRING_MAXLEN,
     DCG_NODE_RENDER_MAX_DEPTH,
     DCG_DEF_REPR_NOACTION,
@@ -153,6 +151,8 @@ from .c_node cimport (
     dcg_render_style,
     dcg_render_opts,
     dcg_strbuf,
+    dcg_node_ctx_ops,
+
     c_dcg_node_type_name,
     c_dcg_node_type_is_input,
     c_dcg_node_type_is_op,
@@ -184,6 +184,7 @@ from .c_node cimport (
     c_dcg_node_replace_shared,
     c_dcg_node_new_placeholder,
     c_dcg_node_consolidate_placeholder,
+    c_dcg_node_get_placeholder,
     c_dcg_node_child_count,
     c_dcg_node_first_child,
     c_dcg_node_last_child,
@@ -228,7 +229,15 @@ from .c_node cimport (
     c_dcg_node_format_line,
     c_dcg_node_render_walk,
     c_dcg_node_collect_leaves_walk,
-    c_dcg_node_collect_descendants_walk
+    c_dcg_node_collect_descendants_walk,
+
+    dcg_eval_override_flag,
+    LogicNode,
+    PlaceholderNode,
+    LogicNodeRegistry,
+
+    C_LGM,
+    NODE_REGISTRY,
 )
 
 from .c_eval cimport (
@@ -253,17 +262,13 @@ from .c_eval cimport (
     c_dcg_eval_path_outcome,
     c_dcg_eval_walk,
     c_dcg_node_eval_graph,
-    c_dcg_root_node_eval
+    c_dcg_root_node_eval,
 )
 
 from .c_const cimport (
-    dcg_logic_group,
-    dcg_logic_group_manager,
-    c_dcg_lgm_active_group,
-    c_dcg_node_var_bind,
     dcg_constant_node,
     dcg_variable_node,
-    c_dcg_node_pypack,
+
     c_dcg_node_new_const,
     c_dcg_node_free_const,
     c_dcg_node_new_const_value,
@@ -274,15 +279,21 @@ from .c_const cimport (
     c_dcg_node_const_get,
     c_dcg_node_const_set,
     c_dcg_node_new_var,
-    c_dcg_node_free_var
+    c_dcg_node_var_bind,
+    c_dcg_node_free_var,
+
+    ConstantNode,
+    VariableNode,
+    c_dcg_node_pypack,
 )
 
 from .c_expr cimport (
     DCG_EXPR_DEFAULT_ARGS,
     dcg_op_code,
-    dcg_expr_apply_fn,
     dcg_op_mask,
+    dcg_expr_apply_fn,
     dcg_expression_node,
+
     c_dcg_node_new_expr,
     c_dcg_node_free_expr,
     c_dcg_node_new_expr_unary,
@@ -336,27 +347,37 @@ from .c_expr cimport (
     c_dcg_node_expr_eval_or,
     c_dcg_node_expr_alias,
     c_dcg_node_expr_op_style,
-    c_dcg_node_expr_func_style
+    c_dcg_node_expr_func_style,
+
+    ExpressionNode,
+    UnaryExpression,
+    BinaryExpression,
+    TernaryExpression,
+    CallExpression,
 )
 
 from .c_action cimport (
-    dcg_logic_group_manager,
-    c_dcg_node_connect_new_action,
-    c_dcg_node_connect_new_action_clear,
-    c_dcg_node_connect_new_action_trade,
     dcg_action_node,
+
     c_dcg_node_new_action,
     c_dcg_node_free_action,
     c_dcg_node_new_action_trade,
     c_dcg_node_new_action_clear,
-    c_dcg_node_auto_fill
+    c_dcg_node_auto_fill,
+
+    ActionNode,
+    NoAction,
+    LongAction,
+    ShortAction,
+    CancelAction,
+    ClearAction,
 )
 
 from .c_hierarchy cimport (
-    dcg_logic_group,
     dcg_node_eval_path,
     dcg_root_node,
     dcg_breakpoint_node,
+
     c_dcg_node_new_root,
     c_dcg_node_new_breakpoint,
     c_dcg_node_ctx_enter_breakpoint,
@@ -369,19 +390,18 @@ from .c_hierarchy cimport (
     c_dcg_node_clear_children,
     c_dcg_node_clean,
 
-    NodeEvalPathView
+    NodeEvalPathView,
+    RootLogicNode,
+    BreakpointNode,
 )
 
-
 from .c_logic_group cimport (
-    dcg_node_type,
-    dcg_action_node,
-    GROUP_REGISTRY,
     DCG_LGM_DEFAULT_CAPACITY,
     dcg_logic_group_type,
     dcg_logic_group,
     dcg_lgm_state,
     dcg_logic_group_manager,
+
     c_dcg_logic_group_type_name,
     c_dcg_lgm_reserve,
     c_dcg_lgm_push_group,
@@ -418,16 +438,21 @@ from .c_logic_group cimport (
     c_dcg_node_connect_new_action_trade,
     c_dcg_node_connect_new_action_clear,
     c_dcg_node_connect_new_placeholder,
+
     LogicGroupNameRegistry,
-    LGM
+    LogicGroupManager,
+    LogicGroup,
+    LogicGroupWrapperRegistry,
+    LGM,
+    GROUP_REGISTRY,
 )
 
 from .c_collections cimport (
-    c_dcg_node_mapping_var_node_eval_hook,
     DCG_MAPPING_DEFAULT_CAPACITY,
-    c_dcg_mapping_lgroup_dealloc,
     dcg_mapping_lgroup,
+
     c_dcg_mapping_lgroup_new,
+    c_dcg_mapping_lgroup_dealloc,
     c_dcg_mapping_lgroup_free,
     c_dcg_mapping_lgroup_clear,
     c_dcg_mapping_lgroup_set,
@@ -440,13 +465,18 @@ from .c_collections cimport (
     c_dcg_mapping_lgroup_get_var_idx,
     c_dcg_mapping_lgroup_get_node,
     c_dcg_mapping_lgroup_get_slot,
-    c_dcg_mapping_lgroup_get_create_slot
+    c_dcg_mapping_lgroup_get_create_slot,
+    c_dcg_node_mapping_var_node_eval_hook,
+
+    LogicMapping,
+    AttrExpression,
 )
 
 from .c_allocator_protocol cimport (
     DCG_CFG_LOCKED,
     DCG_CFG_SHARED,
     DCG_CFG_FREELIST,
+
     ConfigContext,
     HEAP_ALLOCATOR,
     SHM_ALLOCATOR,
@@ -456,9 +486,12 @@ from .c_allocator_protocol cimport (
     DCG_SHARED,
     DCG_LOCKED,
     DCG_LOCKFREE,
-    DCG_FREELIST
+    DCG_FREELIST,
 )
+
 from .c_reconstruct cimport (
+    c_dcg_node_attach_header,
+
     c_dcg_node_reconstruct,
     c_dcg_node_reconstruct_const,
     c_dcg_node_reconstruct_variable,
@@ -477,7 +510,7 @@ from .c_reconstruct cimport (
     c_dcg_node_reconstruct_root,
     c_dcg_node_reconstruct_breakpoint,
     c_dcg_node_reconstruct_from_address,
-    c_dcg_node_root_from_address
+    c_dcg_node_root_from_address,
 )
 
 from .c_bake cimport (
@@ -498,5 +531,5 @@ from .c_bake cimport (
     c_dcg_root_node_bake,
 
     BakeReport,
-    c_dcg_bake_root
+    c_dcg_bake_root,
 )

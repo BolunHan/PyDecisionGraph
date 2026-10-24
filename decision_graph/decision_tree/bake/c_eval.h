@@ -408,7 +408,11 @@ static inline int c_dcg_node_eval_default(dcg_node* node) {
             break;
     }
 
-    (void) fprintf(stderr, "c_dcg_node_eval_default: no evaluation for node type %s (0x%04x) at %p\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+    (void) fprintf(
+        stderr,
+        "[DCG] c_dcg_node_eval_default: node %p has type %s (0x%04x) with no evaluation rule - returning DCG_ERR_TYPE\n",
+        (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype
+    );
     return DCG_ERR_TYPE;
 }
 

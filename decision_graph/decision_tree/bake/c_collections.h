@@ -429,8 +429,10 @@ static inline int c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgrou
 #if DCG_VIGILANT
         if (lgroup->slots[slot_index].dtype != *var_type) {
             (void) fprintf(
-                stderr, "[DCG] c_dcg_mapping_lgroup_get_create_slot: entry \"%.*s\" is %s, not the %s the caller named - the entry keeps what it holds\n", (int) key_len,
-                key, c_dcg_var_type_name(lgroup->slots[slot_index].dtype), c_dcg_var_type_name(*var_type)
+                stderr,
+                "[DCG] c_dcg_mapping_lgroup_get_create_slot: entry \"%.*s\" already holds %s, but the caller declared %s - the slot keeps %s\n",
+                (int) key_len, key, c_dcg_var_type_name(lgroup->slots[slot_index].dtype), c_dcg_var_type_name(*var_type),
+                c_dcg_var_type_name(lgroup->slots[slot_index].dtype)
             );
             (void) fflush(stderr);
         }
@@ -474,8 +476,9 @@ static inline int c_dcg_mapping_lgroup_set(dcg_mapping_lgroup* lgroup, const cha
     if (slot->dtype != VAR_TYPE_RESERVED && c_dcg_var_ref_base(slot->dtype) != c_dcg_var_ref_base(value->dtype)) {
 #if DCG_VIGILANT
         (void) fprintf(
-            stderr, "[DCG] c_dcg_mapping_lgroup_set: entry \"%.*s\" holds a %s; a %s is not what it is - the entry keeps what it holds\n", (int) key_len, key,
-            c_dcg_var_type_name(slot->dtype), c_dcg_var_type_name(value->dtype)
+            stderr,
+            "[DCG] c_dcg_mapping_lgroup_set: cannot store %s in entry \"%.*s\": it already holds %s (DCG_MAPPING_IMMUTABLE_DTYPE) - the entry is unchanged\n",
+            c_dcg_var_type_name(value->dtype), (int) key_len, key, c_dcg_var_type_name(slot->dtype)
         );
         (void) fflush(stderr);
 #endif
@@ -534,8 +537,9 @@ static inline int c_dcg_mapping_lgroup_set_ref(dcg_mapping_lgroup* lgroup, const
     if (slot->dtype != VAR_TYPE_RESERVED && c_dcg_var_ref_base(slot->dtype) != c_dcg_var_ref_base(value->dtype)) {
 #if DCG_VIGILANT
         (void) fprintf(
-            stderr, "[DCG] c_dcg_mapping_lgroup_set_ref: entry \"%.*s\" holds a %s; a %s is not what it is - the entry keeps what it holds\n", (int) key_len, key,
-            c_dcg_var_type_name(slot->dtype), c_dcg_var_type_name(value->dtype)
+            stderr,
+            "[DCG] c_dcg_mapping_lgroup_set_ref: cannot point entry \"%.*s\" at %s: it already holds %s (DCG_MAPPING_IMMUTABLE_DTYPE) - the entry is unchanged\n",
+            (int) key_len, key, c_dcg_var_type_name(value->dtype), c_dcg_var_type_name(slot->dtype)
         );
         (void) fflush(stderr);
 #endif

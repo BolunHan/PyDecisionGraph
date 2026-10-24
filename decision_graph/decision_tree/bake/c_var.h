@@ -1483,7 +1483,7 @@ static inline bool c_dcg_var_equals(const dcg_var_t* lhs, const dcg_var_t* rhs) 
  */
 static inline void c_dcg_var_vigilant_abort(const char* getter, dcg_var_type dtype, const char* what) {
 #if DCG_VIGILANT
-    (void) fprintf(stderr, "[DCG] %s: %s (tag %s) - invalid access\n", getter, what, c_dcg_var_type_name(dtype));
+    (void) fprintf(stderr, "[DCG] %s: %s (tag %s) - invalid access, aborting\n", getter, what, c_dcg_var_type_name(dtype));
     (void) fflush(stderr);
     abort();
 #else

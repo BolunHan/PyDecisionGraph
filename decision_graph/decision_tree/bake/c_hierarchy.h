@@ -517,7 +517,11 @@ static inline void c_dcg_node_free_generic(dcg_node* node) {
      * the type is one this dispatcher cannot take apart. Say so: a node like
      * that is a bug in whoever built it, and the message is the only trace the
      * caller gets. */
-    (void) fprintf(stderr, "c_dcg_node_free_generic: no free for node type %s (0x%04x) at %p - releasing the base only\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+    (void) fprintf(
+        stderr,
+        "[DCG] c_dcg_node_free_generic: node %p has type %s (0x%04x) with no type-specific free - releasing the base block only\n",
+        (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype
+    );
     c_dcg_node_free(node);
 }
 

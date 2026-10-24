@@ -415,7 +415,7 @@ static inline bool                           c_dcg_node_type_is_action(dcg_node_
 static inline bool                           c_dcg_node_type_is_special(dcg_node_type ntype);
 static inline size_t                         c_dcg_node_type_arity(dcg_node_type ntype);
 static inline uint64_t                       c_dcg_node_gen_seq_id(const void* ptr);
-static inline void                           c_dcg_node_unlink(dcg_node* node);
+static inline int                            c_dcg_node_unlink(dcg_node* node);
 static inline void                           c_dcg_node_adopt_condition(dcg_node* node, const dcg_node_edge_condition* condition);
 
 // Lifecycle
@@ -444,12 +444,15 @@ static inline int                            c_dcg_node_append(dcg_node* parent,
 static inline int                            c_dcg_node_append_auto(dcg_node* parent, dcg_node* child);
 static inline int                            c_dcg_node_append_at(dcg_node* parent, dcg_node* child, const dcg_node_edge_condition* condition, size_t index);
 static inline int                            c_dcg_node_append_at_binary(dcg_node* parent, dcg_node* child, bool condition, size_t index);
-static inline int                            c_dcg_node_detach(dcg_node* node);
 static inline int                            c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node);
 static inline int                            c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node);
 static inline dcg_node*                      c_dcg_node_new_placeholder(allocator_protocol* allocator);
 static inline size_t                         c_dcg_node_consolidate_placeholder(dcg_node* node);
 static inline dcg_node*                      c_dcg_node_get_placeholder(dcg_node* node);
+
+struct dcg_action_node;
+static inline struct dcg_action_node*        c_dcg_node_new_action(dcg_node_type action_type, const char* repr, ssize_t sig, void* action_data, allocator_protocol* allocator);
+static inline void                           c_dcg_node_free_action(struct dcg_action_node* node);
 
 // Queries
 static inline size_t                         c_dcg_node_child_count(const dcg_node* node);
@@ -787,18 +790,22 @@ static inline void c_dcg_sb_printf(dcg_strbuf* buf, const char* fmt, ...) {
 }
 
 /**
- * @brief Unlink a node from its parent's child list, without any policy check.
+ * @brief Unlink a node from its parent, keeping its own subtree intact.
  *
- * Shared by the detach API and by teardown: a node being torn down must
- * leave the parent's list even when the parent is FROZEN, otherwise the
- * parent would keep a dangling pointer.
+ * The public removal. The node keeps its subtree but loses its edge: the
+ * condition falls back to NO_CONDITION, exactly as a displaced node ends up
+ * in the capi. A FROZEN parent refuses, and the parent is told with
+ * CHILD_REMOVED.
  *
  * @param node  Node to unlink (NULL-safe: a parentless node is a no-op).
+ * @return DCG_OK, or DCG_ERR_BUSY when the parent is FROZEN.
  */
-static inline void c_dcg_node_unlink(dcg_node* node) {
-    if (!node || !node->parent) return;
+static inline int c_dcg_node_unlink(dcg_node* node) {
+    if (!node || !node->parent) return DCG_OK;
 
     dcg_node* parent = node->parent;
+    if (parent->flags & DCG_NODE_FLAG_FROZEN) return DCG_ERR_BUSY;
+
     if (node->prev_sibling) node->prev_sibling->next_sibling = node->next_sibling;
     else parent->children = node->next_sibling;
     if (node->next_sibling) node->next_sibling->prev_sibling = node->prev_sibling;
@@ -807,6 +814,9 @@ static inline void c_dcg_node_unlink(dcg_node* node) {
     node->next_sibling        = NULL;
     node->prev_sibling        = NULL;
     node->condition_to_parent = DCG_NO_CONDITION;
+
+    c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_REMOVED, node, (uint64_t) -1);
+    return DCG_OK;
 }
 
 /**
@@ -1038,8 +1048,8 @@ static inline dcg_node* c_dcg_node_new(dcg_node_type ntype, const char* repr, al
  *
  * Releases what the BASE owns: the labels and their text, the callback
  * contexts, the repr, a string out and an adopted condition. The node is then
- * unlinked from its parent and its children are let go - each one is unlinked
- * (c_dcg_node_unlink), so it survives as a parentless fragment. A node owns
+ * taken out of its parent's list and its children are let go - each one is
+ * taken out too, so it survives as a parentless fragment. A node owns
  * its block, not its graph: the subtree below it is c_dcg_node_teardown_root's
  * business, and the payload a family adds after the header is that family's
  * own _free (see c_dcg_node_free_generic).
@@ -1058,17 +1068,39 @@ static inline void c_dcg_node_dealloc(dcg_node* node) {
         c_ap_free_owned((void*) node->condition_to_parent);
     }
 
-    // Unlink from the parent first: a teardown must never leave a dangling
-    // link behind in the parent's child list. This deliberately bypasses the
-    // FROZEN guard - a frozen parent must not be able to pin a dead child.
+    // Out of the parent first: a teardown must never leave a dangling link
+    // behind in the parent's child list. The list surgery is written out here
+    // because a teardown cannot run the public unlink: a frozen parent must
+    // not be able to pin a dead child. The FORMER parent is still told,
+    // because it is alive and its list changed.
     dcg_node* parent = node->parent;
-    c_dcg_node_unlink(node);
-    if (parent) c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_REMOVED, node, (uint64_t) -1);
+    if (parent) {
+        if (node->prev_sibling) node->prev_sibling->next_sibling = node->next_sibling;
+        else parent->children = node->next_sibling;
+        if (node->next_sibling) node->next_sibling->prev_sibling = node->prev_sibling;
+
+        node->parent       = NULL;
+        node->next_sibling = NULL;
+        node->prev_sibling = NULL;
+        c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_REMOVED, node, (uint64_t) -1);
+    }
+    node->condition_to_parent = DCG_NO_CONDITION;
 
     // The children are blocks of their own: they are let go, not freed, and
-    // each keeps its own subtree. Unlinking pops one child per round, so the
-    // list we are walking is the one being emptied.
-    while (node->children) c_dcg_node_unlink(node->children);
+    // each keeps its own subtree. The head leaves the list per round, so the
+    // list we are walking is the one being emptied. Silent: their parent is
+    // dying, and an event about it would hand a callback a node on its way out.
+    while (node->children) {
+        dcg_node* child = node->children;
+
+        node->children = child->next_sibling;
+        if (child->next_sibling) child->next_sibling->prev_sibling = NULL;
+
+        child->parent              = NULL;
+        child->next_sibling        = NULL;
+        child->prev_sibling        = NULL;
+        child->condition_to_parent = DCG_NO_CONDITION;
+    }
 
     // Labels are nested blocks, and each entry's text is nested under the
     // entry: one free per entry releases the pair.
@@ -1193,7 +1225,11 @@ static inline int c_dcg_node_register_eval_hook(dcg_node* node, dcg_node_hook_ty
             slot = &node->eval_ctx.post_eval_fn;
             break;
         default:
-            (void) fprintf(stderr, "c_dcg_node_register_eval_hook: no hook %d on node type %s (0x%04x) at %p - nothing registered\n", (int) hook, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+            (void) fprintf(
+                stderr,
+                "[DCG] c_dcg_node_register_eval_hook: node %p (%s, type 0x%04x): hook %d is not DCG_HOOK_PRE_EVAL, DCG_HOOK_EVAL or DCG_HOOK_POST_EVAL - no hook was registered\n",
+                (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (int) hook
+            );
             return DCG_ERR_INVALID_ARG;
     }
 
@@ -1383,6 +1419,10 @@ static inline const dcg_node_edge_condition* c_dcg_node_infer_condition(const dc
  * children dict by condition, so a duplicate edge is a build error there
  * and here alike.
  *
+ * The parent is notified with CHILD_ADDED: a link is a child joining a list,
+ * and that is the one thing this function means. A slot changing occupant is
+ * a different operation, and c_dcg_node_replace() owns it.
+ *
  * @param parent     Parent to link into.
  * @param child      Child to link (must be parentless).
  * @param condition  Requested edge condition (never NULL).
@@ -1515,34 +1555,22 @@ static inline int c_dcg_node_append_at_binary(dcg_node* parent, dcg_node* child,
 }
 
 /**
- * @brief Unlink a node from its parent, keeping its own subtree intact.
- *
- * The node keeps its subtree but loses its edge: the condition falls back
- * to NO_CONDITION, exactly as a displaced node ends up in the capi.
- *
- * @param node  Node to unlink (NULL-safe: a parentless node is a no-op).
- * @return DCG_OK, or DCG_ERR_BUSY when the parent is FROZEN.
- */
-static inline int c_dcg_node_detach(dcg_node* node) {
-    if (!node || !node->parent) return DCG_OK;
-    if (node->parent->flags & DCG_NODE_FLAG_FROZEN) return DCG_ERR_BUSY;
-
-    dcg_node* parent = node->parent;
-    c_dcg_node_unlink(node);
-    c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_REMOVED, node, (uint64_t) -1);
-    return DCG_OK;
-}
-
-/**
  * @brief Put a node into the slot of another one, inheriting its edge.
  *
  * The replacement takes over the old node's position and condition; the old
  * node is detached but NOT freed (its subtree stays alive), so the caller
  * decides what happens to it.
  *
+ * The surgery is written out here, not done as an unlink followed by a link,
+ * because both of those announce what they did - a removal and an addition -
+ * and this operation is neither. It is one slot changing occupant: the child
+ * list neither gains nor loses an entry, the sibling links and the edge stay
+ * where they are, and the parent hears ONE CHILD_UPDATED.
+ *
  * @param old_node  Node currently in the graph.
  * @param new_node  Node to put in its place (must be parentless).
- * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_BUSY or DCG_ERR_CYCLE.
+ * @return DCG_OK, DCG_ERR_INVALID_ARG, DCG_ERR_BUSY, DCG_ERR_CYCLE or
+ *         DCG_ERR_DUPLICATE.
  */
 static inline int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) {
     if (!old_node || !new_node) return DCG_ERR_INVALID_ARG;
@@ -1553,17 +1581,53 @@ static inline int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) {
     dcg_node* parent = old_node->parent;
     if (!parent) return DCG_ERR_INVALID_ARG;
 
+    // Every admission rule runs BEFORE the list is touched: a refusal after
+    // it would leave the arm empty.
+    if (parent == new_node) return DCG_ERR_CYCLE;
+    if (parent->flags & DCG_NODE_FLAG_FROZEN) return DCG_ERR_BUSY;
+    if (c_dcg_node_is_ancestor(new_node, parent)) return DCG_ERR_CYCLE;
+
     const dcg_node_edge_condition* condition = old_node->condition_to_parent;
-    dcg_node*                      anchor    = old_node->next_sibling;
 
-    int                            ret = c_dcg_node_detach(old_node);
-    if (ret != DCG_OK) return ret;
+    // One edge per condition. The displaced node is the one holding this
+    // edge; any other holder means the list is already corrupt.
+    dcg_node* holder = c_dcg_node_child_by_condition(parent, condition);
+    if (holder && holder != old_node) return DCG_ERR_DUPLICATE;
 
-    // The slot is reused as-is, so the else-ordering rule cannot be violated
-    // here: link straight into the anchor instead of going through append_at.
-    // link() adopts the condition onto the replacement, so an owned condition
-    // travels with the edge instead of dying with the displaced node.
-    return c_dcg_node_link(parent, new_node, condition, anchor);
+    // The slot is defined by the neighbours the old node stands between, and
+    // they are read BEFORE it leaves. The replacement puts the new node back
+    // between the same two: nothing is derived again, and no position is
+    // searched for.
+    dcg_node* prev = old_node->prev_sibling;
+    dcg_node* next = old_node->next_sibling;
+
+    // Out: the displaced node leaves the list without a word.
+    if (prev) prev->next_sibling = next;
+    else parent->children = next;
+    if (next) next->prev_sibling = prev;
+
+    old_node->parent              = NULL;
+    old_node->next_sibling        = NULL;
+    old_node->prev_sibling        = NULL;
+    old_node->condition_to_parent = DCG_NO_CONDITION;
+
+    // In: the new node takes that place. The edge and its condition are the
+    // slot's, not the displaced node's, so the else-ordering rule cannot be
+    // violated and the inherited condition is already resolved. The adoption
+    // is what keeps an owned condition alive with its new node instead of
+    // dying with the displaced one.
+    new_node->parent              = parent;
+    new_node->condition_to_parent = condition;
+    c_dcg_node_adopt_condition(new_node, condition);
+
+    new_node->prev_sibling = prev;
+    new_node->next_sibling = next;
+    if (prev) prev->next_sibling = new_node;
+    else parent->children = new_node;
+    if (next) next->prev_sibling = new_node;
+
+    c_dcg_node_invoke_callbacks(parent, DCG_NODE_EVENT_CHILD_UPDATED, new_node, (uint64_t) -1);
+    return DCG_OK;
 }
 
 /**
@@ -1612,7 +1676,7 @@ static inline int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_no
      */
     new_node->parent = NULL;
 
-    int ret = c_dcg_node_detach(old_node);
+    int ret = c_dcg_node_unlink(old_node);
     if (ret != DCG_OK) return ret;
 
     return c_dcg_node_append(parent, new_node, condition);
@@ -1628,7 +1692,9 @@ static inline int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_no
  *
  * The opening half of the placeholder discipline: a branch reserves its slot
  * with this and fills it later, and whatever is still a placeholder when the
- * graph closes is retired by c_dcg_node_consolidate_placeholder below.
+ * graph closes is replaced by a real no-action - see
+ * c_dcg_node_consolidate_placeholder, which builds that no-action through the
+ * action family's forward-declared constructor.
  *
  * @param allocator  Allocator for the block; NULL falls back to the plain heap.
  * @return The node, or NULL on OOM.
@@ -1652,22 +1718,34 @@ static inline dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator
 /**
  * @brief Turn every placeholder of a subtree into an auto-generated no-action.
  *
- * The closing half of the placeholder discipline: the builder reserves a
- * branch with a placeholder and fills it later, so whatever is STILL a
- * placeholder when the graph closes becomes a NoAction leaf - a baked graph
- * never contains a placeholder.
+ * The closing half of the placeholder discipline: the builder reserves a branch
+ * with a placeholder and fills it later, so whatever is STILL a placeholder when
+ * the graph closes becomes a NoAction leaf - a baked graph never contains a
+ * placeholder.
  *
- * The conversion happens in place: the node keeps its slot, its edge, its
- * labels, its hooks and whatever subtree it grew, and only its type and its
- * display text change (reported as a MODIFIED mutation). The retitle is the
- * one step that allocates, so a node whose new text cannot be had keeps the
- * text it had and says so on stderr; the type has already flipped either way,
- * which is the structural half. A placeholder that was left holding children
- * keeps them - and validation will say so, which is the honest report of a
- * builder that never filled the slot properly.
+ * The stand-in is REPLACED, not retyped. A placeholder is a plain node block,
+ * and a block that says NOACTION without the action family's fields is one every
+ * consumer that reads a leaf as the action it claims to be - the signal, the
+ * payload - reads past the end of. So the no-action is allocated through the
+ * action family's own constructor: that family is c_action.h, which includes
+ * this header, so its block is named above as an incomplete type and the two
+ * entries this pass uses are forward-declared there.
  *
- * The walk is depth-first over the whole subtree and idempotent, so it can
- * be called once at the root or at every level like the capi does.
+ * The no-action takes the stand-in's SLOT - same parent, same edge, same place
+ * in the child list - and the stand-in is released. The slot is taken without
+ * the parent hearing the stand-in leave and only hearing the no-action arrive,
+ * which is what keeps the arm where it was for a wrapper layer too: a removal
+ * followed by an addition moves the arm to the end of what that layer holds.
+ * The stand-in's release needs no announcement of its own: it is a block free
+ * like any other, and the allocator's FREE pass is what tells a wrapper that
+ * still names it (see the CCP binding in c_node.pyx).
+ *
+ * A placeholder that was left holding children keeps them - they are moved onto
+ * the no-action in order and with their edges - and validation reports the
+ * builder that left it, which is the honest report of a slot never filled.
+ *
+ * The walk is depth-first over the whole subtree and idempotent, so it can be
+ * called once at the root or at every level like the capi does.
  *
  * @param node  Subtree to consolidate (NULL-safe).
  * @return Number of placeholders converted.
@@ -1675,26 +1753,139 @@ static inline dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator
 static inline size_t c_dcg_node_consolidate_placeholder(dcg_node* node) {
     if (!node) return 0;
 
-    size_t replaced = 0;
-    for (dcg_node* child = node->children; child; child = child->next_sibling) {
+    size_t    replaced = 0;
+    dcg_node* child    = node->children;
+
+    while (child) {
+        /* The replacement takes the node this loop is holding out of the list,
+         * so the next sibling is read BEFORE the slot is taken. */
+        dcg_node* next = child->next_sibling;
+
         replaced += c_dcg_node_consolidate_placeholder(child);
 
         if (child->ntype == DCG_NODE_PLACEHOLDER) {
-            child->ntype   = DCG_NODE_NOACTION;
-            child->autogen = true;
-            if (c_dcg_node_set_repr(child, DCG_DEF_REPR_NOACTION) != DCG_OK) {
-                (void) fprintf(stderr, "c_dcg_node_consolidate_placeholder: no text for the no-action at %p - keeping \"%s\"\n", (void*) child, child->repr ? child->repr : "");
+            /* A frozen parent pins what is under it, and the arm cannot be
+             * taken from it: the stand-in stays and validation says so. Checked
+             * before the list is touched, since a refusal after it would lose
+             * the arm. */
+            if (node->flags & DCG_NODE_FLAG_FROZEN) {
+                (void) fprintf(
+                    stderr,
+                    "[DCG] c_dcg_node_consolidate_placeholder: cannot replace placeholder %p: its parent %p is frozen (DCG_NODE_FLAG_FROZEN) - the placeholder stays\n",
+                    (void*) child, (void*) node
+                );
+                child = next;
+                continue;
             }
-            /* The conversion is a change to the PARENT's child, so the parent is
-             * told: the edge still holds a node, but it is no longer a
-             * placeholder, and a wrapper of the parent has to rebuild it as what
-             * it now is. The converted node cannot carry that news itself - a
-             * node the C layer grew has no wrapper and no callback to hear a
-             * MODIFIED. */
-            c_dcg_node_invoke_callbacks(node, DCG_NODE_EVENT_CHILD_UPDATED, child, (uint64_t) -1);
-            c_dcg_node_invoke_callbacks(child, DCG_NODE_EVENT_MODIFIED, child, (uint64_t) -1);
+
+            struct dcg_action_node* no_action = c_dcg_node_new_action(DCG_NODE_NOACTION, DCG_DEF_REPR_NOACTION, 0, NULL, c_ap_protocol_from_ptr(node));
+            if (!no_action) {
+                (void) fprintf(
+                    stderr,
+                    "[DCG] c_dcg_node_consolidate_placeholder: c_dcg_node_new_action(DCG_NODE_NOACTION) returned NULL for placeholder %p (out of memory) - the placeholder stays\n",
+                    (void*) child
+                );
+                child = next;
+                continue;
+            }
+
+            /* The family's block starts with the common header, so the node
+             * side of it is reached by the cast - and that is the pointer the
+             * tree and the wrappers handle from here on. */
+            dcg_node* replacement = (dcg_node*) no_action;
+            replacement->autogen  = true;
+
+            const dcg_node_edge_condition* condition = child->condition_to_parent;
+            dcg_node*                      anchor    = child->next_sibling;
+
+            /* The arm is the same arm: only its occupant changes. Taking the
+             * stand-in out of the list here - written out, because the public
+             * unlink would announce a removal the graph must not hear - and
+             * linking into the same place keeps the slot where it was, both in
+             * the child list and in whatever the parent's wrapper layer holds:
+             * a removal and an addition would move it to the end there. */
+            if (child->prev_sibling) child->prev_sibling->next_sibling = child->next_sibling;
+            else node->children = child->next_sibling;
+            if (child->next_sibling) child->next_sibling->prev_sibling = child->prev_sibling;
+
+            child->parent              = NULL;
+            child->next_sibling        = NULL;
+            child->prev_sibling        = NULL;
+            child->condition_to_parent = DCG_NO_CONDITION;
+
+            int ret = c_dcg_node_link(node, replacement, condition, anchor);
+            if (ret != DCG_OK) {
+                /* A refused link must not cost the arm: the stand-in goes back
+                 * where it was, and stays a stand-in for the next pass. */
+                int restored = c_dcg_node_link(node, child, condition, anchor);
+                c_dcg_node_free_action(no_action);
+                if (restored != DCG_OK) {
+                    (void) fprintf(
+                        stderr,
+                        "[DCG] c_dcg_node_consolidate_placeholder: c_dcg_node_link(parent %p, no-action) failed with %s (%d); restoring placeholder %p failed with %s (%d) - the placeholder is detached\n",
+                        (void*) node, c_dcg_ret_code_name((dcg_ret_code) ret), ret, (void*) child, c_dcg_ret_code_name((dcg_ret_code) restored), restored
+                    );
+                }
+                else {
+                    (void) fprintf(
+                        stderr,
+                        "[DCG] c_dcg_node_consolidate_placeholder: c_dcg_node_link(parent %p, no-action) failed with %s (%d) - the no-action was freed and placeholder %p stays\n",
+                        (void*) node, c_dcg_ret_code_name((dcg_ret_code) ret), ret, (void*) child
+                    );
+                }
+                child = next;
+                continue;
+            }
+
+            /* Whatever the stand-in grew was built UNDER the slot rather than
+             * in place of it; it belongs to the slot, so it moves across in the
+             * order and with the edges it had. The link is what a wrapper of the
+             * no-action hears, so its children are the ones it now holds. */
+            dcg_node* adopted = child->children;
+            while (adopted) {
+                dcg_node*                      following  = adopted->next_sibling;
+                const dcg_node_edge_condition* edge_under = adopted->condition_to_parent;
+
+                /* Out of the stand-in's list, written out for the same reason:
+                 * the child is moving to the no-action, not leaving the arm. */
+                if (adopted->prev_sibling) adopted->prev_sibling->next_sibling = adopted->next_sibling;
+                else child->children = adopted->next_sibling;
+                if (adopted->next_sibling) adopted->next_sibling->prev_sibling = adopted->prev_sibling;
+
+                adopted->parent              = NULL;
+                adopted->next_sibling        = NULL;
+                adopted->prev_sibling        = NULL;
+                adopted->condition_to_parent = DCG_NO_CONDITION;
+
+                ret = c_dcg_node_link(replacement, adopted, edge_under, NULL);
+                if (ret != DCG_OK) {
+                    (void) fprintf(
+                        stderr,
+                        "[DCG] c_dcg_node_consolidate_placeholder: c_dcg_node_link(no-action %p, child %p) failed with %s (%d) - the child is detached from the graph and not freed\n",
+                        (void*) replacement, (void*) adopted, c_dcg_ret_code_name((dcg_ret_code) ret), ret
+                    );
+                }
+                adopted = following;
+            }
+
+            /* Labels are the slot's, not the stand-in's: they are nested blocks
+             * of whatever carries them, so the list is re-parented rather than
+             * copied - text, order and all - and the entry's own text follows
+             * its entry. The hooks are NOT carried: they are the wrapper's,
+             * bound to the wrapper that stood for the stand-in, and the
+             * no-action gets its own when it is wrapped. */
+            if (child->labels) {
+                for (dcg_node_label* label = child->labels; label; label = label->next) {
+                    c_ap_acquire_ownership(label, replacement);
+                }
+                replacement->labels = child->labels;
+                child->labels       = NULL;
+            }
+
+            c_dcg_node_free(child); /* displaced: the slot is the no-action's now */
             replaced++;
         }
+        child = next;
     }
     return replaced;
 }

@@ -1032,7 +1032,11 @@ static inline int c_dcg_node_expr_eval_refuse(dcg_node* node, void* user_data) {
 static inline int c_dcg_node_expr_eval_unknown(dcg_node* node, void* user_data) {
     (void) user_data;
 
-    (void) fprintf(stderr, "c_dcg_node_expr_eval_unknown: no arity to evaluate operator node type %s (0x%04x) at %p by\n", c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, (const void*) node);
+    (void) fprintf(
+        stderr,
+        "[DCG] c_dcg_node_expr_eval_unknown: node %p has operator type %s (0x%04x), a family head with no arity - no evaluation rule applies (returning DCG_ERR_TYPE)\n",
+        (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype
+    );
     return DCG_ERR_TYPE;
 }
 
@@ -1078,7 +1082,11 @@ static inline int c_dcg_node_expr_eval_ternary(dcg_node* node, void* user_data) 
 static inline int c_dcg_node_expr_eval_call(dcg_node* node, void* user_data) {
     (void) user_data;
 
-    (void) fprintf(stderr, "c_dcg_node_expr_eval_call: a call node at %p has no evaluation: its callee is composed into its repr and stored nowhere\n", (const void*) node);
+    (void) fprintf(
+        stderr,
+        "[DCG] c_dcg_node_expr_eval_call: call node %p cannot be evaluated: its callee is composed into its repr \"%s\" and no callable is stored (returning DCG_ERR_TYPE)\n",
+        (const void*) node, node->repr ? node->repr : ""
+    );
     return DCG_ERR_TYPE;
 }
 

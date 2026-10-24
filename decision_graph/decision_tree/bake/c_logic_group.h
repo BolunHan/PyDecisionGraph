@@ -621,8 +621,9 @@ static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* n
     int ret = node->ctx_ops.enter_fn(node, mgr);
     if (ret != DCG_OK) {
         (void) fprintf(
-            stderr, "c_dcg_lgm_enter_node: the context enter of type %d failed with err code: %d\n",
-            (int) node->ntype, ret
+            stderr,
+            "[DCG] c_dcg_lgm_enter_node: node %p (%s, type 0x%04x): ctx_ops.enter_fn failed with %s (%d) - the node was not entered\n",
+            (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, c_dcg_ret_code_name((dcg_ret_code) ret), ret
         );
         return ret;
     }
@@ -669,7 +670,11 @@ static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* n
         ret = adopted ? c_dcg_node_replace_shared(placeholder, node) : c_dcg_node_replace(placeholder, node);
         if (ret != DCG_OK) return ret;
 
-        c_dcg_node_free_generic(placeholder); /* displaced: the slot is the new node's now */
+        /* Displaced: the slot is the new node's now. The block is released
+         * here rather than by whichever wrapper may still name it, and the
+         * allocator's own FREE pass is what tells that wrapper - see the CCP
+         * binding in c_node.pyx. */
+        c_dcg_node_free_generic(placeholder);
     }
 
     ret = c_dcg_lgm_push_node(mgr, node);
@@ -685,7 +690,11 @@ static inline int c_dcg_lgm_enter_node(dcg_logic_group_manager* mgr, dcg_node* n
     if (node->ntype == DCG_NODE_ROOT) {
         ret = c_dcg_node_root_ctx_shelve((dcg_root_node*) node, mgr);
         if (ret != DCG_OK) {
-            (void) fprintf(stderr, "c_dcg_lgm_enter_node: shelving for the root failed with err code: %d\n", ret);
+            (void) fprintf(
+                stderr,
+                "[DCG] c_dcg_lgm_enter_node: c_dcg_node_root_ctx_shelve(root %p) failed with %s (%d) - the root was pushed but its context was not shelved\n",
+                (const void*) node, c_dcg_ret_code_name((dcg_ret_code) ret), ret
+            );
             return ret;
         }
         ret = c_dcg_lgm_push_node(mgr, node);
@@ -766,8 +775,9 @@ static inline int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* no
     int ret = node->ctx_ops.exit_fn(node, mgr);
     if (ret != DCG_OK) {
         (void) fprintf(
-            stderr, "c_dcg_lgm_exit_node: the context exit of type %d failed with err code: %d\n",
-            (int) node->ntype, ret
+            stderr,
+            "[DCG] c_dcg_lgm_exit_node: node %p (%s, type 0x%04x): ctx_ops.exit_fn failed with %s (%d) - the node stays open\n",
+            (const void*) node, c_dcg_node_type_name(node->ntype), (unsigned) node->ntype, c_dcg_ret_code_name((dcg_ret_code) ret), ret
         );
         return ret;
     }
@@ -783,7 +793,11 @@ static inline int c_dcg_lgm_exit_node(dcg_logic_group_manager* mgr, dcg_node* no
     if (node->ntype == DCG_NODE_ROOT) {
         ret = c_dcg_node_root_ctx_unshelve((dcg_root_node*) node, mgr);
         if (ret != DCG_OK) {
-            (void) fprintf(stderr, "c_dcg_lgm_exit_node: unshelving for the root failed with err code: %d\n", ret);
+            (void) fprintf(
+                stderr,
+                "[DCG] c_dcg_lgm_exit_node: c_dcg_node_root_ctx_unshelve(root %p) failed with %s (%d) - the root was popped but the outer build was not restored\n",
+                (const void*) node, c_dcg_ret_code_name((dcg_ret_code) ret), ret
+            );
             return ret;
         }
         if (mgr->n_nodes && mgr->nodes[mgr->n_nodes - 1] == node) mgr->n_nodes--;
@@ -870,7 +884,10 @@ static inline int c_dcg_lgm_install_breakpoint(dcg_logic_group_manager* mgr, dcg
     int ret = c_dcg_node_replace(placeholder, &breakpoint->base);
     if (ret != DCG_OK) return ret;
 
-    c_dcg_node_free_generic(placeholder); /* displaced: the slot is the breakpoint's now */
+    /* Displaced: the slot is the breakpoint's now, and the stand-in is released
+     * for the same reason as in c_dcg_lgm_enter_node - the allocator's FREE
+     * pass carries the news to any wrapper that still names the block. */
+    c_dcg_node_free_generic(placeholder);
 
     (void) c_dcg_lgm_push_breakpoint(mgr, breakpoint); /* the room is taken above, so this cannot fail */
     return DCG_OK;
@@ -1130,7 +1147,15 @@ static inline int c_dcg_node_auto_connect(dcg_node* node, dcg_logic_group_manage
     dcg_node* placeholder = c_dcg_node_get_placeholder(active);
     if (!placeholder) return DCG_ERR_OOM;
 
-    return c_dcg_node_replace(placeholder, node);
+    int ret = c_dcg_node_replace(placeholder, node);
+    if (ret != DCG_OK) return ret;
+
+    /* The arm was the active node's, so the stand-in it reserved is this
+     * call's to release - the same hand-off c_dcg_lgm_enter_node and
+     * c_dcg_lgm_install_breakpoint make. A wrapper that still names the block
+     * learns it is gone from the allocator's FREE pass (see c_node.pyx). */
+    c_dcg_node_free_generic(placeholder);
+    return DCG_OK;
 }
 
 /**

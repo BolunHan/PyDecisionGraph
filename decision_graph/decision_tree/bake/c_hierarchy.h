@@ -308,7 +308,7 @@ static inline int c_dcg_node_resolve_breakpoint(dcg_node* node) {
      * the false arm and swap the two around. Detaching first keeps the slot: the
      * branch goes on meaning what it meant.
      */
-    int                            ret = c_dcg_node_detach(continuation);
+    int                            ret = c_dcg_node_unlink(continuation);
     if (ret != DCG_OK) return ret;
 
     ret = c_dcg_node_replace(node, continuation);
@@ -596,11 +596,31 @@ static inline int c_dcg_node_teardown_root(dcg_node* node) {
      * is already gone - which a back edge, or a child two parents reach, would
      * otherwise make possible.
      *
-     * Two passes, in this order: an unlink hands the removed node's NEXT
-     * sibling to the parent's child list, so a list can gain an entry while the
-     * unwiring runs - and it must be dropped after, not before, that happens.
-     * Once both passes are done, every node of the record is a lone block. */
-    for (size_t i = 0; i < count; i++) c_dcg_node_unlink(order[i]);
+     * Two passes, in this order: taking a node out hands its NEXT sibling to
+     * the parent's child list, so a list can gain an entry while the pass runs
+     * - and it must be dropped after, not before, that happens. Once both
+     * passes are done, every node of the record is a lone block.
+     *
+     * The list surgery is written out here, not delegated to the public
+     * unlink: this pass must not run the FROZEN policy (a baked graph is torn
+     * down like any other), and it must not fire a removal per node - the
+     * whole record is going, and a callback that re-entered the graph here
+     * would walk into blocks this loop is about to free. */
+    for (size_t i = 0; i < count; i++) {
+        dcg_node* entry  = order[i];
+        dcg_node* parent = entry->parent;
+
+        if (!parent) continue;
+
+        if (entry->prev_sibling) entry->prev_sibling->next_sibling = entry->next_sibling;
+        else parent->children = entry->next_sibling;
+        if (entry->next_sibling) entry->next_sibling->prev_sibling = entry->prev_sibling;
+
+        entry->parent              = NULL;
+        entry->next_sibling        = NULL;
+        entry->prev_sibling        = NULL;
+        entry->condition_to_parent = DCG_NO_CONDITION;
+    }
     for (size_t i = 0; i < count; i++) order[i]->children = NULL;
 
     /* Free leaf first: the reverse of the record puts every child before its
@@ -626,9 +646,13 @@ static inline int c_dcg_node_teardown_root(dcg_node* node) {
  */
 static inline int c_dcg_node_remove(dcg_node* node) {
     if (!node) return DCG_OK;
-    if (node->parent && (node->parent->flags & DCG_NODE_FLAG_FROZEN)) return DCG_ERR_BUSY;
 
-    c_dcg_node_unlink(node); /* silent: the subtree is about to go anyway */
+    /* The public removal: the edge is dropped AND the former parent is told,
+     * which is what a caller of this entry has always been promised. The
+     * subtree then goes as a detached tree. */
+    int ret = c_dcg_node_unlink(node);
+    if (ret != DCG_OK) return ret;
+
     return c_dcg_node_teardown_root(node);
 }
 
@@ -653,7 +677,17 @@ static inline int c_dcg_node_clear_children(dcg_node* node) {
 
     while (node->children) {
         dcg_node* child = node->children;
-        c_dcg_node_unlink(child); /* out of the list before its subtree goes */
+
+        /* Out of the list before its subtree goes - the head, so the surgery
+         * is the short one. Silent: the CLEARED event below is the one
+         * notification this entry owes. */
+        node->children = child->next_sibling;
+        if (child->next_sibling) child->next_sibling->prev_sibling = NULL;
+
+        child->parent              = NULL;
+        child->next_sibling        = NULL;
+        child->prev_sibling        = NULL;
+        child->condition_to_parent = DCG_NO_CONDITION;
 
         int child_result = c_dcg_node_teardown_root(child);
         if (child_result < 0) {

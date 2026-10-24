@@ -8,11 +8,13 @@ from .c_hierarchy cimport BreakpointNode, RootLogicNode
 from .c_node cimport LogicNode, NODE_REGISTRY, PlaceholderNode, dcg_node
 
 
-cdef inline void c_dcg_node_attach_header(LogicNode node, dcg_node* header, bint owner):
+cdef inline void c_dcg_node_attach_header(LogicNode node, dcg_node* header, bint owner) except *:
     cdef uintptr_t parent_address = 0
 
     node.header = header
     node.owner = owner
+    node.ccp_bind(&node.header)
+
     node.parent = None
     if header.parent:
         parent_address = <uintptr_t> header.parent

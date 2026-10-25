@@ -28,6 +28,15 @@ class LogicNode:
     grew, a node named by an address - is turned back into a wrapper by
     ``c_reconstruct``, which is the only place a node's class is decided.
 
+    A wrapper can outlive its block. The C layer releases blocks it takes out of
+    a graph itself - a stand-in consolidated into a real no-action, a placeholder
+    displaced by the node that fills its slot - and a wrapper made over such a
+    block goes on existing, because whoever holds it still holds it. What makes
+    that safe is the allocator's binding: every wrapper holds a reference on its
+    block, the block's FREE pass runs before it is reclaimed, and the wrapper is
+    invalidated there. From then on it is a husk - no address, nothing to free,
+    no parent - and the properties raise rather than read a block that is gone.
+
     **The evaluation protocol.** Evaluating a graph walks it from the top down,
     one node at a time, and comes to rest on a single leaf: each node's value is
     produced (from its type, or from a hook), the value selects which edge the
@@ -401,8 +410,10 @@ class PlaceholderNode(LogicNode):
     """A reserved arm: where a branch goes if a build gives it one.
 
     A placeholder is the C layer's stand-in for a branch that has not been built
-    yet. A branch that is built replaces it, and one that never is becomes an
-    auto-generated no-action when the node around it is left.
+    yet, and it is never part of a baked graph. A branch that is built replaces
+    it; one that never is gets a real auto-generated no-action in its place when
+    the node around it is left, and the stand-in itself is released - this
+    wrapper is a husk from that point on, and the slot holds a ``NoAction``.
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -420,6 +431,14 @@ class LogicNodeRegistry(BoundByteMap):
     A lookup that finds the address answers with the wrapper the layer holds for
     it; one that misses hands the node to the reconstruction, which is what makes
     a node reached from C come back as the class its type names.
+
+    An entry that names a husk is dropped rather than answered with: a block the
+    allocator has released may be handed to the next node, and a lookup has to
+    reach whoever stands there now, never the wrapper that used to. The entry is
+    dropped where it is read - not where the block is released, because that is
+    the allocator's FREE pass, and a map mutation there could deallocate another
+    wrapper bound to the same block and take a callback out of the list the pass
+    is walking.
     """
 
     def __getitem__(self, key: int) -> LogicNode:

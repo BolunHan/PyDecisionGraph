@@ -3,6 +3,7 @@ from libc.stdio cimport FILE
 from libcpp cimport bool as c_bool
 
 from cbase.allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol.c_dual_interface cimport CCPType
 from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_edge cimport dcg_node_edge_condition, NodeEdgeCondition
@@ -168,7 +169,7 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     c_bool c_dcg_node_type_is_special(dcg_node_type ntype) noexcept nogil
     size_t c_dcg_node_type_arity(dcg_node_type ntype) noexcept nogil
     uint64_t c_dcg_node_gen_seq_id(const void* ptr) noexcept nogil
-    void c_dcg_node_unlink(dcg_node* node) noexcept nogil
+    int c_dcg_node_unlink(dcg_node* node) noexcept nogil
     void c_dcg_node_adopt_condition(dcg_node* node, const dcg_node_edge_condition* condition) noexcept nogil
 
     int c_dcg_node_init(dcg_node* node, dcg_node_type ntype, const char* repr) noexcept nogil
@@ -190,7 +191,6 @@ cdef extern from "decision_graph/decision_tree/bake/c_node.h":
     int c_dcg_node_append_auto(dcg_node* parent, dcg_node* child) noexcept nogil
     int c_dcg_node_append_at(dcg_node* parent, dcg_node* child, const dcg_node_edge_condition* condition, size_t index) noexcept nogil
     int c_dcg_node_append_at_binary(dcg_node* parent, dcg_node* child, c_bool condition, size_t index) noexcept nogil
-    int c_dcg_node_detach(dcg_node* node) noexcept nogil
     int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) noexcept nogil
     int c_dcg_node_replace_shared(dcg_node* old_node, dcg_node* new_node) noexcept nogil
     dcg_node* c_dcg_node_new_placeholder(allocator_protocol* allocator) noexcept nogil
@@ -299,7 +299,7 @@ cdef enum dcg_eval_override_flag:
     DCG_EVAL_PY_OVERRIDE   = 1 << 3  # The Python hook (pre_eval, ...) is overridden.
 
 
-cdef class LogicNode:
+cdef class LogicNode(CCPType):
     cdef dcg_node* header
     cdef bint owner
     cdef uintptr_t callback_id

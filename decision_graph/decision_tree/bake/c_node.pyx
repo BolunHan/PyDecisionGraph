@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from cpython.bytes cimport PyBytes_AsString, PyBytes_FromStringAndSize
-from cpython.dict cimport PyDict_Contains
+from cpython.dict cimport PyDict_Contains, PyDict_GetItemWithError
 from cpython.object cimport PyObject
 from cpython.unicode cimport PyUnicode_AsUTF8, PyUnicode_FromString, PyUnicode_FromStringAndSize
 from libc.stdint cimport uintptr_t
@@ -44,19 +44,42 @@ cdef class LogicNode:
         )
 
     def __dealloc__(self):
+        if self.header and self.callback_id:
+            c_dcg_node_unregister_callback(self.header, self.callback_id)
+
         if not self.owner:
             return
 
         if self.header:
-            if self.callback_id:
-                c_dcg_node_unregister_callback(self.header, self.callback_id)
             c_dcg_node_free_generic(self.header)
+
+    cdef void __ccp_dealloc__(self):
+        self.owner = False
+
+        self.callback_id      = 0
+        self.eval_hook_flags  = 0
+        self.c_eval_exception = None
+
+        self.parent              = None
+        self.condition_to_parent = NO_CONDITION
+        self.children.clear()
+
+        cdef uintptr_t address = <uintptr_t> self.header
+        cdef PyObject* stored  = NULL
+        cdef object    key
+
+        if address and NODE_REGISTRY is not None:
+            key    = <object> address
+            stored = PyDict_GetItemWithError(<dict> NODE_REGISTRY, key)
+            if stored == <PyObject*> self:
+                NODE_REGISTRY.pop(key, None)
 
     @staticmethod
     cdef inline LogicNode c_from_header(dcg_node* header, bint owner=False):
         cdef LogicNode instance = LogicNode.__new__(LogicNode)
         instance.header = header
         instance.owner = owner
+        instance.ccp_bind(&instance.header)  # block start - bind inside the adoption
 
         # The registry is keyed by the header address, so the parent is looked
         # up by ITS header - a wrapper is not an address, and a parentless node
@@ -205,7 +228,11 @@ cdef class LogicNode:
             return
 
         if not self.owner:
-            fprintf(stderr, 'c_bind_eval_callback: %s at %p overrides an eval hook but does not own its node - the hook is not installed\n', <const char*> class_name, <const void*> self.header)
+            fprintf(
+                stderr,
+                '[DCG] c_bind_eval_callback: %s at %p overrides an eval hook, but the wrapper was built with owner=False and does not own the node - the hook is not installed\n',
+                <const char*> class_name, <const void*> self.header
+            )
             return
 
         self.eval_hook_flags = flags
@@ -369,9 +396,9 @@ cdef class LogicNode:
             raise RuntimeError(f'c_dcg_node_replace failed with err code: {ret_code}')
 
     cdef void c_detach(self):
-        cdef int ret_code = c_dcg_node_detach(self.header)
+        cdef int ret_code = c_dcg_node_unlink(self.header)
         if ret_code != dcg_ret_code.DCG_OK:
-            raise RuntimeError(f'c_dcg_node_detach failed with err code: {ret_code}')
+            raise RuntimeError(f'c_dcg_node_unlink failed with err code: {ret_code}')
 
     cdef str c_render(self, int max_depth, bint show_labels, bint show_out, str style):
         cdef dcg_render_opts opts
@@ -589,6 +616,7 @@ cdef class PlaceholderNode(LogicNode):
 
         self.header = node
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_register_node()
 
 
@@ -623,13 +651,29 @@ cdef class LogicNodeRegistry(BoundByteMap):
     cdef object c_deserialize_value(self, const char* value, size_t value_len):
         cdef void** vp = <void**> value
         cdef dcg_node* node = <dcg_node*> vp[0]
+        if not node:
+            return None
         return LogicNode.c_dcg_node_reconstruct(node)
 
     def __getitem__(self, object key):
-        cdef int ret_code = PyDict_Contains(<dict> self, key)
-        if ret_code == 0:
-            return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
-        return super().__getitem__(key)
+        cdef LogicNode node
+
+        if PyDict_Contains(<dict> self, key) == 1:
+            node = <LogicNode> <object> super().__getitem__(key)
+            if node.header:
+                return node
+
+            # A husk: its block was released, and no live node took the address
+            # since - a live one registers itself and overwrites this entry.
+            # So there is nothing here to answer with, and rebuilding from the
+            # address would read a block that is gone. The entry is dropped on
+            # the read that finds it: when the FREE pass could not drop it (the
+            # entry was the only reference, and the object must not die inside
+            # that pass), this is the safe point where it can go.
+            self.pop(key, None)
+            raise KeyError(key)
+
+        return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
 
 # Local Cached LGM Pointer
 cdef dcg_logic_group_manager* C_LGM = NULL

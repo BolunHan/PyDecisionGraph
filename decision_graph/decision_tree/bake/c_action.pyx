@@ -20,6 +20,7 @@ cdef class ActionNode(LogicNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
 
         self.c_register_node()
 

@@ -15,6 +15,7 @@ cdef class RootLogicNode(LogicNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.name = name
         node.inherit_contexts = inherit_contexts
         # The record is the root's own field, so the view is taken once, over it:
@@ -207,6 +208,7 @@ cdef class BreakpointNode(LogicNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.break_from = break_from
         self.c_register_node()
 

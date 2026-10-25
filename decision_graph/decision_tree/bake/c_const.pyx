@@ -27,6 +27,7 @@ cdef class ConstantNode(LogicNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
 
         if repr is not None:
             ret_code = c_dcg_node_set_repr(self.header, PyUnicode_AsUTF8(repr))
@@ -163,6 +164,7 @@ cdef class VariableNode(LogicNode):
         # With a group given the node is a block OF THAT GROUP, and the group
         # releases it - so the wrapper owns nothing and must free nothing.
         self.owner = active_logic_group == NULL
+        self.ccp_bind(&self.header)
         self.c_register_node()
 
     # === Cython Internal Binding ===

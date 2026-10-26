@@ -3,7 +3,8 @@ Examples
 
 Five runnable examples, each a standalone script under ``docs/examples/``.
 Every one of them was executed against this release; the outputs quoted below
-are the outputs they produced, verbatim.
+are the outputs they produced, verbatim. For the same decision built once per
+layer - native, capi, bake - see :doc:`demos`.
 
 A decision over a store — the quick start
 -----------------------------------------

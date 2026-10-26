@@ -1,11 +1,12 @@
 API Reference
 =============
 
-The reference pages below are generated from the code itself: the class pages
-are rendered by Doxygen + Breathe over the ``.pyi`` stubs (the docstrings live
-there), and the fallback and web-UI pages by autodoc. For the concepts behind
-them, read :doc:`getting_started/concepts` first; for worked code, see
-:doc:`usage/examples`.
+The reference pages below are generated from the code itself: the single-class
+pages are rewritten from the ``.pyi`` stubs by ``docs/gen_reference.py`` (the
+docstrings live there), and the fallback and web-UI pages by autodoc. The capi
+pages that declare several classes keep their hand-grouped layout. For the
+concepts behind them, read :doc:`getting_started/concepts` first; for worked
+code, see :doc:`usage/examples`.
 
 .. toctree::
    :maxdepth: 3

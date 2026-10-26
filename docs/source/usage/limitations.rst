@@ -56,6 +56,12 @@ The bake layer
 - **The viewer lists operands, it does not draw them.** An expression's
   operands are shown in the inspector as data, not as edges, because they are
   not children of the tree.
+- **A wrapper may outlive its block as a husk.** The binding is per block, not
+  per graph: releasing one block does not invalidate a wrapper over another.
+  A husk's guarded properties raise and ``repr`` still answers; a second
+  dealloc is silent. ``NodeEdgeCondition``, ``BakeReport``, ``NodeEvalPathView``,
+  ``VarView`` and the registry/manager wrappers are not CCP-bound — a view of
+  one must not outlive the block it points at.
 
 Platforms
 ---------

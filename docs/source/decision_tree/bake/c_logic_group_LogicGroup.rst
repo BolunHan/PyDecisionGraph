@@ -12,6 +12,15 @@ LogicGroup
       inside it - `with group:` enters, and leaving restores whatever was active
       before.
 
+      A wrapper can outlive its block. Every wrapper holds a reference on the
+      block it stands for, the allocator's FREE pass runs before the block is
+      reclaimed, and the wrapper is invalidated there - so a wrapper whose owner
+      released the block, or whose block the C layer released itself, is a husk
+      from then on. The PROPERTY accessors are guarded: on a husk they raise
+      ``RuntimeError`` instead of reading a block that is gone. Methods are not
+      guarded - calling one on a husk is the caller's mistake, and the wrapper
+      frees nothing a second time either way.
+
    .. py:method:: __init__(self, *, name: str | None = None, parent: ~decision_graph.decision_tree.bake.c_logic_group.LogicGroup | None = None, **kwargs: Any) -> None
 
       Build a group of the base type.

@@ -15,7 +15,12 @@ The Python suite
 
 - ``tests/test_bake_*.py`` — the bake layer's wrapper surface, one file per
   module family (nodes, consts, exprs, actions, edges, collections, hierarchy,
-  logic groups, evaluate, reconstruct, var, imports, tree build).
+  logic groups, evaluate, reconstruct, var, imports, tree build). Three of
+  them carry the lifetime and slot contracts explicitly:
+  ``test_bake_node.py`` and ``test_bake_logic_group.py`` hold the husk tests
+  (a second wrapper over a released block, its guarded accessors, a silent
+  second dealloc), and ``test_bake_consolidation.py`` covers placeholder
+  consolidation and slot preservation.
 - ``tests/bake/eval_protocol/`` — the evaluation protocol, twelve indexed
   files (single nodes, composed nodes, store-driven values, with-clause
   graphs, mid/deep graph walks, dry runs, eval paths, protocol edges, scalar
@@ -29,10 +34,17 @@ The Python suite
   routes and drawing model.
 - ``tests/test_docs_examples.py`` — runs every script under
   ``docs/examples/``; the documentation's examples are part of the suite.
+- ``tests/test_demo_scripts.py`` — runs the three protocol demos under
+  ``demo/`` from a scratch directory and asserts each session and HTML page.
 - Two test-only Cython extensions (``tests/bake_eval_probe.pyx``,
   ``tests/bake_c_evaluator.pyx``) provide what a ``.py`` file cannot: a
   Cython subclass overriding a ``cdef`` hook, and the parity suite's
   no-Python-in-between walk.
+
+The CCP lifetime is tested from both sides: the Python tests hold a second
+wrapper over a released block and assert the husk; the C suites exercise the
+release and consolidation paths that create it. A change to a dealloc hook is
+not done until both pass.
 
 The C suites
 ------------

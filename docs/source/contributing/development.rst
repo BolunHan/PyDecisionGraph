@@ -99,19 +99,22 @@ this repository's sources are defects, not noise.
 The documentation
 -----------------
 
-The prose under ``docs/source`` is hand-written; the **API reference pages are
-generated** from the ``.pyi`` stubs, which is where the docstrings live.
+The prose under ``docs/source`` is hand-written; the **single-class API pages
+are generated** from the ``.pyi`` stubs, which is where the docstrings live.
+The capi pages that declare several classes keep their hand-grouped layout and
+are not rewritten by the generator.
 
 .. code-block:: bash
 
-    python docs/gen_reference.py                          # rewrite the reference pages
+    python docs/gen_reference.py                          # refresh single-class pages
     cd docs/source && sphinx-build -M html . ../_build    # then build
 
-Each page declares one class per ``.. py:class::`` and one directive per member,
-with every annotation resolved to the layer that declares it. That is what keeps
-a member's name unique to its class: two layers document a ``BreakpointNode``,
-so an unqualified name would be described twice and Sphinx would refuse the
-second. Regenerate after any change to a stub, and expect a build with no
+Each single-class page declares one class per ``.. py:class::`` and one
+directive per member, with every annotation resolved to the layer that declares
+it. That is what keeps a member's name unique to its class: two layers document
+a ``BreakpointNode``, so an unqualified name would be described twice and
+Sphinx would refuse the second. Regenerate after any change to a stub; a capi
+page that groups several classes is updated by hand. Expect a build with no
 warnings.
 
 The reference no longer goes through doxygen. ``docs/Doxyfile`` still works and

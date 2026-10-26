@@ -31,6 +31,8 @@ The repository
       webui/
         capi/  native/  bake/      one Flask viewer per layer, each naming its own layer
     docs/examples/                 the runnable examples behind :doc:`examples`
+    docs/source/                   the Sphinx prose and the generated class pages
+    docs/gen_reference.py          rewrites a single-class API page from its .pyi stub
     tests/                         the suites — see :doc:`../contributing/testing`
     probe.py                       macro probe: writes macros.json from the headers
     setup.py                       the extension build (17 extensions)
@@ -56,7 +58,9 @@ them are deliberate:
 ``decision_graph.decision_tree.bake``
     The C-first layer: the C core under ``bake/*.h`` is the source of truth,
     the Cython wrappers are thin, and the docstrings live in the ``.pyi``
-    stubs. It carries the two protocols below.
+    stubs. It carries the two protocols below, and its CCP-bound wrappers
+    invalidate themselves when their block is released (see `The wrapper
+    lifetime`_).
 
 The C core
 ----------
@@ -78,6 +82,16 @@ worth knowing before editing anything in it:
   ``cdef object`` + accessor, lazy import). Changes that ignore it are
   rejected in review.
 
+Node slots
+----------
+
+Unlink, replace, and placeholder consolidation are **slot-preserving**: the arm
+keeps its edge condition and its position in the parent's child list, and only
+the occupant changes. A removal followed by an addition would move the arm to
+the end of what the parent holds, which is what the C layer avoids; the
+parent's ``children`` map and a viewer's layout follow the slot, not the
+occupant.
+
 The protocols
 -------------
 
@@ -94,6 +108,14 @@ Two protocols drive the layer; both are C, in their own headers:
   root, and it is all-or-nothing. The same pass takes the scaffolding —
   breakpoints — down, splicing what they held into their place.
 
+Diagnostics
+-----------
+
+Human-facing C diagnostics are part of the contract: each names the operation,
+the failing call or condition, the ``DCG_ERR_*`` cause (by name, and by number
+where the code is variable), and the state left behind. The ``[eval]`` lines
+are the exception — they are opt-in traces, not failures.
+
 The allocator protocol
 ----------------------
 
@@ -107,11 +129,33 @@ their parent. Two consequences matter at this level:
 - The include path for the C core comes from ``cbase.get_include()``, so the
   PyCyBase installed in the environment is what the layer compiles against.
 
+The wrapper lifetime
+--------------------
+
+The bake wrappers can outlive the blocks they stand for. A wrapper over a bake
+block inherits ``CCPType`` from ``cbase.allocator_protocol.c_dual_interface``
+and binds itself after construction (``ccp_bind(&self.header)``); the binding
+is a callback on the allocator protocol's FREE pass, not a layer edge. When the
+block is released — by its owner, or by the C layer during consolidation — the
+FREE pass releases the binding, runs the wrapper's ``__ccp_dealloc__`` hook,
+and NULLs the wrapper's header slot. The wrapper is a husk from then on: its
+guarded properties raise, ``repr`` still answers, and a second dealloc is a
+no-op.
+
+``__dealloc__`` is the owner's half — owner check, then the C free — and does
+not clear the header; ``__ccp_dealloc__`` resets the wrapper's extra cdef
+fields and chains to its base. The guarantee is per block: releasing one block
+does not invalidate a wrapper over another. The wrappers that are not bound —
+``NodeEdgeCondition``, ``BakeReport``, ``NodeEvalPathView``, ``VarView``, the
+registry wrappers and ``LogicGroupManager`` — are owner-flag or
+borrowed-pointer wrappers; a view of one must not outlive the block it points
+at.
+
 The build system
 ----------------
 
 ``setup.py`` builds **17 extensions**: the 15 package modules plus two
-test-only probes. Three things it does are worth knowing:
+test-only probes. Four things it does are worth knowing:
 
 - **``decision_graph/includes/`` is generated.** The build mirrors every
   ``.h``/``.c``/``.cpp`` under the package into it (and into the wheel) so
@@ -123,6 +167,10 @@ test-only probes. Three things it does are worth knowing:
   headers for the ``#define`` macros and writes ``macros.json``; ``setup.py`` reads the
   inventory so any probed macro (and ``DEBUG``) can be overridden from the
   environment, e.g. ``DCG_VIGILANT=0 python setup.py build_ext --inplace``.
+- **``get_include()`` reports the source roots.** It returns the package root,
+  ``decision_tree``, ``decision_tree/bake``, ``decision_tree/capi``, and the
+  generated ``includes/`` mirror when it exists, so a downstream build can
+  point Cython at the installed tree.
 
 The exact commands — including the clean-rebuild recipe a header change
 requires — are in :doc:`../contributing/development`.

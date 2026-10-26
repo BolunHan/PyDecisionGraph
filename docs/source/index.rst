@@ -56,16 +56,17 @@ and test commands.
    :caption: Usage
 
    usage/examples
+   usage/demos
    usage/architecture
    usage/gallery
    usage/limitations
-   webui
 
 .. toctree::
    :maxdepth: 2
    :caption: Reference
 
    api_reference
+   release_notes
 
 .. toctree::
    :maxdepth: 2

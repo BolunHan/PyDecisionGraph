@@ -47,6 +47,7 @@ cdef class ExpressionNode(LogicNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_components_alloc(node.n_args)
         self.c_register_node()
 
@@ -62,6 +63,20 @@ cdef class ExpressionNode(LogicNode):
                 Py_XDECREF(self.components[i])
 
         PyMem_Free(self.components)
+
+    cdef void __ccp_dealloc__(self):
+        cdef size_t n_args = DCG_EXPR_DEFAULT_ARGS
+
+        if self.header:
+            n_args = (<dcg_expression_node*> self.header).n_args
+
+        if self.components:
+            for i in range(n_args):
+                Py_XDECREF(self.components[i])
+
+        PyMem_Free(self.components)
+
+        LogicNode.__ccp_dealloc__(self)
 
     # === Cython Internal Binding ===
 
@@ -199,6 +214,7 @@ cdef class UnaryExpression(ExpressionNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_components_alloc(1)
         self.c_components_assign(0, src)
         self.c_register_node()
@@ -212,6 +228,7 @@ cdef class BinaryExpression(ExpressionNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_components_alloc(2)
         self.c_components_assign(0, var_0)
         self.c_components_assign(1, var_1)
@@ -226,6 +243,7 @@ cdef class TernaryExpression(ExpressionNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_components_alloc(3)
         self.c_components_assign(0, var_0)
         self.c_components_assign(1, var_1)
@@ -266,6 +284,7 @@ cdef class CallExpression(ExpressionNode):
 
         self.header = &node.base
         self.owner = True
+        self.ccp_bind(&self.header)
         self.c_components_alloc(n_vars)
         for i in range(n_vars):
             self.c_components_assign(i, <LogicNode> inputs[i])

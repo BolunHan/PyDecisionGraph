@@ -23,6 +23,13 @@ cdef class RootLogicNode(LogicNode):
         self.eval_path = NodeEvalPathView.c_from_header(&node.eval_path)
         self.c_register_node()
 
+    cdef void __ccp_dealloc__(self):
+        if <void*> self.name != NULL:
+            self.name = None
+        if <void*> self.eval_path != NULL:
+            self.eval_path = None
+        LogicNode.__ccp_dealloc__(self)
+
     # === Eval Protocol ===
 
     cdef void c_eval(self):
@@ -211,6 +218,13 @@ cdef class BreakpointNode(LogicNode):
         self.ccp_bind(&self.header)
         self.break_from = break_from
         self.c_register_node()
+
+    cdef void __ccp_dealloc__(self):
+        # R16: tp_dealloc has already cleared this subclass field by the time
+        # the base free runs the hook - only reset it when it is still live.
+        if <void*> self.break_from != NULL:
+            self.break_from = None
+        LogicNode.__ccp_dealloc__(self)
 
     # === Python Interfaces ===
 

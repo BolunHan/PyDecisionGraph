@@ -179,7 +179,6 @@ from .c_node cimport (
     c_dcg_node_append_auto,
     c_dcg_node_append_at,
     c_dcg_node_append_at_binary,
-    c_dcg_node_detach,
     c_dcg_node_replace,
     c_dcg_node_replace_shared,
     c_dcg_node_new_placeholder,

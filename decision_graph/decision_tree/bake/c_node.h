@@ -404,6 +404,8 @@ typedef struct dcg_strbuf {
     size_t used;  // Characters that fit (excluding the terminating NUL).
 } dcg_strbuf;
 
+struct dcg_action_node;
+
 // ========== Forward Declarations ==========
 
 // Utilities
@@ -450,7 +452,6 @@ static inline dcg_node*                      c_dcg_node_new_placeholder(allocato
 static inline size_t                         c_dcg_node_consolidate_placeholder(dcg_node* node);
 static inline dcg_node*                      c_dcg_node_get_placeholder(dcg_node* node);
 
-struct dcg_action_node;
 static inline struct dcg_action_node*        c_dcg_node_new_action(dcg_node_type action_type, const char* repr, ssize_t sig, void* action_data, allocator_protocol* allocator);
 static inline void                           c_dcg_node_free_action(struct dcg_action_node* node);
 
@@ -531,7 +532,7 @@ static const char* const                     DCG_NODE_SPECIAL_NAMES[] = {"SPECIA
  * @param variant  Variant number (the low byte of the type).
  * @return The name, or "UNKNOWN" past the end of the table.
  */
-static inline const char*                    c_dcg_name_at(const char* const* names, size_t count, size_t variant) {
+static inline const char* c_dcg_name_at(const char* const* names, size_t count, size_t variant) {
     if (!names || variant >= count) return "UNKNOWN";
     return names[variant];
 }
@@ -1591,7 +1592,7 @@ static inline int c_dcg_node_replace(dcg_node* old_node, dcg_node* new_node) {
 
     // One edge per condition. The displaced node is the one holding this
     // edge; any other holder means the list is already corrupt.
-    dcg_node* holder = c_dcg_node_child_by_condition(parent, condition);
+    dcg_node*                      holder = c_dcg_node_child_by_condition(parent, condition);
     if (holder && holder != old_node) return DCG_ERR_DUPLICATE;
 
     // The slot is defined by the neighbours the old node stands between, and
@@ -2847,5 +2848,7 @@ static inline int c_dcg_node_render_to_string(const dcg_node* node, char* out, s
     return written;
 #endif
 }
+
+#include <decision_graph/decision_tree/bake/c_action.h>
 
 #endif  // C_DCG_BAKE_NODE_H

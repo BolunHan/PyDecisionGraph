@@ -234,6 +234,37 @@ def rewrite(path: str, homes: dict[str, set[str]]) -> int:
     return count
 
 
+def regenerate_page(path: str, homes: dict[str, set[str]]) -> bool:
+    """Rewrite a class page from its stub, keeping the page title.
+
+    The pages were converted from doxygenclass blocks to py:module/py:class
+    blocks once; this is what keeps them in step with the stubs afterwards.
+    The module comes from the page's own py:module line and the class from its
+    py:class line, so the file name is not load-bearing.
+    """
+    text = open(path, encoding='utf-8').read()
+    # A page may declare several classes (the capi pages do); only the
+    # one-class pages have a title followed by a single regenerable block.
+    if len(re.findall(r'^\.\. py:class::', text, re.M)) != 1:
+        return False
+    module_match = re.search(r'^\.\. py:module:: (?P<module>\S+)', text, re.M)
+    class_match = re.search(r'^\.\. py:class:: (?P<name>\w+)', text, re.M)
+    if not module_match or not class_match:
+        return False
+
+    start = text.find(module_match.group(0))
+    try:
+        body = block_for(f'{module_match.group("module")}.{class_match.group("name")}', '', homes)
+    except (FileNotFoundError, LookupError):
+        return False
+
+    new = text[:start] + body
+    if new.rstrip() == text.rstrip():
+        return False
+    open(path, 'w', encoding='utf-8').write(new)
+    return True
+
+
 def main() -> int:
     homes = class_homes()
     total = pages = 0
@@ -243,7 +274,12 @@ def main() -> int:
             pages += 1
             total += n
             print(f'  {os.path.relpath(path, REPO)}: {n} class(es)')
-    print(f'{total} class directives rewritten across {pages} pages')
+    regenerated = 0
+    for path in sorted(glob.glob(os.path.join(PAGES, '*', '*.rst'))):
+        if regenerate_page(path, homes):
+            regenerated += 1
+            print(f'  {os.path.relpath(path, REPO)}: regenerated from the stub')
+    print(f'{total} class directives rewritten across {pages} pages; {regenerated} class page(s) regenerated')
     return 0
 
 

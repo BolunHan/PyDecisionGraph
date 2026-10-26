@@ -259,7 +259,11 @@ static void test_connected_action_constructors(void) {
     DCG_CHECK(action->auto_connect); /* it records what it was asked to do */
     DCG_CHECK(action->base.parent == &root->base);
     DCG_CHECK(c_dcg_node_child_by_condition(&root->base, DCG_NO_CONDITION) == &action->base);
-    DCG_CHECK(arm->parent == NULL); /* the arm it took is a fragment now */
+
+    /* The arm it took was the active node's, so the connect variant released
+     * it: `arm` is a dangling pointer now, and the leak checker in the asan
+     * build is what proves it is gone. Only the manager's own state is read
+     * below, never the displaced stand-in. */
 
     /* Asked not to join: built, placed by nobody. */
     dcg_action_node* loose = c_dcg_node_connect_new_action(DCG_NODE_SHORTACTION, "short", false, -1, NULL, &mgr, NULL);
@@ -284,7 +288,6 @@ static void test_connected_action_constructors(void) {
     DCG_CHECK(trade != NULL);
     DCG_CHECK_INT(trade->sig, 1);
 
-    c_dcg_node_free(arm); /* the placeholder the action replaced: a fragment now */
     c_dcg_node_free(&loose->base);
     c_dcg_node_free(&clear->base);
     c_dcg_node_free(placeholder);

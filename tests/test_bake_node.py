@@ -25,7 +25,9 @@ import unittest
 from uuid import UUID
 
 from decision_graph.decision_tree.bake import c_node
+from decision_graph.decision_tree.bake.c_const import ConstantNode
 from decision_graph.decision_tree.bake.c_edge import AUTO_CONDITION
+from decision_graph.decision_tree.bake.c_reconstruct import c_dcg_node_reconstruct_from_address
 from decision_graph.decision_tree.exc import NodeTypeError
 
 
@@ -165,6 +167,90 @@ class TestNodeRegistry(unittest.TestCase):
         address = node.address
         del c_node.NODE_REGISTRY[address]
         self.assertIsNone(c_node.NODE_REGISTRY[address].parent)
+
+
+class TestTheBlockBehindTheWrapper(unittest.TestCase):
+    """Contract: a wrapper may outlive the block it stands for, as a husk.
+
+    Expected behavior:
+        - a block released under a live wrapper leaves that wrapper with no
+          address and no type - the accessors refuse rather than read a block
+          that is gone;
+        - ``repr`` still answers, because it is the surface a debugger reads;
+        - a husk releases nothing a second time, and dies quietly;
+        - ``NODE_REGISTRY`` does not answer an address with a husk: the entry is
+          dropped and the block itself is asked what stands there now.
+
+    The release is not necessarily the wrapper's. The C layer releases blocks it
+    takes out of a graph itself - a stand-in consolidated into a real no-action,
+    a placeholder displaced by the node that fills its slot - and the wrapper is
+    left holding a pointer to something that is gone. What makes that safe is the
+    allocator's binding: every wrapper holds a reference on its block, the FREE
+    pass runs before the block is reclaimed, and the wrapper is invalidated
+    there. This is what the CCP protocol is for, and these are the terms of it a
+    caller can see.
+    """
+
+    def _husked_pair(self) -> tuple:
+        """An owned block and a second wrapper over it, freed under the second.
+
+        The registry answers a held node with the wrapper the layer already has,
+        so the entry is dropped before the adoption: that is what makes the
+        reconstruction build a second wrapper over the same block instead of
+        handing back the first one.
+        """
+        owner = ConstantNode(1.0)
+        address = owner.address
+        del c_node.NODE_REGISTRY[address]
+
+        view = c_dcg_node_reconstruct_from_address(address, False)
+        del c_node.NODE_REGISTRY[address]
+        return owner, view, address
+
+    def test_00_a_released_block_leaves_a_husk(self) -> None:
+        """The wrapper of a block the layer releases stops reporting it."""
+        owner, view, address = self._husked_pair()
+        self.assertIsNot(view, owner)
+        self.assertEqual(view.address, address)  # one block, two wrappers
+
+        del owner  # the block is released while the view still names it
+
+        with self.assertRaises(RuntimeError):
+            view.address
+        with self.assertRaises(RuntimeError):
+            view.type
+        self.assertEqual(repr(view), '<ConstantNode (Uninitialized)>')
+
+    def test_01_a_husk_releases_nothing_a_second_time(self) -> None:
+        """Deallocating a husk is silent: the block is already gone.
+
+        A second free would trip the allocator's own vigilant check and abort
+        the process, so reaching the end of this test IS the assertion.
+        """
+        owner, view, address = self._husked_pair()
+        del owner
+
+        del view
+        self.assertEqual(ConstantNode(2.0).type, 'DOUBLE')
+
+    def test_02_a_lookup_answers_with_the_entry_and_never_writes(self) -> None:
+        """A read answers with the entry it holds; it does not mutate the map.
+
+        The entry is put back by hand after the block is gone - a state the
+        layer no longer leaves behind, because a wrapper's entry is removed
+        when its block is released. A lookup that finds it returns it as it
+        stands and leaves the map alone; the caller sees a husk, and the husk's
+        guarded properties are what say the block is gone.
+        """
+        owner, husk, address = self._husked_pair()
+        del owner
+
+        with self.assertRaises(RuntimeError):
+            husk.address  # it is a husk: the block below is gone
+
+        c_node.NODE_REGISTRY[address] = husk  # the entry a lookup finds
+        self.assertIs(c_node.NODE_REGISTRY[address], husk)
+        self.assertIn(address, c_node.NODE_REGISTRY)
 
 
 class TestChildrenBookkeeping(unittest.TestCase):

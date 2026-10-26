@@ -97,8 +97,10 @@ class TestWhatIsRefused(BakeCase):
                 with branch:
                     LongAction()
 
-        # Detached, so the branch has one arm where its arity reads two.
-        kept = list(branch.children.values())[0]
+        # Detached, so the branch has one arm where its arity reads two. The
+        # arm is named, not taken by position: the map is keyed by edge, and
+        # its order is the build's reading order, not a place to guess from.
+        kept = branch.children[FALSE_CONDITION]
         kept.detach()
 
         with self.assertRaises(BakeFailureError):

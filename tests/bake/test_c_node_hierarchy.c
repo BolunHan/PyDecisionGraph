@@ -246,11 +246,11 @@ static void test_detach_replace_remove(void) {
     DCG_CHECK_INT(c_dcg_node_append(parent, second, DCG_FALSE_CONDITION), DCG_OK);
 
     /* Detach: the node survives with its subtree, its edge is dropped. */
-    DCG_CHECK_INT(c_dcg_node_detach(first), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_unlink(first), DCG_OK);
     DCG_CHECK(first->parent == NULL);
     DCG_CHECK(c_dcg_condition_is_none(first->condition_to_parent));
     DCG_CHECK_INT(c_dcg_node_child_count(parent), 1);
-    DCG_CHECK_INT(c_dcg_node_detach(first), DCG_OK); /* already detached: a no-op */
+    DCG_CHECK_INT(c_dcg_node_unlink(first), DCG_OK); /* already detached: a no-op */
 
     /* Replace: the slot - position and edge - is inherited. */
     DCG_CHECK_INT(c_dcg_node_replace(second, replacement), DCG_OK);
@@ -296,7 +296,7 @@ static void test_frozen_parent(void) {
     parent->flags &= ~(uint32_t) DCG_NODE_FLAG_FROZEN;
     DCG_CHECK_INT(c_dcg_node_append(parent, child, DCG_NO_CONDITION), DCG_OK);
     parent->flags |= DCG_NODE_FLAG_FROZEN;
-    DCG_CHECK_INT(c_dcg_node_detach(child), DCG_ERR_BUSY);
+    DCG_CHECK_INT(c_dcg_node_unlink(child), DCG_ERR_BUSY);
 
     /* Teardown still unlinks: a frozen parent must not pin a dead child. */
     c_dcg_node_free(child);
@@ -673,6 +673,40 @@ static void test_validate_null_and_print(void) {
 /* Placeholder consolidation                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The contract a closed graph keeps: no stand-in is left anywhere, and every
+ * action-family leaf is a REAL action - a block carrying the family's tail, so
+ * its signal and payload are fields it owns rather than bytes read past the end
+ * of a base node. Reading those fields is the whole test: on a stand-in that had
+ * merely been retyped they are outside the allocation.
+ */
+static void check_no_placeholder_and_real_actions(const dcg_node* root) {
+    const dcg_node* stack[64];
+    size_t          count = 0;
+
+    stack[count++] = root;
+    while (count) {
+        const dcg_node* node = stack[--count];
+
+        DCG_CHECK(node->ntype != DCG_NODE_PLACEHOLDER);
+
+        if (c_dcg_node_type_is_action(node->ntype)) {
+            const dcg_action_node* action = (const dcg_action_node*) node;
+
+            DCG_CHECK_INT(action->auto_connect, false); /* nothing connected a generated leaf */
+            if (node->ntype == DCG_NODE_NOACTION && node->autogen) {
+                DCG_CHECK_INT(action->sig, 0);          /* a no-action decides nothing */
+                DCG_CHECK(action->action_data == NULL); /* and carries no payload */
+            }
+        }
+
+        for (const dcg_node* child = node->children; child; child = child->next_sibling) {
+            DCG_CHECK(count < 64);
+            stack[count++] = child;
+        }
+    }
+}
+
 static void test_consolidate_placeholder(void) {
     /* The normal case: a reserved slot that nothing ever filled. */
     dcg_node* root   = dcg_t_node_root("Entry Point");
@@ -686,22 +720,35 @@ static void test_consolidate_placeholder(void) {
 
     DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(root), 1);
 
-    /* The conversion happens in place: same node, same slot, same edge. */
+    /* The slot is kept - same parent, same edge, same position - but what
+     * stands in it is a real no-action built by the action family, not the
+     * stand-in retyped. */
     dcg_node* replacement = c_dcg_node_child_by_condition(branch, DCG_FALSE_CONDITION);
-    DCG_CHECK(replacement == holder);
+    DCG_CHECK(replacement != holder); /* the stand-in is gone, not relabelled */
+    DCG_CHECK(replacement->parent == branch);
     DCG_CHECK_INT(replacement->ntype, DCG_NODE_NOACTION);
     DCG_CHECK_INT(replacement->autogen, true);
+    DCG_CHECK_STR(replacement->repr, DCG_DEF_REPR_NOACTION);
     DCG_CHECK(c_dcg_condition_is_false(replacement->condition_to_parent));
+    DCG_CHECK(c_dcg_node_next_sibling(replacement) == NULL); /* still the fallback arm */
+
+    dcg_action_node* action = (dcg_action_node*) replacement;
+    DCG_CHECK_INT(action->sig, 0);          /* a no-action decides nothing */
+    DCG_CHECK(action->action_data == NULL); /* and carries no payload */
+    DCG_CHECK_INT(action->auto_connect, false);
+
+    check_no_placeholder_and_real_actions(root);
 
     /* Idempotent, and the result is a clean graph. */
     DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(root), 0);
     DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(NULL), 0);
     DCG_CHECK(c_dcg_node_validate(root, NULL));
 
-    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, branch, filled, holder */
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 4); /* root, branch, filled, replacement */
 
-    /* A placeholder the builder left holding a subtree keeps it - and the
-     * validator reports that mistake rather than the conversion hiding it. */
+    /* A placeholder the builder left holding a subtree keeps it - the subtree
+     * moves onto the no-action - and the validator reports that mistake rather
+     * than the conversion hiding it. */
     root                       = dcg_t_node_root("Entry Point");
     branch                     = dcg_t_node_binary(DCG_OP_LT, "x < 10");
     holder                     = dcg_t_node_placeholder("holder");
@@ -713,16 +760,23 @@ static void test_consolidate_placeholder(void) {
     (void) c_dcg_node_append(branch, holder, DCG_TRUE_CONDITION);
     (void) c_dcg_node_append(branch, other, DCG_FALSE_CONDITION);
     (void) c_dcg_node_append(holder, nested, DCG_NO_CONDITION);
+    DCG_CHECK_INT(c_dcg_node_add_label(holder, "reserved"), DCG_OK);
 
     DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(root), 2);
-    DCG_CHECK_INT(holder->ntype, DCG_NODE_NOACTION);
-    DCG_CHECK_INT(nested->ntype, DCG_NODE_NOACTION);
-    DCG_CHECK(c_dcg_node_first_child(holder) == nested); /* the subtree survived */
+
+    dcg_node* subtree = c_dcg_node_child_by_condition(branch, DCG_TRUE_CONDITION);
+    DCG_CHECK_INT(subtree->ntype, DCG_NODE_NOACTION);
+    DCG_CHECK(c_dcg_node_has_label(subtree, "reserved")); /* the slot keeps its label */
+    DCG_CHECK(c_dcg_node_first_child(subtree) != NULL); /* the subtree survived */
+    DCG_CHECK_INT(c_dcg_node_first_child(subtree)->ntype, DCG_NODE_NOACTION);
+    DCG_CHECK(c_dcg_node_first_child(subtree)->parent == subtree);
+
+    check_no_placeholder_and_real_actions(root);
 
     DCG_CHECK(!c_dcg_node_validate(root, &report));
     DCG_CHECK_INT(report.code, DCG_ERR_TYPE);
 
-    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 5); /* root, branch, holder, nested, other */
+    DCG_CHECK_INT(c_dcg_node_teardown_root(root), 5); /* root, branch, subtree, its child, other */
 }
 
 /* ------------------------------------------------------------------ */
@@ -1000,9 +1054,15 @@ static void test_auto_fill_closes_a_built_branch(void) {
     DCG_CHECK_INT(c_dcg_node_child_count(node), 2);
 
     DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(node), 1);
-    DCG_CHECK_INT(reserved_false->ntype, DCG_NODE_NOACTION);
-    DCG_CHECK(reserved_false->autogen);
-    DCG_CHECK_STR(reserved_false->repr, DCG_DEF_REPR_NOACTION); /* the arm reads as a no-action, as it does in capi */
+    dcg_node* closed = c_dcg_node_child_by_condition(node, DCG_FALSE_CONDITION);
+    DCG_CHECK(closed != reserved_false); /* replaced, not retyped */
+    DCG_CHECK_INT(closed->ntype, DCG_NODE_NOACTION);
+    DCG_CHECK(closed->autogen);
+    DCG_CHECK_STR(closed->repr, DCG_DEF_REPR_NOACTION); /* the arm reads as a no-action, as it does in capi */
+    DCG_CHECK_INT(((dcg_action_node*) closed)->sig, 0);
+    DCG_CHECK(((dcg_action_node*) closed)->action_data == NULL);
+
+    check_no_placeholder_and_real_actions(root);
 
     DCG_CHECK(c_dcg_node_validate(root, NULL));
     dcg_t_trace_tree("closed branch (built + consolidated)", root);

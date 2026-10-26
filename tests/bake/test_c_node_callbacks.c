@@ -255,15 +255,20 @@ static void test_callback_events(void) {
     DCG_CHECK(g_cb_log.last_subject == child);
     DCG_CHECK(g_cb_log.last_user_data == &payload);
 
-    /* Detaching notifies the former parent. */
-    DCG_CHECK_INT(c_dcg_node_detach(child), DCG_OK);
+    /* Unlinking notifies the former parent. */
+    DCG_CHECK_INT(c_dcg_node_unlink(child), DCG_OK);
     DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_CHILD_REMOVED);
     DCG_CHECK(g_cb_log.last_subject == child);
 
-    /* Replacing notifies with the surviving node as the subject. */
+    /* Replacing is ONE event, and it says the slot changed occupant - not a
+     * removal followed by an addition, which would tell an observer the arm
+     * left and came back at the tail. */
     DCG_CHECK_INT(c_dcg_node_append(parent, child, DCG_TRUE_CONDITION), DCG_OK);
+    (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
     DCG_CHECK_INT(c_dcg_node_replace(child, replacement), DCG_OK);
-    DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_CHILD_ADDED);
+    DCG_CHECK_INT(g_cb_log.calls, 1);
+    DCG_CHECK_INT(g_cb_log.last_event, DCG_NODE_EVENT_CHILD_UPDATED);
+    DCG_CHECK(g_cb_log.last_self == parent);
     DCG_CHECK(g_cb_log.last_subject == replacement);
 
     /* replace() only detaches the displaced node - owning it stays with the
@@ -289,6 +294,32 @@ static void test_callback_events(void) {
     (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
     c_dcg_node_free(parent);
     DCG_CHECK_INT(g_cb_log.calls, 0);
+}
+
+static void test_callback_freed_on_consolidation(void) {
+    /* The closing pass replaces the stand-in it found, and the release of the
+     * block that stood there is SILENT at this layer - the same as any other
+     * free (see the teardown at the end of test_callback_events). A wrapper that
+     * still names the block learns it is gone from the ALLOCATOR protocol's FREE
+     * pass, which runs before the block is reclaimed; that is the binding layer's
+     * contract (decision_graph/decision_tree/bake/c_node.pyx), not this event
+     * layer's, and a C observer of node events has nothing to be told here. */
+    (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
+
+    dcg_node* parent      = dcg_t_node_plain("parent");
+    dcg_node* placeholder = dcg_t_node_placeholder("stand-in");
+    uintptr_t id          = 0;
+
+    DCG_CHECK_INT(c_dcg_node_append(parent, placeholder, DCG_NO_CONDITION), DCG_OK);
+    DCG_CHECK_INT(c_dcg_node_register_callback(placeholder, record_callback, NULL, &id), DCG_OK);
+    (void) memset(&g_cb_log, 0, sizeof(g_cb_log));
+
+    DCG_CHECK_INT(c_dcg_node_consolidate_placeholder(parent), 1);
+    DCG_CHECK_INT(g_cb_log.calls, 0);
+
+    /* Tear the graph down, not just the top: the consolidated arm is a node of
+     * its own now, and a local free would leave it behind. */
+    DCG_CHECK_INT(c_dcg_node_teardown_root(parent), 2); /* parent + the no-action */
 }
 
 static void test_callback_self_unregistration(void) {
@@ -336,6 +367,7 @@ int main(void) {
     DCG_RUN(test_hook_visits_and_failures);
     DCG_RUN(test_callback_registration);
     DCG_RUN(test_callback_events);
+    DCG_RUN(test_callback_freed_on_consolidation);
     DCG_RUN(test_callback_self_unregistration);
     DCG_RUN(test_callback_seq_id);
     DCG_SUMMARY("test_c_node_callbacks");

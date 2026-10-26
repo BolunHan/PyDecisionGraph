@@ -153,6 +153,113 @@ class TestManagerLookups(GroupTestCase):
         self.assertIsNone(LGM.active_group)
 
 
+class TestTheBlockBehindTheWrapper(GroupTestCase):
+    """Contract: a group wrapper may outlive the block it stands for, as a husk.
+
+    Expected behavior:
+        - a block released under a live wrapper leaves that wrapper with no
+          address, no name, no type and no parent - the accessors refuse rather
+          than read a block that is gone;
+        - ``repr`` still answers, because it is the surface a debugger reads;
+        - a husk releases nothing a second time, and dies quietly;
+        - ``GROUP_REGISTRY`` does not answer an address with a husk: the entry is
+          dropped and the block itself is asked what stands there now.
+
+    A group block is released by the wrapper that owns it, and by that one only,
+    so the husk is the owner's own release seen from the other wrappers: the
+    name registry's view and any view a lookup rebuilt. What makes that safe is
+    the allocator's binding: every wrapper holds a reference on its block, the
+    block's FREE pass runs before it is reclaimed, and the wrapper is
+    invalidated there. This is what the CCP protocol is for, and these are the
+    terms of it a caller can see.
+    """
+
+    def _husked_pair(self) -> tuple:
+        """An owned block and a second wrapper over it, freed under the second.
+
+        The registry answers a held group with the wrapper the layer already
+        has, so the entry is dropped before the lookup: that is what makes the
+        lookup build a second wrapper over the same block instead of handing
+        back the first one.
+        """
+        # A store name is part of every read's display text, so it is short and
+        # counted: the class-and-method scope this base hands out is far too long.
+        self.group_name = f'{_store_tag}{next(_store_counter)}'
+        owner = LogicMapping(name=self.group_name)
+        address = owner.address
+        del GROUP_REGISTRY[address]
+
+        view = GROUP_REGISTRY[address]
+        return owner, view, address
+
+    def test_00_a_released_block_leaves_a_husk(self) -> None:
+        """The wrapper of a block the layer releases stops reporting it."""
+        owner, view, address = self._husked_pair()
+        self.assertIsNot(view, owner)
+        self.assertEqual(view.address, address)  # one block, two wrappers
+        self.assertEqual(view.name, self.group_name)
+
+        del owner  # the block is released while the view still names it
+
+        # Only the property accessors are guarded. A method called on a husk is
+        # the caller's mistake: it reaches the block that is gone, and that is
+        # the caller's to avoid. ``address`` reports the absence as 0.
+        self.assertEqual(view.address, 0)
+        for accessor in ('name', 'parent', 'lgtype'):
+            with self.subTest(accessor=accessor):
+                with self.assertRaises(RuntimeError):
+                    getattr(view, accessor)
+
+    def test_01_a_husk_releases_nothing_a_second_time(self) -> None:
+        """Deallocating a husk is silent: the block is already gone.
+
+        A second free would trip the allocator's own vigilant check and abort
+        the process, so reaching the end of this test IS the assertion.
+        """
+        owner, view, address = self._husked_pair()
+        del owner
+
+        del view
+        self.assertEqual(LogicGroup(name=f'{self.group_name}.after').name, f'{self.group_name}.after')
+
+    def test_02_a_lookup_answers_with_the_entry_and_never_writes(self) -> None:
+        """A read answers with the entry it holds; it does not mutate the map.
+
+        The entry is put back by hand after the block is gone - a state the
+        layer does not leave behind. A lookup returns it as it stands and
+        leaves the map alone; ``address`` is what tells a husk from a live
+        wrapper (0 versus the block's address).
+        """
+        owner, husk, address = self._husked_pair()
+        del owner
+
+        self.assertEqual(husk.address, 0)  # a husk has no address
+
+        GROUP_REGISTRY[address] = husk  # the entry a lookup finds
+        answered = GROUP_REGISTRY[address]
+
+        self.assertIs(answered, husk)
+        self.assertIn(address, GROUP_REGISTRY)
+
+    def test_03_an_owning_mapping_still_frees_normally(self) -> None:
+        """A held mapping owns its block, and letting it go frees that block.
+
+        The registry holds the wrapper itself, so the entry goes first -
+        otherwise the map, not the test, would be the last owner. Under the
+        vigilant allocator a block that still had a bound wrapper aborts the
+        process on free, so reaching the next line IS the assertion.
+        """
+        # Short and counted, for the reason ``_husked_pair`` gives.
+        self.group_name = f'{_store_tag}{next(_store_counter)}'
+        mapping = LogicMapping(name=self.group_name)
+        mapping['entry'] = 1.5
+        address = mapping.address
+        del GROUP_REGISTRY[address]
+
+        del mapping
+        self.assertEqual(LogicGroup(name=f'{self.group_name}.after').name, f'{self.group_name}.after')
+
+
 class TestTheBreakDoors(GroupTestCase):
     """Contract: a break NAMES the group it breaks - the instance door does.
 

@@ -241,7 +241,7 @@ static void test_the_lockdown_refuses_what_it_promised_to(void) {
     /* The structure of a baked graph is the structure it was baked with. */
     dcg_node* late = dcg_t_node_action(DCG_NODE_CLEARACTION, "ClearAction");
     DCG_CHECK_INT(c_dcg_node_append(tree.branch, late, DCG_ELSE_CONDITION), DCG_ERR_BUSY);
-    DCG_CHECK_INT(c_dcg_node_detach(tree.yes), DCG_ERR_BUSY);
+    DCG_CHECK_INT(c_dcg_node_unlink(tree.yes), DCG_ERR_BUSY);
     DCG_CHECK_INT(c_dcg_node_remove(tree.yes), DCG_ERR_BUSY);
     DCG_CHECK_INT(c_dcg_node_clear_children(tree.branch), 0);
 

@@ -52,30 +52,10 @@ cdef class ExpressionNode(LogicNode):
         self.c_register_node()
 
     def __dealloc__(self):
-        cdef size_t i
-        cdef size_t n_args = DCG_EXPR_DEFAULT_ARGS
-
-        if self.header:
-            n_args = (<dcg_expression_node*> self.header).n_args
-
-        if self.components:
-            for i in range(n_args):
-                Py_XDECREF(self.components[i])
-
-        PyMem_Free(self.components)
+        self.c_components_dealloc()
 
     cdef void __ccp_dealloc__(self):
-        cdef size_t n_args = DCG_EXPR_DEFAULT_ARGS
-
-        if self.header:
-            n_args = (<dcg_expression_node*> self.header).n_args
-
-        if self.components:
-            for i in range(n_args):
-                Py_XDECREF(self.components[i])
-
-        PyMem_Free(self.components)
-
+        self.c_components_dealloc()
         LogicNode.__ccp_dealloc__(self)
 
     # === Cython Internal Binding ===
@@ -84,6 +64,23 @@ cdef class ExpressionNode(LogicNode):
         self.components = <PyObject**> PyMem_Calloc(n_args, sizeof(PyObject*))
         if not self.components:
             raise MemoryError(f'Failed to allocate the operand array of the {self.__class__.__name__}.')
+
+    cdef void c_components_dealloc(self):
+        cdef size_t n_args = DCG_EXPR_DEFAULT_ARGS
+
+        if not self.components:
+            return
+
+        if self.header:
+            n_args = (<dcg_expression_node*> self.header).n_args
+
+        cdef size_t i
+        cdef PyObject* entry
+        for i in range(n_args):
+            Py_XDECREF(self.components[i])
+
+        PyMem_Free(self.components)
+        self.components = NULL
 
     cdef void c_components_assign(self, size_t index, LogicNode node):
         if self.components[index] == <PyObject*> node:

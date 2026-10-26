@@ -110,6 +110,8 @@ cdef class ExpressionNode(LogicNode):
 
     cdef void c_components_alloc(self, size_t n_args)
 
+    cdef void c_components_dealloc(self)
+
     cdef void c_components_assign(self, size_t index, LogicNode node)
 
 

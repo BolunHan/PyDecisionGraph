@@ -432,13 +432,10 @@ class LogicNodeRegistry(BoundByteMap):
     it; one that misses hands the node to the reconstruction, which is what makes
     a node reached from C come back as the class its type names.
 
-    An entry that names a husk is dropped rather than answered with: a block the
-    allocator has released may be handed to the next node, and a lookup has to
-    reach whoever stands there now, never the wrapper that used to. The entry is
-    dropped where it is read - not where the block is released, because that is
-    the allocator's FREE pass, and a map mutation there could deallocate another
-    wrapper bound to the same block and take a callback out of the list the pass
-    is walking.
+    A lookup only reads. It answers with the entry it holds, or hands a missing
+    address to the reconstruction; it never writes. An entry is removed where
+    the block is released (the wrapper's ``__ccp_dealloc__``), never where a
+    lookup notices that it is stale - a read must not mutate the map.
     """
 
     def __getitem__(self, key: int) -> LogicNode:

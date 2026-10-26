@@ -301,10 +301,10 @@ cdef class LogicGroupWrapperRegistry(BoundByteMap):
             return None
         return LogicGroup.c_from_header(logic_group, False)
 
-    def __getitem__(self, object key):
+    def __getitem__(self, uintptr_t key):
         cdef int ret_code = PyDict_Contains(<dict> self, key)
         if ret_code == 0:
-            return LogicGroup.c_from_header(<dcg_logic_group*> <uintptr_t> key, False)
+            return LogicGroup.c_from_header(<dcg_logic_group*> key, False)
         return super().__getitem__(key)
 
 

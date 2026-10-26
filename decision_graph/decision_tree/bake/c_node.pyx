@@ -655,25 +655,11 @@ cdef class LogicNodeRegistry(BoundByteMap):
             return None
         return LogicNode.c_dcg_node_reconstruct(node)
 
-    def __getitem__(self, object key):
-        cdef LogicNode node
-
-        if PyDict_Contains(<dict> self, key) == 1:
-            node = <LogicNode> <object> super().__getitem__(key)
-            if node.header:
-                return node
-
-            # A husk: its block was released, and no live node took the address
-            # since - a live one registers itself and overwrites this entry.
-            # So there is nothing here to answer with, and rebuilding from the
-            # address would read a block that is gone. The entry is dropped on
-            # the read that finds it: when the FREE pass could not drop it (the
-            # entry was the only reference, and the object must not die inside
-            # that pass), this is the safe point where it can go.
-            self.pop(key, None)
-            raise KeyError(key)
-
-        return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
+    def __getitem__(self, uintptr_t key):
+        cdef int ret_code = PyDict_Contains(<dict> self, key)
+        if ret_code == 0:
+            return LogicNode.c_dcg_node_reconstruct(<dcg_node*> <uintptr_t> key)
+        return super().__getitem__(key)
 
 # Local Cached LGM Pointer
 cdef dcg_logic_group_manager* C_LGM = NULL

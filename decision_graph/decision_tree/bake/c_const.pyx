@@ -167,6 +167,11 @@ cdef class VariableNode(LogicNode):
         self.ccp_bind(&self.header)
         self.c_register_node()
 
+    cdef void __ccp_dealloc__(self):
+        if <void*> self.logic_group != NULL:
+            self.logic_group = None
+        LogicNode.__ccp_dealloc__(self)
+
     # === Cython Internal Binding ===
 
     cdef void c_bind_slot(self, dcg_var_t* slot):

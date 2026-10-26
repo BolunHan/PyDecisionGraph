@@ -7,6 +7,9 @@ is decided by the layer table rather than by what happens to compile today.
 
 It is the *wrapper* graph only. The C headers have an include order of their
 own; that is not recorded here, and it does not decide where a `.pxd` goes.
+The wrapper lifetime contract (section 6) is recorded here too: it is not a
+layer edge, but it decides when a wrapper may still be used after its block is
+released.
 
 **The rule.** Three statements. Every breach in this layer is one of them.
 
@@ -35,7 +38,7 @@ own; that is not recorded here, and it does not decide where a `.pxd` goes.
 | 2 · node variant | 2.0 | `c_expr` | `c_expr.h` | node layer, ground |
 | 2 · node variant | 2.1 | `c_hierarchy` | `c_hierarchy.h` | node variant 2.0, node layer, ground |
 | 3 · logic group | | `c_logic_group` | `c_logic_group.h` | node variant layer, node layer |
-| 4 · collections | | `c_collections` | `c_collections.h` | logic group layer, node variant layer, ground |
+| 4 · collections | | `c_collections` | `c_collections.h` | logic group layer, node variant layer, node layer, ground |
 | 5 · reconstruct | | `c_reconstruct` | — (Cython only) | every layer below it |
 | 6 · protocol | 6.0 | `c_eval` | `c_eval.h` | every layer below it |
 | 6 · protocol | 6.1 | `c_bake` | `c_bake.h` | every layer below it |
@@ -129,12 +132,12 @@ c_var.pxd          ──▶  cbase
 c_edge.pxd         ──▶  c_var
 c_node.pxd         ──▶  c_edge, c_var
 c_action.pxd       ──▶  c_node
-c_const.pxd        ──▶  c_expr, c_node, c_var
+c_const.pxd        ──▶  c_node, c_var
 c_expr.pxd         ──▶  c_node, c_var
 c_hierarchy.pxd    ──▶  c_node, c_var
 c_logic_group.pxd  ──▶  c_hierarchy, c_node
-c_collections.pxd  ──▶  c_const, c_logic_group, c_var
-c_reconstruct.pxd  ──▶  c_action, c_collections, c_const, c_expr, c_hierarchy, c_logic_group, c_node
+c_collections.pxd  ──▶  c_const, c_logic_group, c_node, c_var
+c_reconstruct.pxd  ──▶  c_action, c_collections, c_const, c_expr, c_hierarchy, c_node
 c_eval.pxd         ──▶  c_hierarchy, c_node, c_var
 c_bake.pxd         ──▶  c_hierarchy, c_node, c_var
 ```
@@ -142,17 +145,23 @@ c_bake.pxd         ──▶  c_hierarchy, c_node, c_var
 A module also reaches `cbase` for `allocator_protocol`, and `cbase.bytemap` for
 `bytemap` - both from below the wrapper graph, so neither is an edge in it.
 
-One edge is a `.pyx`'s rather than a `.pxd`'s: **`c_expr.pyx` cimports
-`c_dcg_node_pypack` from `c_const.pxd`** - the conversion that turns a Python
-value into the literal that carries it, so a composition may be written
-`5 + read` and not only `ConstantNode(5) + read`. With `c_const.pxd` reaching
-`c_expr.pxd` for the expression classes, that closes a 2-cycle inside layer 2 -
-the one shape rule 2 forbids. It compiles and it imports because the helper is a
-cdef FUNCTION: Cython emits a runtime type import for every cdef CLASS declared
-in a cimported pxd, and a function needs none, so the runtime graph - the one
-that has to be a DAG - is untouched. The constraint that follows: nothing on that
-edge may name a class of the other module, or `c_expr` starts importing
-`c_const`'s types during its own init, which is the failure 3.3 describes.
+`c_reconstruct.pyx` takes one more module edge, `c_logic_group` for
+`GROUP_REGISTRY` and the group pointer; it is a `.pyx` edge inside layer 5 and
+changes no row of the table.
+
+The one 2-cycle inside layer 2 is between the `.pyx` modules, and it is a
+runtime-only non-cycle. **`c_const.pyx` cimports `c_expr.pxd`** for the
+expression classes (`BinaryExpression`, `UnaryExpression`) and its operator
+codes; **`c_expr.pyx` cimports `c_dcg_node_pypack` from `c_const.pxd`** - the
+conversion that turns a Python value into the literal that carries it, so a
+composition may be written `5 + read` and not only
+`ConstantNode(5) + read`. Cython emits a runtime type import for every cdef
+CLASS declared in a cimported pxd, so `c_const` imports `c_expr`'s classes; the
+reverse edge names only a cdef FUNCTION, which needs no runtime type import.
+The runtime graph is therefore a DAG even though the textual cimport graph has a
+2-cycle. The constraint that follows: the `c_expr` -> `c_const` edge may never
+name a cdef class of `c_const`, or `c_expr` starts importing `c_const`'s types
+during its own init, which is the failure 3.3 describes.
 
 ### 3.2 Textual edges (`cdef extern from`)
 
@@ -166,7 +175,7 @@ reaches that point upward (section 4.1).
 | `c_node.pxd` | `c_dcg_lgm_enter_node`, `c_dcg_lgm_exit_node`, and an incomplete `dcg_logic_group_manager`, from `c_logic_group.h` | up, 1 -> 3 |
 | `c_node.pxd` | `c_dcg_node_eval`, the eval stage flags and codes, from `c_eval.h` | up, 1 -> the eval protocol |
 | `c_action.pxd` | the connect constructors, and an incomplete `dcg_logic_group_manager`, from `c_logic_group.h` | up, 2 -> 3 |
-| `c_const.pxd` | an incomplete `dcg_logic_group`, from `c_node.h` | up, named but never dereferenced |
+| `c_const.pxd` | an incomplete `dcg_logic_group` / `dcg_logic_group_manager`, and `c_dcg_lgm_active_group`, from `c_logic_group.h` | up, 2 -> 3; the active-group query is called, the struct stays incomplete |
 | `c_hierarchy.pxd` | an incomplete `dcg_logic_group`, from `c_logic_group.h` | up, named but never dereferenced |
 | `c_var.pxd` | an incomplete `dcg_node`, from `c_node.h` | up, named but never dereferenced |
 | `c_hierarchy.pxd` | `c_dcg_root_node_eval`, `c_dcg_node_eval_graph`, and the path's outcome fields, from `c_eval.h` | up, 2.1 -> the eval protocol |
@@ -359,3 +368,61 @@ cimport inside a function is still a compile-time edge.
    carry it, it belongs in a higher layer - say so, and let the table move.
 3. Add the row here in the same change. A module that is not in the table has no
    layer, and one without a layer is how the next cycle gets written.
+
+## 6. Wrapper lifetime is not an edge (`CCPType`)
+
+The layer table answers "may this module name that symbol". It does not answer
+"may this wrapper still be used", and that is a second contract: a wrapper
+stands for a C block, and the block can be released while the wrapper is still
+referenced - by the wrapper's own `__dealloc__`, by the C layer during
+consolidation, or by a raw C free. The bake layer answers that with **`CCPType`**
+from `cbase.allocator_protocol.c_dual_interface`.
+
+**The binding is runtime state, not a cimport edge.** `LogicNode` and
+`LogicGroup` inherit `CCPType`; every constructor calls
+`ccp_bind(&self.header)` after the block exists, and every adoption helper
+(`LogicNode.c_from_header`, `LogicGroup.c_from_header`,
+`c_dcg_node_attach_header`) binds inside itself. A second bind on the same
+wrapper aborts with `[CCP] ERROR`, so a call site never binds again. The binding
+is a callback on the block's allocator protocol, not a name in a `pxd`, so it
+adds no row to the layer table and no runtime import to the graph.
+
+**The free pass.** `c_ap_free` invokes the protocol's FREE callbacks before it
+reclaims the block. The CCP adaptor releases the wrapper's binding reference,
+runs the wrapper's `__ccp_dealloc__` hook when one is armed, and then NULLs the
+wrapper's header slot. A wrapper whose header is NULL is a husk: guarded
+accessors refuse, `repr` still answers because it is the surface a debugger
+reads, and `address` reports the absence - a node wrapper raises, a group
+wrapper answers 0.
+
+**The split.** `__dealloc__` is the owning wrapper's half: owner check, then
+the C free. It does not clear the header - the free pass and the hook need it -
+and it does not tear down extra fields. `__ccp_dealloc__` is the hook: it
+resets every extra cdef field, frees and NULLs raw buffers, and chains to its
+base hook when the base has one. Resetting a field the subclass declared needs
+the NULL guard `if <void*> self.field != NULL`: Cython's `tp_dealloc` clears a
+subclass's fields before the base dealloc - and therefore before the hook -
+runs. A hook that resets a field declared by the class that owns the free may
+assign plainly.
+
+**What is bound today.** `LogicNode`, `LogicGroup`, `ExpressionNode` (and its
+arity subclasses), `VariableNode` / `AttrExpression`, `RootLogicNode`, and
+`BreakpointNode`. `ExpressionNode` is the one class with a raw `PyObject**`
+field: its `__dealloc__` calls the same `c_components_dealloc` the hook calls,
+because a non-owning view can die before the block and the hook never runs.
+Both paths are idempotent because the array pointer is NULLed after the free.
+
+**What is not.** Not every wrapper holds a binding: `NodeEdgeCondition` and
+`BakeReport` keep the owner flag; `NodeEvalPathView` and `VarView` borrow a
+pointer; the registry wrappers derive from cbase's `BoundByteMap`; and
+`LogicGroupManager` is a sole-owner wrapper. None of them is CCP-bound. A view
+of one of those must not outlive the block it points at; that is the boundary
+of the guarantee, not a second lifetime rule. Converting one is a separate
+change: it has to decide whether an adoption helper exists and whether the
+block is allocator-protocol-backed.
+
+**Where this is proved.** `tests/test_bake_node.py` and
+`tests/test_bake_logic_group.py` hold the husk contract - a second wrapper over
+a released block, its guarded accessors, and a silent second dealloc -
+`tests/test_bake_consolidation.py` covers the consolidation releases, and
+`tests/bake/` is the C lifecycle suite.

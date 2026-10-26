@@ -25,6 +25,7 @@ cdef class LogicMapping(LogicGroup):
         # The base group is the first member, so a mapping IS a group.
         self.header = <dcg_logic_group*> lgroup
         self.owner = True
+        self.ccp_bind(&self.header)
         if parent is not None:
             self.header.parent = parent.header
         LGM.register(self)
@@ -100,7 +101,7 @@ cdef class LogicMapping(LogicGroup):
     property frozen:
         def __get__(self):
             if not self.header:
-                return False
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             return bool((<dcg_mapping_lgroup*> self.header).frozen)
 
         def __set__(self, bint value):
@@ -135,6 +136,7 @@ cdef class AttrExpression(VariableNode):
         # them - so this wrapper releases nothing, and it holds the group instead,
         # which is what keeps the store alive for as long as the read is.
         self.owner = False
+        self.ccp_bind(&self.header)
         self.logic_group = mapping
         self.c_register_node()
 
@@ -148,8 +150,11 @@ cdef class AttrExpression(VariableNode):
             cdef dcg_variable_node* node = <dcg_variable_node*> self.header
             if not node.key:
                 return None
+            cdef LogicMapping mapping = <LogicMapping> self.logic_group
+            if not mapping.header:
+                raise RuntimeError(f'<{mapping.__class__.__name__}> not initialized!')
 
-            cdef dcg_mapping_lgroup* lgroup = <dcg_mapping_lgroup*> (<LogicMapping> self.logic_group).header
+            cdef dcg_mapping_lgroup* lgroup = <dcg_mapping_lgroup*> mapping.header
             cdef dcg_var_t* slot = &node.base.out
 
             # The read knows WHERE its entry is: until it has been evaluated that

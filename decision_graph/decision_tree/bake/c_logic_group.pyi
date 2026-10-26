@@ -166,6 +166,15 @@ class LogicGroup:
     A group carries a name, a type and a parent, and a build entered into it is
     inside it - `with group:` enters, and leaving restores whatever was active
     before.
+
+    A wrapper can outlive its block. Every wrapper holds a reference on the
+    block it stands for, the allocator's FREE pass runs before the block is
+    reclaimed, and the wrapper is invalidated there - so a wrapper whose owner
+    released the block, or whose block the C layer released itself, is a husk
+    from then on. The PROPERTY accessors are guarded: on a husk they raise
+    ``RuntimeError`` instead of reading a block that is gone. Methods are not
+    guarded - calling one on a husk is the caller's mistake, and the wrapper
+    frees nothing a second time either way.
     """
 
     def __init__(self, *, name: str | None = None, parent: LogicGroup | None = None, **kwargs: Any) -> None:
@@ -243,7 +252,8 @@ class LogicGroupWrapperRegistry(BoundByteMap):
 
     The same rule the node registry keeps: a lookup that finds the address
     answers with the wrapper the layer holds, and one that misses builds a new
-    wrapper over the block.
+    wrapper over the block. A lookup only reads - it never adds, replaces or
+    removes an entry.
     """
 
     def __getitem__(self, key: int) -> LogicGroup:
@@ -253,7 +263,8 @@ class LogicGroupWrapperRegistry(BoundByteMap):
             key: Address of the C group block.
 
         Returns:
-            The group wrapper for that address.
+            The group wrapper for that address - the stored one when the entry
+            exists, a fresh view over the block when it does not.
         """
         ...
 

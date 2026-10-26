@@ -1,6 +1,6 @@
 from libcpp cimport bool as c_bool
 
-from cbase.allocator_protocol cimport allocator_protocol
+from cbase.allocator_protocol cimport CCPType, allocator_protocol
 from cbase.bytemap cimport BoundByteMap, bytemap
 
 from .c_hierarchy cimport dcg_breakpoint_node, dcg_root_node
@@ -141,7 +141,7 @@ cdef class LogicGroupManager:
 cdef LogicGroupManager LGM
 
 
-cdef class LogicGroup:
+cdef class LogicGroup(CCPType):
     cdef dcg_logic_group* header
     cdef bint owner
 
@@ -158,5 +158,6 @@ cdef class LogicGroupWrapperRegistry(BoundByteMap):
 
     @staticmethod
     cdef LogicGroupWrapperRegistry c_from_header(bytemap* header, bint owner=?)
+
 
 cdef LogicGroupWrapperRegistry GROUP_REGISTRY

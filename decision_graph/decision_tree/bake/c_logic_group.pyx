@@ -171,7 +171,7 @@ cdef class LogicGroupManager:
             return c_dcg_lgm_breakpoint_count(self.header)
 
 
-cdef class LogicGroup:
+cdef class LogicGroup(CCPType):
     def __init__(self, *, str name=None, LogicGroup parent=None, **kwargs):
         self.header = c_dcg_logic_group_new(
             DCG_LG_BASE,
@@ -182,19 +182,21 @@ cdef class LogicGroup:
             raise MemoryError(f'Failed to allocate {self.__class__.__name__}({name!r}).')
 
         self.owner = True
+        self.ccp_bind(&self.header)
         if parent is not None:
             self.header.parent = parent.header
         LGM.register(self)
 
     def __dealloc__(self):
-        # __dealloc__ chains through the hierarchy, so the release goes through
-        # one virtual method: a family that adds state of its own overrides it
-        # rather than freeing the block a second time in its own __dealloc__.
         if not self.owner:
             return
 
         if self.header:
             self.c_free_header()
+
+    cdef void __ccp_dealloc__(self):
+        self.owner = False
+        self.header = NULL
 
     cdef void c_free_header(self):
         c_dcg_logic_group_free(self.header)
@@ -204,6 +206,7 @@ cdef class LogicGroup:
         cdef LogicGroup instance = LogicGroup.__new__(LogicGroup)
         instance.header = header
         instance.owner = owner
+        instance.ccp_bind(&instance.header)  # block start - bind inside the adoption
         return instance
 
     # === Python Dunders ===
@@ -238,20 +241,24 @@ cdef class LogicGroup:
 
     property name:
         def __get__(self):
-            if not self.header or not self.header.name:
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            if not self.header.name:
                 return None
             return PyUnicode_FromString(self.header.name)
 
     property parent:
         def __get__(self):
-            if not self.header or not self.header.parent:
+            if not self.header:
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
+            if not self.header.parent:
                 return None
             return GROUP_REGISTRY[<uintptr_t> self.header.parent]
 
     property lgtype:
         def __get__(self):
             if not self.header:
-                return None
+                raise RuntimeError(f'<{self.__class__.__name__}> not initialized!')
             return self.header.lgtype
 
     property address:

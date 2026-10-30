@@ -9,9 +9,20 @@ from pathlib import Path
 
 import cbase
 from cbase.cython_injection import inject_cython_includes as _inject_cython_includes
+from cbase.cython_injection import record_cython_include as _record_cython_include
 from Cython.Build import cythonize
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
+
+try:
+    from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
+except ImportError:  # older setuptools without the vendored command
+    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+
+try:
+    from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
+except ImportError:  # setuptools < 64 has no PEP 660 editable command
+    _editable_wheel = None
 
 # ==============================
 # Setup Configuration
@@ -211,6 +222,28 @@ class BuildExtWithConfig(build_ext):
                 shutil.copyfile(infra_pxd, src_init_pxd)
 
 
+class BdistWheelWithCythonLink(_bdist_wheel):
+    """Record the injected Cython/Includes link in the wheel's RECORD."""
+
+    def run(self):
+        super().run()
+        impl_tag, abi_tag, plat_tag = self.get_tag()
+        wheel_name = f"{self.wheel_dist_name}-{impl_tag}-{abi_tag}-{plat_tag}.whl"
+        recorded = _record_cython_include(Path(self.dist_dir) / wheel_name, PACKAGE_NAME)
+        print(f"[build_py] <{DISPLAY_NAME}> Cython link recorded: {recorded}")
+
+
+if _editable_wheel is not None:
+    class EditableWheelWithCythonLink(_editable_wheel):
+        """Record the injected link in the PEP 660 editable wheel's RECORD."""
+
+        def _create_wheel_file(self, bdist_wheel):
+            wheel_path = super()._create_wheel_file(bdist_wheel)
+            recorded = _record_cython_include(wheel_path, PACKAGE_NAME)
+            print(f"[build_py] <{DISPLAY_NAME}> Cython link recorded: {recorded}")
+            return wheel_path
+
+
 # =============================
 # Define Cython Extensions
 # =============================
@@ -347,8 +380,15 @@ if __name__ == "__main__":
     # Setup Function
     # =============================
 
+    cmdclass = {
+        "build_ext": BuildExtWithConfig,
+        "bdist_wheel": BdistWheelWithCythonLink,
+    }
+    if _editable_wheel is not None:
+        cmdclass["editable_wheel"] = EditableWheelWithCythonLink
+
     setup(
         name=DISPLAY_NAME,
         ext_modules=ext_modules,
-        cmdclass={"build_ext": BuildExtWithConfig},
+        cmdclass=cmdclass,
     )

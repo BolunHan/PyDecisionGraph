@@ -134,6 +134,7 @@ LOGGER.info(root())
 - Log outputs for debugging and tracking.
 - Visualize decision paths through HTML export.
 - Bake a finished tree once (root.bake()) and let it decide in a hot loop.
+- Bake-layer store lookups (`LogicMapping.get` / `set_default`) that keep a missing name distinct from a held-but-empty one.
 - CCP-safe invalidation for bake wrappers when their C block is released.
 - C diagnostics that name the operation, the cause, and the consequence.
 - Slot-stable unlink, replace, and placeholder consolidation.

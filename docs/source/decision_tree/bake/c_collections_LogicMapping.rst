@@ -18,6 +18,13 @@ LogicMapping
       A store's shape is its own to close: ``frozen`` refuses a new entry from then
       on, and leaves what the store already holds - values, reads, writes - working.
 
+      What the store holds right now is a separate question from what a graph reads,
+      and it has its own answers: ``get`` returns a held entry's value - ``None``
+      when nothing has landed in it - and raises ``KeyError`` for a name the store
+      does not hold, while ``set_default`` performs the same read and creates a
+      missing entry from a default, only when one is given. Neither builds a read
+      or reserves an entry.
+
    .. py:method:: __init__(self, *, name: str | None = None, capacity: int = 0, parent: ~decision_graph.decision_tree.bake.c_logic_group.LogicGroup | None = None, **kwargs: Any) -> None
 
       Build a store.
@@ -63,6 +70,44 @@ LogicMapping
       Whether an entry is held. Asking does not reserve one.
 
       :param key: Entry name.
+
+   .. py:method:: get(self, key: str) -> Any
+
+      The value an entry holds.
+
+      Unlike ``mapping[key]``, this is a lookup, not a build: a missing entry is
+      not reserved, and an entry that holds nothing yet reads ``None``. The two
+      states are told apart by the answer: a name the store does not hold raises,
+      while a held entry that holds nothing returns ``None``.
+
+      :param key: Entry name.
+
+      :returns: The entry's value; ``None`` when the entry is held but nothing has
+                landed in it.
+
+      :raises KeyError: When the store holds no entry of that name.
+
+   .. py:method:: set_default(self, key: str, default: Any = ...) -> Any
+
+      The value an entry holds, writing ``default`` when the entry is missing.
+
+      The read-and-set :meth:`dict.setdefault` performs, over this store: an
+      entry the store already holds answers as it is - a reserved entry
+      included, which returns ``None`` and is not written - and only a name the
+      store does not hold is created, from ``default``.
+
+      When ``default`` is omitted there is nothing to write, so the call is the
+      pure lookup :meth:`get` is: a held entry answers, and a miss raises.
+
+      :param key: Entry name.
+      :param default: Value a missing entry is created with; omitted, the call
+                      only reads.
+
+      :returns: The value the entry held, or ``default`` when it was missing.
+
+      :raises KeyError: When the store holds no entry of that name and no default
+          is given.
+      :raises PermissionError: When the store is frozen and the entry is missing.
 
    .. py:method:: __len__(self) -> int
 

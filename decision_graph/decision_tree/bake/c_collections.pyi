@@ -88,6 +88,51 @@ class LogicMapping(LogicGroup):
         """
         ...
 
+    def get(self, key: str) -> Any:
+        """The value an entry holds.
+
+        Unlike ``mapping[key]``, this is a lookup, not a build: a missing entry is
+        not reserved, and an entry that holds nothing yet reads ``None``. The two
+        states are told apart by the answer: a name the store does not hold raises,
+        while a held entry that holds nothing returns ``None``.
+
+        Args:
+            key: Entry name.
+
+        Returns:
+            The entry's value; ``None`` when the entry is held but nothing has
+            landed in it.
+
+        Raises:
+            KeyError: When the store holds no entry of that name.
+        """
+        ...
+
+    def set_default(self, key: str, default: Any = ...) -> Any:
+        """The value an entry holds, writing ``default`` when the entry is missing.
+
+        The read-and-set :meth:`dict.setdefault` performs, over this store: an
+        entry the store already holds answers as it is - a reserved entry
+        included, which returns ``None`` and is not written - and only a name the
+        store does not hold is created, from ``default``.
+
+        When ``default`` is omitted there is nothing to write, so the call is the
+        pure lookup :meth:`get` is: a held entry answers, and a miss raises.
+
+        Args:
+            key: Entry name.
+            default: Value a missing entry is created with; omitted, the call
+                only reads.
+
+        Returns:
+            The value the entry held, or ``default`` when it was missing.
+
+        Raises:
+            KeyError: When the store holds no entry of that name and no default
+                is given, or when the store is frozen and the entry is missing.
+        """
+        ...
+
     def __len__(self) -> int:
         """The entries held, reserved ones included."""
         ...

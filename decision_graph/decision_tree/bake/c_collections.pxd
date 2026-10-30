@@ -42,10 +42,17 @@ cdef extern from "decision_graph/decision_tree/bake/c_collections.h":
     int c_dcg_mapping_lgroup_get_var_idx(const dcg_mapping_lgroup* lgroup, const char* key, size_t key_len, size_t* out_index) noexcept nogil
 
 
+cdef object _SENTINEL
+
+
 cdef class LogicMapping(LogicGroup):
     cdef dcg_var_t* c_get_slot(self, const char* key, size_t key_len)
 
     cdef dcg_var_t* c_get_create_slot(self, const char* key, size_t key_len, const dcg_var_type* var_type) except NULL
+
+    cpdef object get(self, str key)
+
+    cpdef object set_default(self, str key, object default=?)
 
 
 cdef class AttrExpression(VariableNode):

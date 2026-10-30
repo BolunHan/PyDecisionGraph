@@ -6,6 +6,9 @@ from .c_node cimport DCG_NODE_STRING_MAXLEN
 from .c_var cimport c_dcg_var_pypack, c_dcg_var_pyunpack, dcg_ret_code, dcg_var_type
 
 
+cdef object _SENTINEL = object()
+
+
 cdef class LogicMapping(LogicGroup):
     def __init__(self, *, str name=None, size_t capacity=0, LogicGroup parent=None, **kwargs):
         if name is not None and len(name) > DCG_NODE_STRING_MAXLEN // 4:
@@ -78,6 +81,37 @@ cdef class LogicMapping(LogicGroup):
 
     def __bool__(self):
         return bool((<dcg_mapping_lgroup*> self.header).n_slots)
+
+    cpdef object get(self, str key):
+        cdef Py_ssize_t  key_len = 0
+        cdef const char* c_key   = PyUnicode_AsUTF8AndSize(key, &key_len)
+        cdef dcg_var_t*  slot    = c_dcg_mapping_lgroup_get_slot(<dcg_mapping_lgroup*> self.header, c_key, key_len)
+
+        if not slot:
+            raise KeyError(f'<{self.__class__.__name__}> holds no entry named {key!r}.')
+        return c_dcg_var_pyunpack(slot)
+
+    cpdef object set_default(self, str key, object default=_SENTINEL):
+        cdef Py_ssize_t  key_len = 0
+        cdef const char* c_key   = PyUnicode_AsUTF8AndSize(key, &key_len)
+        cdef dcg_var_t*  slot    = c_dcg_mapping_lgroup_get_slot(<dcg_mapping_lgroup*> self.header, c_key, key_len)
+
+        if slot:
+            return c_dcg_var_pyunpack(slot)
+
+        # No default given: nothing to write, so the call is the lookup get is.
+        if default is _SENTINEL:
+            raise KeyError(f'<{self.__class__.__name__}> holds no entry named {key!r}.')
+
+        cdef dcg_var_t packed
+        c_dcg_var_pypack(&packed, default)
+
+        cdef int ret_code = c_dcg_mapping_lgroup_set(<dcg_mapping_lgroup*> self.header, c_key, key_len, &packed)
+        if ret_code != dcg_ret_code.DCG_OK:
+            if ret_code == dcg_ret_code.DCG_ERR_BUSY:
+                raise KeyError(f'<{self.__class__.__name__}> is frozen: no entry named {key!r}.')
+            raise RuntimeError(f'c_dcg_mapping_lgroup_set failed with err code: {ret_code}')
+        return default
 
     def update(self, *args, **kwargs):
         if len(args) > 1:

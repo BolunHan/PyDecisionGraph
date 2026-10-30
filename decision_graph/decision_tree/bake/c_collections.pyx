@@ -109,7 +109,7 @@ cdef class LogicMapping(LogicGroup):
         cdef int ret_code = c_dcg_mapping_lgroup_set(<dcg_mapping_lgroup*> self.header, c_key, key_len, &packed)
         if ret_code != dcg_ret_code.DCG_OK:
             if ret_code == dcg_ret_code.DCG_ERR_BUSY:
-                raise KeyError(f'<{self.__class__.__name__}> is frozen: no entry named {key!r}.')
+                raise PermissionError(f'<{self.__class__.__name__}> is frozen: cannot create the missing entry {key!r}.')
             raise RuntimeError(f'c_dcg_mapping_lgroup_set failed with err code: {ret_code}')
         return default
 

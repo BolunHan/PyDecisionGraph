@@ -25,6 +25,13 @@ class LogicMapping(LogicGroup):
 
     A store's shape is its own to close: ``frozen`` refuses a new entry from then
     on, and leaves what the store already holds - values, reads, writes - working.
+
+    What the store holds right now is a separate question from what a graph reads,
+    and it has its own answers: ``get`` returns a held entry's value - ``None``
+    when nothing has landed in it - and raises ``KeyError`` for a name the store
+    does not hold, while ``set_default`` performs the same read and creates a
+    missing entry from a default, only when one is given. Neither builds a read
+    or reserves an entry.
     """
 
     def __init__(self, *, name: str | None = None, capacity: int = 0, parent: LogicGroup | None = None, **kwargs: Any) -> None:
@@ -129,7 +136,8 @@ class LogicMapping(LogicGroup):
 
         Raises:
             KeyError: When the store holds no entry of that name and no default
-                is given, or when the store is frozen and the entry is missing.
+                is given.
+            PermissionError: When the store is frozen and the entry is missing.
         """
         ...
 

@@ -547,3 +547,217 @@ class TestTheStoreAsAContainer(MappingTestCase):
         with mapping:
             with self.assertRaises(KeyError):
                 mapping['open']                # still sealed against new entries
+
+
+class TestTheStoreAsALookup(MappingTestCase):
+    """Contract: ``get`` reads the store's contents without building a read.
+
+    ``mapping[key]`` is how a graph names an entry, and naming a missing one
+    reserves it; ``get`` is the container's question - what does the store hold
+    under this name right now - and it creates nothing. A lookup has exactly
+    two answers, and they are distinct: the held value (``None`` when the entry
+    is reserved but holds nothing), and ``KeyError`` when the name is not held
+    at all. No fallback exists that could blur the two.
+
+    Expected behavior:
+        - a name the store does not hold raises ``KeyError``;
+        - a held entry reads its value, and a reserved one reads ``None``;
+        - asking leaves the store's shape alone: nothing is reserved, and
+          ``len`` and ``in`` do not move;
+        - a written entry reads back the value written, of every literal kind;
+        - a frozen store answers its entries and raises ``KeyError`` for a miss;
+        - ``get`` needs no active group, unlike ``mapping[key]``;
+        - the name ``get`` belongs to the method: an entry called ``get`` is
+          read through ``mapping['get']``, never through the attribute.
+
+    Oracle: a plain dict fed the same writes, for the entries written; the
+    reservation protocol, settled above, for what a reserved entry reads.
+    """
+
+    def test_00_a_missing_entry_raises(self) -> None:
+        """The container's answer to a miss, with no build to ask inside."""
+        mapping = LogicMapping(name=self.scope)
+
+        with self.assertRaises(KeyError) as caught:
+            mapping.get('close')
+        self.assertIn('close', str(caught.exception))
+        with self.assertRaises(RuntimeError):
+            mapping['close']  # the read needs a build
+
+    def test_01_a_lookup_reserves_nothing(self) -> None:
+        """Asking is not naming: the entry does not come to exist."""
+        mapping = LogicMapping(name=self.scope)
+
+        with self.assertRaises(KeyError):
+            mapping.get('close')
+        with self.assertRaises(KeyError):
+            mapping.get('close')
+
+        self.assertNotIn('close', mapping)
+        self.assertEqual(len(mapping), 0)
+        self.assertFalse(mapping)
+
+    def test_02_a_written_entry_reads_back(self) -> None:
+        """The value put in an entry is the value a lookup reports."""
+        mapping = LogicMapping(name=self.scope)
+        written = {'an_int': 7, 'a_float': 2.5, 'a_bool': True, 'a_string': 'text', 'nothing': None}
+        mapping.update(written)
+
+        for key, expected in written.items():
+            with self.subTest(entry=key):
+                self.assertEqual(mapping.get(key), expected)
+
+    def test_03_a_reserved_entry_reads_none(self) -> None:
+        """A held entry that holds nothing is not a miss."""
+        mapping = LogicMapping(name=self.scope)
+        with mapping:
+            mapping['later']  # a read names the entry; no value lands in it
+
+        self.assertIn('later', mapping)
+        self.assertIsNone(mapping.get('later'))
+
+    def test_04_a_frozen_store_answers_lookups(self) -> None:
+        """The seal closes the shape; a lookup creates nothing for it to close."""
+        mapping = LogicMapping(name=self.scope)
+        mapping.update(close=1.5)
+        mapping.frozen = True
+
+        self.assertEqual(mapping.get('close'), 1.5)
+        with self.assertRaises(KeyError):
+            mapping.get('open')
+        self.assertNotIn('open', mapping)
+        self.assertEqual(len(mapping), 1)
+
+    def test_05_the_value_is_the_store_of_the_moment(self) -> None:
+        """A lookup reads the entry now, not the value it first saw."""
+        mapping = LogicMapping(name=self.scope)
+        mapping['close'] = 1.5
+        self.assertEqual(mapping.get('close'), 1.5)
+
+        mapping['close'] = 9.5
+        self.assertEqual(mapping.get('close'), 9.5)
+
+        mapping.clear()
+        with self.assertRaises(KeyError):
+            mapping.get('close')
+
+    def test_06_the_name_get_is_the_method(self) -> None:
+        """The method speaks for the name; the entry speaks through ``[]``."""
+        mapping = LogicMapping(name=self.scope)
+        with mapping:
+            read = mapping['get']
+
+        self.assertTrue(callable(mapping.get))
+        self.assertNotIsInstance(mapping.get, AttrExpression)
+        self.assertEqual(read.key, 'get')       # the entry is still readable by key
+        self.assertIsNone(mapping.get('get'))   # reserved by that read, and empty
+
+
+class TestSetDefault(MappingTestCase):
+    """Contract: ``set_default`` is the store's ``dict.setdefault``.
+
+    It reads an entry and writes only a name the store does not hold. A
+    reserved entry is an entry: the store holds it, so it answers as it is -
+    ``None`` - and the default is not written into it.
+
+    Expected behavior:
+        - a missing entry is created from the default, which is returned and
+          becomes the entry's value; the store counts it from then on;
+        - an entry that holds a value answers unchanged, and the default is not
+          written;
+        - a reserved entry answers ``None``, and the default is not written;
+        - a read built before the call has already reserved the name, so the
+          entry is held: the default is not written, and the read keeps reading
+          nothing until the entry is written through ``mapping[key] = value``;
+        - a frozen store serves the entries it holds and refuses to create a
+          missing one with ``KeyError``, leaving the store as it was;
+        - ``default`` is optional: omitted, there is nothing to write, and the
+          call is the pure lookup ``get`` is - a miss raises ``KeyError``.
+
+    Oracle: ``dict.setdefault`` fed the same calls; the reservation protocol,
+    settled above, for the reserved entry.
+    """
+
+    def test_00_a_missing_entry_is_created_with_the_default(self) -> None:
+        """The write half: the default becomes the entry's value."""
+        mapping = LogicMapping(name=self.scope)
+        self.assertEqual(mapping.set_default('close', 1.5), 1.5)
+
+        self.assertIn('close', mapping)
+        self.assertEqual(len(mapping), 1)
+        self.assertEqual(mapping.get('close'), 1.5)
+
+    def test_01_a_held_entry_answers_unchanged(self) -> None:
+        """The read half: an entry that holds a value is not overwritten."""
+        mapping = LogicMapping(name=self.scope)
+        mapping['close'] = 1.5
+
+        self.assertEqual(mapping.set_default('close', 9.5), 1.5)
+        self.assertEqual(mapping.get('close'), 1.5)
+
+    def test_02_a_reserved_entry_answers_none(self) -> None:
+        """A held entry that holds nothing is not a name to create."""
+        mapping = LogicMapping(name=self.scope)
+        with mapping:
+            mapping['later']
+
+        self.assertIsNone(mapping.set_default('later', 5))
+        self.assertIsNone(mapping.get('later'))
+        self.assertEqual(len(mapping), 1)
+
+    def test_03_a_read_built_before_the_call_holds_the_entry(self) -> None:
+        """The read reserves the name, so the default is not the one that fills it."""
+        mapping = LogicMapping(name=self.scope)
+        with mapping:
+            read = mapping['close']
+        self.assertIsNone(read.value)
+
+        self.assertIsNone(mapping.set_default('close', 3.25))  # held: nothing written
+        self.assertIsNone(read.value)
+
+        mapping['close'] = 3.25  # the write protocol fills a reservation
+        self.assertEqual(read.value, 3.25)
+
+    def test_04_a_frozen_store_creates_nothing(self) -> None:
+        """The seal refuses the write half, never the read half."""
+        mapping = LogicMapping(name=self.scope)
+        mapping['close'] = 1.5
+        mapping.frozen = True
+
+        self.assertEqual(mapping.set_default('close', 9.5), 1.5)
+        with self.assertRaises(KeyError):
+            mapping.set_default('open', 2.5)
+        self.assertNotIn('open', mapping)
+        self.assertEqual(len(mapping), 1)
+
+    def test_05_the_default_is_the_object_returned(self) -> None:
+        """On creation the caller gets the object it passed, not a copy."""
+        mapping = LogicMapping(name=self.scope)
+        default = ''.join(['a-', 'default'])
+
+        self.assertIs(mapping.set_default('a_string', default), default)
+        self.assertEqual(mapping.get('a_string'), default)
+
+    def test_06_no_default_is_a_pure_lookup(self) -> None:
+        """Without a default there is nothing to write: the call is ``get``."""
+        mapping = LogicMapping(name=self.scope)
+        mapping['close'] = 1.5
+        self.assertEqual(mapping.set_default('close'), 1.5)
+
+        with mapping:
+            mapping['later']
+        self.assertIsNone(mapping.set_default('later'))
+
+        with self.assertRaises(KeyError) as caught:
+            mapping.set_default('open')
+        self.assertIn('open', str(caught.exception))
+        self.assertNotIn('open', mapping)
+
+    def test_07_an_explicit_none_is_a_default(self) -> None:
+        """None is a value to write, not the marker for "no default"."""
+        mapping = LogicMapping(name=self.scope)
+
+        self.assertIsNone(mapping.set_default('nothing', None))
+        self.assertIn('nothing', mapping)
+        self.assertEqual(len(mapping), 1)
+        self.assertIsNone(mapping.get('nothing'))

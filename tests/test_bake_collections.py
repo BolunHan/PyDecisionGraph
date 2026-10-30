@@ -670,7 +670,7 @@ class TestSetDefault(MappingTestCase):
           entry is held: the default is not written, and the read keeps reading
           nothing until the entry is written through ``mapping[key] = value``;
         - a frozen store serves the entries it holds and refuses to create a
-          missing one with ``KeyError``, leaving the store as it was;
+          missing one with ``PermissionError``, leaving the store as it was;
         - ``default`` is optional: omitted, there is nothing to write, and the
           call is the pure lookup ``get`` is - a miss raises ``KeyError``.
 
@@ -725,7 +725,7 @@ class TestSetDefault(MappingTestCase):
         mapping.frozen = True
 
         self.assertEqual(mapping.set_default('close', 9.5), 1.5)
-        with self.assertRaises(KeyError):
+        with self.assertRaises(PermissionError):
             mapping.set_default('open', 2.5)
         self.assertNotIn('open', mapping)
         self.assertEqual(len(mapping), 1)

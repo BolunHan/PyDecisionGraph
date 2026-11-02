@@ -548,6 +548,16 @@ class TestTheStoreAsAContainer(MappingTestCase):
             with self.assertRaises(KeyError):
                 mapping['open']                # still sealed against new entries
 
+    def test_09_a_large_store_round_trips(self) -> None:
+        """The index map grows with the store, and every entry keeps its slot."""
+        mapping = LogicMapping(name=self.scope)
+        payload = {f'k{i}': i for i in range(300)}
+        mapping.update(payload)
+
+        self.assertEqual(len(mapping), len(payload))
+        for key, expected in payload.items():
+            self.assertEqual(mapping.get(key), expected)
+
 
 class TestTheStoreAsALookup(MappingTestCase):
     """Contract: ``get`` reads the store's contents without building a read.

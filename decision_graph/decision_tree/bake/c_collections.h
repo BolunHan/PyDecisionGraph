@@ -84,7 +84,7 @@
  */
 typedef struct dcg_mapping_lgroup {
     dcg_logic_group base;         // The common group header. Must stay first.
-    bytemap         idx_mapping;  // Entry name -> slot index (stored as a uintptr_t).
+    bytemap         idx_mapping;  // Entry name -> slot index (stored as an ssize_t).
     dcg_var_t*      slots;        // OWNED - nested block of `capacity` values.
     size_t          n_slots;      // Slots in use.
     size_t          capacity;     // Slots the block has room for.
@@ -212,7 +212,7 @@ static inline dcg_mapping_lgroup* c_dcg_mapping_lgroup_new(const char* name, siz
     }
 
     /* One pointer-sized value slot per entry: the index of the value in `slots`. */
-    if (c_bytemap_ex_init(&lgroup->idx_mapping, capacity, sizeof(uintptr_t), c_ap_protocol_from_ptr(lgroup)) != BYTEMAP_OK) {
+    if (c_bytemap_ex_init(&lgroup->idx_mapping, capacity, sizeof(ssize_t), c_ap_protocol_from_ptr(lgroup)) != BYTEMAP_OK) {
         c_ap_free_owned(lgroup);
         return NULL;
     }
@@ -319,13 +319,11 @@ static inline int c_dcg_mapping_lgroup_get_var_idx(const dcg_mapping_lgroup* lgr
     if (out_index) *out_index = 0;
     if (!lgroup || !key || !out_index) return DCG_ERR_INVALID_ARG;
 
-    void* stored = NULL;
-    if (c_bytemap_get(&lgroup->idx_mapping, key, key_len, &stored) != BYTEMAP_OK) return DCG_ERR_NOT_FOUND;
+    ssize_t stored = 0;
+    if (c_bytemap_ex_get_ssize_t(&lgroup->idx_mapping, key, key_len, &stored) != BYTEMAP_OK) return DCG_ERR_NOT_FOUND;
+    if (stored < 0 || (size_t) stored >= lgroup->n_slots) return DCG_ERR_NOT_FOUND;
 
-    size_t index = (size_t) (uintptr_t) stored;
-    if (index >= lgroup->n_slots) return DCG_ERR_NOT_FOUND;
-
-    *out_index = index;
+    *out_index = (size_t) stored;
     return DCG_OK;
 }
 
@@ -385,29 +383,25 @@ static inline int c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgrou
 
     if (!lgroup || !key) return DCG_ERR_INVALID_ARG;
 
-    uintptr_t index      = (uintptr_t) lgroup->n_slots;
-    char*     stored     = NULL;
-    size_t    stored_len = 0;
+    ssize_t index      = (ssize_t) lgroup->n_slots;
+    ssize_t slot_index = 0;
 
-    if (c_bytemap_ex_set_default(&lgroup->idx_mapping, key, key_len, (const char*) &index, sizeof(index), 0, &stored, &stored_len) != BYTEMAP_OK) return DCG_ERR_OOM;
-    if (!stored || stored_len != sizeof(uintptr_t)) return DCG_ERR_OOM;
-
-    uintptr_t slot_index = 0;
-    memcpy(&slot_index, stored, sizeof(slot_index));
+    if (c_bytemap_ex_set_default_ssize_t(&lgroup->idx_mapping, key, key_len, index, 0, &slot_index) != BYTEMAP_OK) return DCG_ERR_OOM;
+    if (slot_index < 0) return DCG_ERR_OOM;
 
     /* The key was new exactly when the map handed back the default, which is the
      * index of a slot this block does not have yet. */
-    if (slot_index == lgroup->n_slots) {
+    if ((size_t) slot_index == lgroup->n_slots) {
         if (lgroup->frozen) {
-            c_bytemap_pop(&lgroup->idx_mapping, key, key_len, NULL); /* take the index back */
-            return DCG_ERR_BUSY;                                     /* sealed: nothing new appears here */
+            c_bytemap_ex_pop_ssize_t(&lgroup->idx_mapping, key, key_len, 0, NULL); /* take the index back */
+            return DCG_ERR_BUSY;                                                   /* sealed: nothing new appears here */
         }
 
         if (lgroup->n_slots == lgroup->capacity) {
             size_t new_capacity = lgroup->capacity ? lgroup->capacity * 2 : DCG_MAPPING_DEFAULT_CAPACITY;
             void*  grown        = c_ap_realloc(lgroup->slots, new_capacity * sizeof(dcg_var_t), NULL);
             if (!grown) {
-                c_bytemap_pop(&lgroup->idx_mapping, key, key_len, NULL); /* take the index back */
+                c_bytemap_ex_pop_ssize_t(&lgroup->idx_mapping, key, key_len, 0, NULL); /* take the index back */
                 return DCG_ERR_OOM;
             }
 
@@ -439,7 +433,7 @@ static inline int c_dcg_mapping_lgroup_get_create_slot(dcg_mapping_lgroup* lgrou
 #endif
     }
 
-    if (slot_index >= lgroup->n_slots) return DCG_ERR_RANGE; /* not an index this mapping handed out */
+    if ((size_t) slot_index >= lgroup->n_slots) return DCG_ERR_RANGE; /* not an index this mapping handed out */
     *out = &lgroup->slots[slot_index];
     return DCG_OK;
 }

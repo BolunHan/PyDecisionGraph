@@ -8,9 +8,9 @@ from contextlib import suppress
 from pathlib import Path
 
 import cbase
+from Cython.Build import cythonize
 from cbase.cython_injection import inject_cython_includes as _inject_cython_includes
 from cbase.cython_injection import record_cython_include as _record_cython_include
-from Cython.Build import cythonize
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
@@ -242,7 +242,6 @@ if _editable_wheel is not None:
             recorded = _record_cython_include(wheel_path, PACKAGE_NAME)
             print(f"[build_py] <{DISPLAY_NAME}> Cython link recorded: {recorded}")
             return wheel_path
-
 
 # =============================
 # Define Cython Extensions

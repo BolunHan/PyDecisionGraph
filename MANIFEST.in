@@ -1,11 +1,21 @@
-include LICENSE
+# --- Project metadata ---
 include README.md
-include decision_graph/decision_tree/capi/*.pyx
-include decision_graph/decision_tree/capi/*.pxd
-include decision_graph/decision_tree/bake/*.pyx
-include decision_graph/decision_tree/bake/*.pxd
-include decision_graph/decision_tree/bake/*.h
-recursive-include decision_graph/includes *.h
-recursive-include decision_graph/includes *.c
-recursive-include decision_graph/includes *.cpp
-recursive-include decision_graph/webui *.js *.css *.html
+include LICENSE
+include pyproject.toml
+
+# --- Cython sources and C/C++ headers ---
+recursive-include decision_graph *.pyx *.pxd *.pxi
+recursive-include decision_graph *.h *.c *.cpp
+
+# --- Web UI resources ---
+recursive-include decision_graph *.html *.css *.js
+
+# --- Exclude unnecessary files ---
+global-exclude *.py[cod]
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude *.pyd
+global-exclude *.dll
+global-exclude *.o
+global-exclude *.obj

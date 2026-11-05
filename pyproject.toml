@@ -34,16 +34,19 @@ Repository = "https://github.com/BolunHan/PyDecisionGraph"
 Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
 [tool.setuptools.package-data]
-"decision_graph.decision_tree.capi" = ["*.h", "*.pxd", "*.pyx", "*.pyi"]
-"decision_graph.decision_tree.bake" = ["*.h", "*.pxd", "*.pyx", "*.pyi"]
+"decision_graph" = ["**/*.pyx", "**/*.pxd", "**/*.h", "**/*.c", "**/*.cpp"]
+"decision_graph.decision_tree.capi" = ["*.h", "*.pxd", "*.pyx"]
+"decision_graph.decision_tree.bake" = ["*.h", "*.pxd", "*.pyx"]
+"decision_graph.decision_tree" = ["*.h", "*.pxd", "*.pyx"]
 "decision_graph.webui.capi" = ["templates/*.html", "static/*.css", "static/*.js"]
 "decision_graph.webui.native" = ["templates/*.html", "static/*.css", "static/*.js"]
 "decision_graph.webui.bake" = ["templates/*.html", "static/*.css", "static/*.js"]
-"decision_graph" = [
-    "*.pyx", "*.pxd", "*.h", "*.c",
-    "includes/**/*.h",
-    "includes/**/*.c",
-    "includes/**/*.cpp",
+
+[tool.setuptools.packages.find]
+exclude = [
+    "test", "test.*",
+    "docs", "docs.*",
+    "demo", "demo.*",
 ]
 
 [tool.setuptools.dynamic]

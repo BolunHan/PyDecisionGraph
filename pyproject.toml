@@ -44,7 +44,7 @@ Issues = "https://github.com/BolunHan/PyDecisionGraph/issues"
 
 [tool.setuptools.packages.find]
 exclude = [
-    "test", "test.*",
+    "tests", "tests.*",
     "docs", "docs.*",
     "demo", "demo.*",
 ]

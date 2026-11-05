@@ -181,8 +181,19 @@ class BuildExtWithConfig(build_ext):
             import Cython.Includes as _cy_includes
             includes_dir = Path(next(iter(_cy_includes.__path__)))
             pkg_link = includes_dir / PACKAGE_NAME
-            if pkg_link.exists():
-                backup = pkg_link.with_name(f"{PACKAGE_NAME}.cy_bak")
+            backup = pkg_link.with_name(f"{PACKAGE_NAME}.cy_bak")
+
+            # Recover a backup left behind by an interrupted previous build,
+            # otherwise the link stays missing forever.
+            if not (pkg_link.exists() or pkg_link.is_symlink()) and backup.is_symlink():
+                print(f"[build_py] [pre_compile] Recovering stale backup {backup.name} -> {pkg_link.name}")
+                backup.rename(pkg_link)
+
+            if pkg_link.exists() or pkg_link.is_symlink():
+                if backup.is_symlink():
+                    backup.unlink()
+                elif backup.exists():
+                    print(f"[build_py] [pre_compile] Warning: {backup} is not a symlink; leaving it in place")
                 print(f"[build_py] [pre_compile] Moving Cython/Includes symlink {pkg_link.name} -> {backup.name}")
                 pkg_link.rename(backup)
                 cls._pxd_backup.append((backup, pkg_link))
@@ -193,7 +204,7 @@ class BuildExtWithConfig(build_ext):
     def restore_pxd(cls) -> None:
         """Restore symlink in Cython/Includes after cythonize."""
         for backup, original in getattr(cls, '_pxd_backup', []):
-            if backup.exists():
+            if backup.is_symlink() or backup.exists():
                 print(f"[build_py] [pre_compile] Restoring Cython/Includes symlink {backup.name} -> {original.name}")
                 backup.rename(original)
         cls._pxd_backup = []

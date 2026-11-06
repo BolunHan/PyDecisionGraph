@@ -45,11 +45,15 @@ From source
     git clone https://github.com/BolunHan/PyDecisionGraph.git
     cd PyDecisionGraph
     pip install -r requirements.txt        # PyCyBase, PyAlgoEngine, pytest, flask, jinja2
-    python setup.py build_ext --inplace    # builds the 17 Cython extensions in place
+    python setup.py build_ext --inplace    # builds the 15 package extensions in place
+
+The two test-only probes are opt-in: add ``--with-tests`` to build all 17
+extensions for the test suite.
 
 There are convenience scripts: ``build.sh`` (POSIX) and ``build.ps1``
 (Windows) clean and rebuild; both are wrappers around
-``setup.py build_ext --inplace --force``. See :doc:`../contributing/development`
+``setup.py build_ext --inplace --force`` (``build.ps1`` adds ``--with-tests``
+for the Windows test run). See :doc:`../contributing/development`
 for the build system's details — in particular, the *clean rebuild* recipe that
 a header change requires.
 

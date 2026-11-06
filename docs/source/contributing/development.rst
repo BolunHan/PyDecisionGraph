@@ -11,7 +11,10 @@ Building
 .. code-block:: bash
 
     pip install -r requirements.txt          # PyCyBase, PyAlgoEngine, pytest, flask, jinja2
-    python setup.py build_ext --inplace      # 17 extensions, in place
+    python setup.py build_ext --inplace --with-tests   # 17 extensions, in place
+
+``--with-tests`` adds the two test-only probes the Python suite imports; without
+it the build produces 15 extensions and the wheel never carries ``tests.*``.
 
 The wrappers do a clean + forced rebuild: ``./build.sh`` (POSIX) and
 ``.\build.ps1`` (Windows). Both end with a line like
@@ -27,7 +30,7 @@ recompile headers every run) see the new one. After touching any ``.h``:
 
     rm -f decision_graph/decision_tree/bake/*.c decision_graph/decision_tree/capi/*.c
     rm -rf build/temp.*/decision_graph
-    python setup.py build_ext --inplace
+    python setup.py build_ext --inplace --with-tests
 
 Compile-time macros
 -------------------
@@ -66,6 +69,7 @@ See :doc:`testing` for the full map. The short version:
 
 .. code-block:: bash
 
+    python setup.py build_ext --inplace --with-tests  # the probes the Python suite imports
     python -m pytest tests/ -q                      # the Python suite
     make -C tests/bake check                        # the C suites (GCC default)
     python tests/bake_parity/runner.py              # the three-arm parity harness

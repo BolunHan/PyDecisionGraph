@@ -11,6 +11,7 @@ The Python suite
 
 .. code-block:: bash
 
+    python setup.py build_ext --inplace --with-tests   # builds the two test-only probes
     python -m pytest tests/ -q
 
 - ``tests/test_bake_*.py`` — the bake layer's wrapper surface, one file per
@@ -39,7 +40,7 @@ The Python suite
 - Two test-only Cython extensions (``tests/bake_eval_probe.pyx``,
   ``tests/bake_c_evaluator.pyx``) provide what a ``.py`` file cannot: a
   Cython subclass overriding a ``cdef`` hook, and the parity suite's
-  no-Python-in-between walk.
+  no-Python-in-between walk. They are built only with ``--with-tests``.
 
 The CCP lifetime is tested from both sides: the Python tests hold a second
 wrapper over a released block and assert the husk; the C suites exercise the

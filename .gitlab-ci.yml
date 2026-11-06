@@ -37,7 +37,7 @@ workflow:
         -   if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 
 # ---------------------------------------------------------------- Tests ----
-# build_ext --inplace, then pytest. The C suites are not run here: the bake
+# build_ext --inplace --with-tests, then pytest. The C suites are not run here: the bake
 # Makefile compiles against a PyCyBase checkout, and the parity suite (which
 # IS run, through pytest's own subprocesses) covers the same C walks.
 .test:
@@ -51,7 +51,7 @@ workflow:
         - pip install cython setuptools wheel
         - pip install -r requirements.txt
     script:
-        - python setup.py build_ext --inplace
+        - python setup.py build_ext --inplace --with-tests
         - python -m pytest tests/ -q
 
 test:linux:

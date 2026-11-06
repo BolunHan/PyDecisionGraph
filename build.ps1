@@ -59,7 +59,7 @@ finally {
 Write-Host "[build] Compiling Cython extensions..." -ForegroundColor Yellow
 Push-Location $ScriptDir
 try {
-    python setup.py build_ext --inplace --verbose --force
+    python setup.py build_ext --inplace --verbose --force --with-tests
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[build] FAILED with exit code $LASTEXITCODE" -ForegroundColor Red
         exit $LASTEXITCODE

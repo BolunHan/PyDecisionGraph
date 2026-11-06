@@ -32,6 +32,10 @@ BUILD_SCRIPT_VERSION = "1.2.1"
 PACKAGE_NAME = "decision_graph"
 DISPLAY_NAME = "PyDecisionGraph"
 
+WITH_TESTS = "--with-tests" in sys.argv
+if WITH_TESTS:
+    sys.argv.remove("--with-tests")
+
 WITH_ANNOTATION = False
 NO_MARCH_NATIVE = os.environ.get('GITHUB_ACTIONS') == 'true' or os.environ.get('GITLAB_CI') == 'true'
 COMPILE_FLAGS = ["/Ox", "/std:c17", "/experimental:c11atomics"] if platform.system() == "Windows" else ['-O3'] + ([] if NO_MARCH_NATIVE else ['-march=native'])
@@ -86,7 +90,16 @@ class BuildExtWithConfig(build_ext):
         super().initialize_options()
         self.parallel = N_THREADS
 
+    def prune_stale_test_extensions(self) -> None:
+        if WITH_TESTS:
+            return
+        stale = Path(self.build_lib, "tests")
+        if stale.exists():
+            shutil.rmtree(stale)
+            print(f"[build_py] Removed stale test extensions -> {stale}")
+
     def run(self):
+        self.prune_stale_test_extensions()
         self.pre_compile()
 
         super().run()
@@ -349,23 +362,29 @@ cython_extension.extend([
         extra_compile_args=COMPILE_FLAGS,
         include_dirs=[REPO_ROOT, *CBASE_INCLUDE]
     ),
-    # A test-only module: the Cython half of the eval-hook tests needs a Cython
-    # subclass to override a `cdef` hook, which a .py test file cannot express.
-    Extension(
-        name="tests.bake_eval_probe",
-        sources=["tests/bake_eval_probe.pyx"],
-        extra_compile_args=COMPILE_FLAGS,
-        include_dirs=[REPO_ROOT, *CBASE_INCLUDE]
-    ),
-    # A test-only module: the parity suite's "walked in C" arm needs a door that
-    # runs the walk without Python in between, which a .py test file cannot be.
-    Extension(
-        name="tests.bake_c_evaluator",
-        sources=["tests/bake_c_evaluator.pyx"],
-        extra_compile_args=COMPILE_FLAGS,
-        include_dirs=[REPO_ROOT, *CBASE_INCLUDE]
-    ),
 ])
+
+if WITH_TESTS:
+    cython_extension.extend([
+        # A test-only module: the Cython half of the eval-hook tests needs a
+        # Cython subclass to override a `cdef` hook, which a .py test file
+        # cannot express.
+        Extension(
+            name="tests.bake_eval_probe",
+            sources=["tests/bake_eval_probe.pyx"],
+            extra_compile_args=COMPILE_FLAGS,
+            include_dirs=[REPO_ROOT, *CBASE_INCLUDE]
+        ),
+        # A test-only module: the parity suite's "walked in C" arm needs a door
+        # that runs the walk without Python in between, which a .py test file
+        # cannot be.
+        Extension(
+            name="tests.bake_c_evaluator",
+            sources=["tests/bake_c_evaluator.pyx"],
+            extra_compile_args=COMPILE_FLAGS,
+            include_dirs=[REPO_ROOT, *CBASE_INCLUDE]
+        ),
+    ])
 
 if __name__ == "__main__":
     BuildExtWithConfig.remove_pxd()

@@ -4,20 +4,18 @@ import functools
 import logging
 import os
 import pathlib
-import sys
 
-LOGGER = logging.getLogger("DecisionGraph")
-LOGGER.setLevel(logging.INFO)
+from cbase.backports.telemetrics import get_logger as _get_logger
 
-if not LOGGER.hasHandlers():
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.INFO)  # Set handler level
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    ch.setFormatter(formatter)
-    LOGGER.addHandler(ch)
 
-from . import decision_tree as decision_tree  # noqa: E402
-from . import logic_group as logic_group  # noqa: E402
+def get_logger(**kwargs) -> logging.Logger:
+    return _get_logger(name='DecisionGraph', **kwargs)
+
+
+LOGGER = get_logger()
+
+from . import decision_tree as decision_tree
+from . import logic_group as logic_group
 
 
 @functools.cache

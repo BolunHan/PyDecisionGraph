@@ -2,7 +2,6 @@ from collections.abc import Mapping, Sequence, Generator
 
 from cpython.dict cimport PyDict_GetItem
 from cpython.object cimport PyObject
-from cpython.ref cimport Py_INCREF
 
 from .c_abc cimport LogicGroup
 from .c_node cimport AttrExpression, GetterExpression
@@ -28,7 +27,6 @@ cdef class LogicMapping(LogicGroup):
     cdef object c_get(self, str key):
         cdef PyObject* v = PyDict_GetItem(self.data, key)
         if v:
-            Py_INCREF(<object> v)
             return <object> v
         raise KeyError(key)
 

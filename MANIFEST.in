@@ -2,6 +2,7 @@
 include README.md
 include LICENSE
 include pyproject.toml
+include _decision_graph_cython_link.py
 
 # --- Cython sources and C/C++ headers ---
 recursive-include decision_graph *.pyx *.pxd *.pxi
